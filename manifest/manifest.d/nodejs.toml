@@ -1,0 +1,27 @@
+schema = 1
+
+[tool]
+id      = 'nodejs'
+version = '24.22.1'
+title   = 'Node.js'
+kind    = 'zip'
+archive = 'downloads/nodejs/24.22.1/node-v24.22.1-win-x64.zip'
+sha256  = 'd2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5'
+strip   = 1
+
+[[path]]
+dir = '.'
+
+[[verify]]
+run    = 'node --version'
+expect = 'v24.22.1'
+
+[[verify]]
+run    = 'npm --version'
+expect = '11.'
+
+[update]
+kind    = 'node'
+index   = 'https://npmmirror.com/mirrors/node/index.json'
+pattern = '^\d+\.\d+\.\d+$'
+url     = 'https://npmmirror.com/mirrors/node/v{version}/node-v{version}-win-x64.zip'

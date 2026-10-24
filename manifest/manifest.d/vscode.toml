@@ -1,0 +1,23 @@
+schema = 1
+
+[tool]
+id      = 'vscode'
+version = '1.143.1'
+title   = 'Visual Studio Code (portable)'
+kind    = 'prebuilt'
+dir     = 'tools/vscode/1.143.1'
+# Portable data dir lives next to Code.exe; it is created on first run and
+# carries settings + extensions with the stick.
+data    = 'data'
+
+[[path]]
+dir = 'bin'
+
+[[verify]]
+run    = 'bin\code.cmd --version'
+expect = '1.143.1'
+
+[update]
+kind  = 'vscode'
+index = 'https://update.code.visualstudio.com/api/releases/stable'
+url   = 'https://update.code.visualstudio.com/{version}/win32-x64-archive/stable'

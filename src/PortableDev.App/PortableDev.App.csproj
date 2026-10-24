@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PortableDev.App</RootNamespace>
+    <AssemblyName>PortableDev</AssemblyName>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PortableDev.Core\PortableDev.Core.csproj" />
+    <ProjectReference Include="..\PortableDev.Win\PortableDev.Win.csproj" />
+    <ProjectReference Include="..\PortableDev.Gui\PortableDev.Gui.csproj" />
+  </ItemGroup>
+
+</Project>

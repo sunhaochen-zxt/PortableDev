@@ -1,0 +1,20 @@
+schema = 1
+
+[tool]
+id      = 'sublime-text'
+version = '4215'
+title   = 'Sublime Text (portable)'
+kind    = 'prebuilt'
+dir     = 'tools/sublime-text/4215'
+# Portable data dir next to sublime_text.exe: settings, packages, LSP config
+# and the colour schemes all travel with the stick.
+data    = 'Data'
+provides = ['subl', 'sublime_text']
+notes   = 'portable: Data\\ holds settings/packages; subl.exe is the CLI; update_check disabled so nothing writes to AppData'
+
+[[path]]
+dir = '.'
+
+[[verify]]
+run    = 'subl --version'
+expect = 'Build 4215'

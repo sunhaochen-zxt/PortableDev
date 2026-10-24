@@ -1,0 +1,22 @@
+schema = 1
+
+[tool]
+id      = 'cmake'
+version = '4.4.4'
+title   = 'CMake'
+kind    = 'zip'
+archive = 'downloads/cmake/4.4.4/cmake-4.4.4-windows-x86_64.zip'
+sha256  = 'bace36e94b31c68ab6fa295f26dfa11219e0701cf7c94b0284a7d1cb13dac536'
+strip   = 1
+
+[[path]]
+dir = 'bin'
+
+[[verify]]
+run    = 'cmake --version'
+expect = 'cmake version 4.4.4'
+
+[update]
+kind    = 'github'
+repo    = 'Kitware/CMake'
+pattern = 'cmake-(?<ver>\d+\.\d+\.\d+)-windows-x86_64\.zip'

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PortableDev.Core\PortableDev.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The upgrade path rewrites tool manifests. That logic lives in the GUI project but
+         only touches Core types, so it is compiled here too and covered by regression tests:
+         a stale "dir" line is exactly what broke verify after an upgrade. -->
+    <Compile Include="..\..\src\PortableDev.Gui\Engine\ManifestEditor.cs" Link="ManifestEditor.cs" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

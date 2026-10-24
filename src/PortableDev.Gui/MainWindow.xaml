@@ -1,0 +1,114 @@
+<Window x:Class="PortableDev.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PortableDev.Gui"
+        xmlns:views="clr-namespace:PortableDev.Gui.Views"
+        mc:Ignorable="d"
+        Title="PortableDev — 随身开发环境"
+        Height="720" Width="1080"
+        MinHeight="560" MinWidth="880"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgBrush}"
+        FontFamily="{StaticResource UiFont}"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ============================================ Left rail -->
+        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <!-- Brand -->
+                <StackPanel DockPanel.Dock="Top" Margin="18,20,18,18">
+                    <TextBlock Text="PortableDev" FontSize="16" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Text="随身开发环境" Style="{StaticResource Muted}" Margin="0,3,0,0" />
+                </StackPanel>
+
+                <!-- Footer: stick + refresh -->
+                <StackPanel DockPanel.Dock="Bottom" Margin="14,10,14,16">
+                    <Border Background="{StaticResource SurfaceAltBrush}" CornerRadius="6" Padding="10,8"
+                            ToolTip="{Binding StickLabel}">
+                        <StackPanel>
+                            <TextBlock Text="当前 U 盘" Style="{StaticResource Muted}" />
+                            <TextBlock Text="{Binding StickLabel}" FontFamily="{StaticResource MonoFont}"
+                                       FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource TextBrush}" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Button Content="刷新" Style="{StaticResource FlatButton}"
+                            Margin="0,8,0,0" HorizontalAlignment="Stretch"
+                            Command="{Binding Dashboard.RefreshCommand}" />
+                </StackPanel>
+
+                <!-- Nav: SelectedIndex is the single source of truth for the page.
+                     A ListBox keeps selection, keyboard and mouse in one place, and
+                     TwoWay binding makes the VM's Page the only state that matters. -->
+                <ListBox DockPanel.Dock="Top" Margin="0,4,0,0"
+                         Style="{StaticResource PlainListBox}"
+                         ItemContainerStyle="{StaticResource NavItem}"
+                         SelectedIndex="{Binding Page, Mode=TwoWay}">
+                    <ListBoxItem Content="概览" />
+                    <ListBoxItem Content="工具" />
+                    <ListBoxItem Content="变更预览" />
+                    <ListBoxItem Content="体检" />
+                    <ListBoxItem Content="进度与日志" />
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- ============================================ Content -->
+        <DockPanel Grid.Column="1">
+            <!-- Header -->
+            <Border DockPanel.Dock="Top" Padding="26,20,26,14">
+                <StackPanel>
+                    <TextBlock Text="{Binding PageTitle}" Style="{StaticResource H1}" />
+                    <TextBlock Text="{Binding PageHint}" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- Status bar -->
+            <Border DockPanel.Dock="Bottom" Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+                    Padding="26,7">
+                <Grid>
+                    <TextBlock Text="{Binding Footer}" Style="{StaticResource Muted}"
+                               VerticalAlignment="Center" />
+                    <TextBlock Text="C:\Dev 稳定根 · PATH 不写盘符" Style="{StaticResource Muted}"
+                               HorizontalAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <!-- Pages -->
+            <Grid Margin="26,0,26,18">
+                <views:DashboardView DataContext="{Binding Dashboard}"
+                                     Visibility="{Binding DataContext.IsDashboard,
+                                         RelativeSource={RelativeSource AncestorType=Window},
+                                         Converter={StaticResource BoolToVis}}" />
+                <views:ToolsView DataContext="{Binding Tools}"
+                                 Visibility="{Binding DataContext.IsTools,
+                                     RelativeSource={RelativeSource AncestorType=Window},
+                                     Converter={StaticResource BoolToVis}}" />
+                <views:PlanView DataContext="{Binding Plan}"
+                                Visibility="{Binding DataContext.IsPlan,
+                                    RelativeSource={RelativeSource AncestorType=Window},
+                                    Converter={StaticResource BoolToVis}}" />
+                <views:DoctorView DataContext="{Binding Doctor}"
+                                  Visibility="{Binding DataContext.IsDoctor,
+                                      RelativeSource={RelativeSource AncestorType=Window},
+                                      Converter={StaticResource BoolToVis}}" />
+                <views:ProgressView DataContext="{Binding Progress}"
+                                    Visibility="{Binding DataContext.IsProgress,
+                                        RelativeSource={RelativeSource AncestorType=Window},
+                                        Converter={StaticResource BoolToVis}}" />
+            </Grid>
+        </DockPanel>
+    </Grid>
+</Window>

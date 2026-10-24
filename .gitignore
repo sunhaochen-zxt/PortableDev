@@ -1,0 +1,18 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# Machine-specific state: registry backups (.reg) and journals can contain secrets,
+# and they belong to the machine that produced them, not to the repository.
+state/
+
+# Editor / VS
+.vs/
+*.user
+*.suo
+*.swp
+
+# OS noise
+Thumbs.db
+desktop.ini

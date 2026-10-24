@@ -1,0 +1,24 @@
+schema = 1
+
+[tool]
+id      = 'git'
+version = '2.56.0.3'
+title   = 'Git for Windows (PortableGit)'
+kind    = '7z-sfx'
+archive = 'downloads/git/2.56.0.3/PortableGit-2.56.0.3-64-bit.7z.exe'
+sha256  = '4fc27b779829a36df77911e3f4dea09c66c790dd6c5f7dfa3b6a5479f1fe354f'
+strip   = 0
+
+# Only cmd\ is exposed. usr\bin is deliberately NOT on PATH: it would shadow
+# Windows built-ins (find.exe, sort.exe, ...) and break unrelated scripts.
+[[path]]
+dir = 'cmd'
+
+[[verify]]
+run    = 'git --version'
+expect = 'git version 2.56.0.windows.3'
+
+[update]
+kind    = 'github'
+repo    = 'git-for-windows/git'
+pattern = 'PortableGit-(?<ver>\d+\.\d+\.\d+\.\d+)-64-bit\.7z\.exe'

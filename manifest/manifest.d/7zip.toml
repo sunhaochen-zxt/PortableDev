@@ -1,0 +1,25 @@
+schema = 1
+
+[tool]
+id      = '7zip'
+version = '25.01'
+title   = '7-Zip (standalone 7zr)'
+kind    = 'raw'
+archive = 'downloads/7zip/25.01/7zr.exe'
+sha256  = '256feca8e274e5da655e2a284fabafd9f554365eb164862089dacd4e8276d282'
+rename  = '7zr.exe'
+
+# The NSIS installer (7z2501-x64.exe) is kept in downloads for reference but is
+# not used: 7zr is the standalone extractor and needs no registry integration.
+[[path]]
+dir = '.'
+
+[[verify]]
+run    = '7zr i'
+expect = '7-Zip'
+
+[update]
+kind    = 'sevenzip'
+index   = 'https://www.7-zip.org/download.html'
+pattern = '7-Zip\s+(?<ver>\d+\.\d+)'
+url     = 'https://www.7-zip.org/a/7z{version_compact}-x64.exe'

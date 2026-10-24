@@ -1,0 +1,24 @@
+schema = 1
+
+[tool]
+id      = 'powershell'
+version = '7.6.6'
+title   = 'PowerShell 7'
+kind    = 'prebuilt'
+dir     = 'tools/powershell/7.6.6'
+provides = ['pwsh']
+# Portable: carries its own .NET runtime, writes no registry keys and installs
+# no modules into the user profile. Use it instead of the built-in 5.1: pwsh -NoProfile
+notes   = 'portable pwsh 7.6.6; run "pwsh" for the modern shell (5.1 stays built-in)'
+
+[[path]]
+dir = '.'
+
+[[verify]]
+run    = 'pwsh --version'
+expect = 'PowerShell 7.6.6'
+
+[update]
+kind    = 'github'
+repo    = 'PowerShell/PowerShell'
+pattern = 'PowerShell-(?<ver>\d+\.\d+\.\d+)-win-x64\.zip'

@@ -1,0 +1,61 @@
+schema = 1
+
+# Portable dev root manifest.
+# Placeholders resolved at apply time:
+#   {{ROOT}}   -> stable junction path (default C:\Dev)
+#   {{TOOL}}   -> {{ROOT}}\tools\<id>\<version>
+
+# NOTE: everything below must come BEFORE the first [table] header, otherwise
+# TOML folds it into the preceding table (a real bug this caught).
+
+# Order in which tool path entries are prepended to PATH.
+# Tools not listed here still apply, appended in id order.
+path_order = [
+    'python',
+    'nodejs',
+    'git',
+    'cmake',
+    'ninja',
+    'ripgrep',
+    'jq',
+    '7zip',
+    'llvm-mingw',
+    'vscode',
+    'sublime-text',
+    'powershell',
+]
+
+[root]
+stable = 'C:\Dev'
+marker = '.portabledev-root'
+
+# Machine-independent environment. Everything that would normally leak into
+# %APPDATA% / %LOCALAPPDATA% is redirected onto the stick here.
+[[env]]
+name = 'HOME'
+value = '{{ROOT}}\home'
+
+[[env]]
+name = 'NPM_CONFIG_PREFIX'
+value = '{{ROOT}}\home\npm-global'
+
+[[env]]
+name = 'NPM_CONFIG_CACHE'
+value = '{{ROOT}}\cache\npm'
+
+[[env]]
+name = 'PIP_CACHE_DIR'
+value = '{{ROOT}}\cache\pip'
+
+[[env]]
+name = 'PIP_DISABLE_PIP_VERSION_CHECK'
+value = '1'
+
+[[env]]
+name = 'PYTHONNOUSERSITE'
+value = '1'
+
+[[env]]
+name = 'PYTHONUTF8'
+value = '1'
+

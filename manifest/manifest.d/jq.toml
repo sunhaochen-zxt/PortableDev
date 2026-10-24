@@ -1,0 +1,23 @@
+schema = 1
+
+[tool]
+id      = 'jq'
+version = '1.7.1'
+title   = 'jq'
+kind    = 'raw'
+archive = 'downloads/jq/1.7.1/jq-windows-amd64.exe'
+sha256  = '7451fbbf37feffb9bf262bd97c54f0da558c63f0748e64152dd87b0a07b6d6ab'
+rename  = 'jq.exe'
+
+[[path]]
+dir = '.'
+
+[[verify]]
+run    = 'jq --version'
+expect = 'jq-1.7.1'
+
+[update]
+kind         = 'github'
+repo         = 'jqlang/jq'
+pattern      = '^jq-windows-amd64\.exe$'
+strip_prefix = 'jq-'
