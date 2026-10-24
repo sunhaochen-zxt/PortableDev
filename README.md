@@ -1,7 +1,8 @@
 # PortableDev
 
 Portable development-environment manager for Windows. Restores a full toolchain from a
-USB stick onto a machine that gets wiped (restore-card / Deep Freeze style), in one command.
+portable drive (USB stick or external disk) onto a machine that gets wiped
+(restore-card / Deep Freeze style), in one command.
 
 Status: **core + CLI + WPF GUI complete.** The core test suite is green and
 `PortableDev verify` passes every declared check (15/15) on the reference stick.
@@ -26,14 +27,14 @@ portable-dev/
 
 ## Build
 
-The .NET SDK lives on the stick, so no machine-wide install is required. Replace `E:`
-with the drive letter the stick got on this machine:
+The .NET SDK lives on the drive itself, so no machine-wide install is required. Replace
+`F:` with whatever drive letter the drive got on this machine:
 
 ```powershell
-$D = 'E:\PortableDev\tools\dotnet-sdk\8.0.426'
+$D = 'F:\PortableDev\tools\dotnet-sdk\8.0.426'
 $env:DOTNET_ROOT = $D
 $env:PATH = "$D;$env:PATH"
-$env:NUGET_PACKAGES = 'E:\PortableDev\cache\nuget'   # cache travels with the stick
+$env:NUGET_PACKAGES = 'F:\PortableDev\cache\nuget'   # cache travels with the drive
 
 dotnet build PortableDev.sln -c Release
 ```
@@ -51,13 +52,14 @@ child-node pipe being blocked; build with `-m:1 -nodeReuse:false`.
 
 ## Version control
 
-`source\` is a git repository. The stick is exFAT, which does not record file ownership,
-so git refuses to touch the work tree until the path is marked safe:
+`source\` is a git repository. On NTFS it behaves like any normal checkout. If the tree
+lives on exFAT (the classic USB-stick setup), git cannot see file ownership there and
+refuses to touch the work tree until the path is marked safe:
 
 ```powershell
-git -c safe.directory=G:/PortableDev/source status
-# or once, for all sticks, on each machine:
-git config --global --add safe.directory G:/PortableDev/source
+git -c safe.directory=F:/PortableDev/source status
+# or once, for all drives, on each machine:
+git config --global --add safe.directory F:/PortableDev/source
 ```
 
 `.gitignore` keeps `bin/`, `obj/`, `artifacts/` and `state/` out of the repository: the
@@ -243,8 +245,10 @@ Three deliberate constraints:
 ## Design decisions worth knowing
 
 - **One stable root.** Every generated path is `C:\Dev\...`; the drive letter never
-  appears in PATH. Only `C:\Dev` is a link (a junction on NTFS). The stick itself
-  contains **no** symlinks because it is exFAT.
+  appears in PATH. Only `C:\Dev` is a link (a junction on the system drive). The
+  PortableDev tree itself contains **no** symlinks, so exFAT and NTFS both work; NTFS is
+  preferable because `doctor` then reports `filesystem-ntfs` as OK and git needs no
+  `safe.directory` workaround.
 - **Versioned paths, no `current` pointer.** PATH entries resolve to
   `tools\<id>\<version>\...` at apply time, so upgrades are a manifest edit.
 - **Never `setx`.** It truncates at 1024 chars and downgrades `REG_EXPAND_SZ` to
