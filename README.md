@@ -49,6 +49,20 @@ dotnet run --project tests\PortableDev.Core.Runner -c Release
 If MSBuild reports a failure with no error text in a restricted session, it is the
 child-node pipe being blocked; build with `-m:1 -nodeReuse:false`.
 
+## Version control
+
+`source\` is a git repository. The stick is exFAT, which does not record file ownership,
+so git refuses to touch the work tree until the path is marked safe:
+
+```powershell
+git -c safe.directory=G:/PortableDev/source status
+# or once, for all sticks, on each machine:
+git config --global --add safe.directory G:/PortableDev/source
+```
+
+`.gitignore` keeps `bin/`, `obj/`, `artifacts/` and `state/` out of the repository: the
+last one holds registry backups that can contain secrets and belong to one machine.
+
 ## CLI
 
 ```

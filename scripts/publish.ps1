@@ -88,6 +88,10 @@ $publishArgs = @(
     '--self-contained', 'true',
     '-p:PublishSingleFile=false',
     '-p:DebugType=none',
+    # Single node: the build must not depend on MSBuild's worker-node pipe, which
+    # some restricted/remote sessions block (symptom: 'failed' with zero errors).
+    '-m:1',
+    '-nodeReuse:false',
     '-o', $stage,
     '-v', 'q',
     '--nologo'
@@ -111,6 +115,10 @@ $guiArgs = @(
     '--self-contained', 'true',
     '-p:PublishSingleFile=false',
     '-p:DebugType=none',
+    # Single node: the build must not depend on MSBuild's worker-node pipe, which
+    # some restricted/remote sessions block (symptom: 'failed' with zero errors).
+    '-m:1',
+    '-nodeReuse:false',
     '-o', $stage,
     '-v', 'q',
     '--nologo'
