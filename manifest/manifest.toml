@@ -25,6 +25,7 @@ path_order = [
     'vscode',
     'sublime-text',
     'powershell',
+    'fastfetch',
 ]
 
 [root]

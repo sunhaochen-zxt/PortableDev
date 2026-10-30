@@ -130,7 +130,7 @@ set to an empty string. Like `apply`, every mutation is journalled and backed up
 
 ## Tools on the stick
 
-Twelve toolchains, each in its own versioned directory under `tools\<id>\<version>`:
+Thirteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
 
 | Tool | Version | Notes |
 |---|---|---|
@@ -146,11 +146,12 @@ Twelve toolchains, each in its own versioned directory under `tools\<id>\<versio
 | VSCode | 1.143.1 | portable `data\`, settings in `data\user-data\User` |
 | Sublime Text | 4215 | portable `Data\`, settings in `Data\Packages\User`, `subl` on PATH |
 | PowerShell | 7.6.8 | portable `pwsh`, self-contained .NET; the built-in 5.1 is untouched |
+| fastfetch | 2.70.0 | single exe; feeds the GUI **系统状态** page, also on PATH |
 
 ## GUI
 
 `PortableDev.cmd` with no arguments opens the window; any argument goes to the CLI.
-Five pages, no framework, no external dependency:
+Six pages, no framework, no external dependency:
 
 | Page | What it does |
 |---|---|
@@ -159,6 +160,7 @@ Five pages, no framework, no external dependency:
 | 变更预览 / Plan | the diff, grouped and colour-coded by add/update/remove, including **家目录联接 / home links**; degraded-mode toggle |
 | 体检 / Doctor | the same rules as `PortableDev doctor`, plus `clean` |
 | 进度与日志 / Progress | live apply/clean output, step tracker, final verdict |
+| 系统状态 / System | runs the stick's `fastfetch` and shows its report verbatim (mono, selectable, copy button) — no parsing, so upgrading the tool or its preset needs no GUI change |
 
 ### Updating tools from the network
 

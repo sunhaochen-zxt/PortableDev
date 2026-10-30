@@ -25,6 +25,7 @@ public sealed class AppViewModel : ObservableObject
         Tools = new ToolsViewModel(this);
         Doctor = new DoctorViewModel(this);
         Progress = new ProgressViewModel(this);
+        System = new SystemViewModel();
 
         NavCommand = new RelayCommand<string>(p =>
         {
@@ -41,10 +42,11 @@ public sealed class AppViewModel : ObservableObject
     public ToolsViewModel Tools { get; }
     public DoctorViewModel Doctor { get; }
     public ProgressViewModel Progress { get; }
+    public SystemViewModel System { get; }
 
     public RelayCommand<string> NavCommand { get; }
 
-    /// <summary>0 dashboard · 1 tools · 2 plan · 3 doctor · 4 progress</summary>
+    /// <summary>0 dashboard · 1 tools · 2 plan · 3 doctor · 4 progress · 5 system</summary>
     public int Page
     {
         get => _page;
@@ -57,6 +59,7 @@ public sealed class AppViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsPlan));
                 OnPropertyChanged(nameof(IsDoctor));
                 OnPropertyChanged(nameof(IsProgress));
+                OnPropertyChanged(nameof(IsSystem));
                 OnPropertyChanged(nameof(PageTitle));
                 OnPropertyChanged(nameof(PageHint));
                 _ = RefreshPageAsync();
@@ -69,6 +72,7 @@ public sealed class AppViewModel : ObservableObject
     public bool IsPlan => Page == 2;
     public bool IsDoctor => Page == 3;
     public bool IsProgress => Page == 4;
+    public bool IsSystem => Page == 5;
 
     public string PageTitle => Page switch
     {
@@ -77,6 +81,7 @@ public sealed class AppViewModel : ObservableObject
         2 => "变更预览",
         3 => "体检",
         4 => "进度与日志",
+        5 => "系统状态",
         _ => string.Empty,
     };
 
@@ -87,6 +92,7 @@ public sealed class AppViewModel : ObservableObject
         2 => "写盘之前先看清每一处差异。plan 本身零副作用。",
         3 => "按 CLI doctor 的同一套规则逐项检查。",
         4 => "apply / clean 的实时输出。",
+        5 => "本机硬件与系统信息，由盘上的 fastfetch 实时读取。",
         _ => string.Empty,
     };
 
@@ -119,6 +125,7 @@ public sealed class AppViewModel : ObservableObject
                         case 1: Tools.Refresh(); break;
                         case 2: Plan.Refresh(); break;
                         case 3: Doctor.Refresh(); break;
+                        case 5: System.Refresh(); break;
                     }
 
                     SyncStickLabel();

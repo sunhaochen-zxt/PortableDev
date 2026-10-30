@@ -1,0 +1,19 @@
+schema = 1
+
+[tool]
+id       = 'fastfetch'
+version  = '2.70.0'
+title    = 'fastfetch'
+kind     = 'prebuilt'
+dir      = 'tools/fastfetch/2.70.0'
+provides = ['fastfetch']
+# 单文件 exe。lua55.dll 只有用 LUA 配置模板时才需要，这里用默认配置，故不打包。
+# GUI 的「系统状态」页直接调用它；加进 PATH 也让 shell 里能敲 fastfetch。
+notes    = 'system information fetcher; drives the GUI 系统状态 page'
+
+[[path]]
+dir = '.'
+
+[[verify]]
+run    = 'fastfetch --version'
+expect = 'fastfetch 2.70.0'

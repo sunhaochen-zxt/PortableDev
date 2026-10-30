@@ -247,9 +247,9 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
     {
         var m = ManifestLoader.Load(stickRoot);
         Check("Manifest loads", true);
-        Check("Manifest tool count == 12", m.Tools.Count == 12, $"got {m.Tools.Count}");
+        Check("Manifest tool count == 13", m.Tools.Count == 13, $"got {m.Tools.Count}");
         Check("Manifest stable root", m.Root.Stable == @"C:\Dev", m.Root.Stable);
-        Check("Manifest path order == 12", m.PathOrder.Count == 12, $"got {m.PathOrder.Count}");
+        Check("Manifest path order == 13", m.PathOrder.Count == 13, $"got {m.PathOrder.Count}");
         Check("Manifest env non-empty", m.Env.Count > 0);
 
         var resolver = new PathResolver(m.Root.Stable, Stick);
@@ -257,8 +257,8 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
         var plan = planner.Build(new MachineState { UserPathRaw = @"C:\Windows", StickRoot = Stick });
 
         var toolSteps = plan.Steps.Where(s => s.Kind == "tool").ToList();
-        Check("All 12 tools present", toolSteps.Count == 12, $"got {toolSteps.Count}");
-        Check("All 12 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
+        Check("All 13 tools present", toolSteps.Count == 13, $"got {toolSteps.Count}");
+        Check("All 13 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
             string.Join(",", toolSteps.Where(s => s.Change != ChangeKind.None).Select(s => s.Target)));
 
         Check("VSCode prebuilt dir resolves", plan.NewUserPathRaw.Contains(@"C:\Dev\tools\vscode\1.143.1\bin"));
@@ -657,3 +657,4 @@ expect = 'PowerShell 7.6.8'
 Console.WriteLine();
 Console.WriteLine($"==== {passed} passed, {failures} failed ====");
 return failures == 0 ? 0 : 1;
+

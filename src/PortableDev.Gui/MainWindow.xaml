@@ -60,6 +60,7 @@
                     <ListBoxItem Content="变更预览" />
                     <ListBoxItem Content="体检" />
                     <ListBoxItem Content="进度与日志" />
+                    <ListBoxItem Content="系统状态" />
                 </ListBox>
             </DockPanel>
         </Border>
@@ -108,6 +109,10 @@
                                     Visibility="{Binding DataContext.IsProgress,
                                         RelativeSource={RelativeSource AncestorType=Window},
                                         Converter={StaticResource BoolToVis}}" />
+                <views:SystemView DataContext="{Binding System}"
+                                  Visibility="{Binding DataContext.IsSystem,
+                                      RelativeSource={RelativeSource AncestorType=Window},
+                                      Converter={StaticResource BoolToVis}}" />
             </Grid>
         </DockPanel>
     </Grid>
