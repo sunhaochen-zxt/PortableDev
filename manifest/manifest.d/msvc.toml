@@ -61,7 +61,7 @@ value = '{{TOOL}}\Windows Kits\10'
 
 [[env]]
 name  = 'WindowsSDKVersion'
-value = '10.0.22621.0'
+value = '10.0.22621.0\'
 
 [[env]]
 name  = 'VCToolsInstallDir'

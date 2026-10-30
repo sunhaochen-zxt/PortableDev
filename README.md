@@ -5,7 +5,7 @@ portable drive (USB stick or external disk) onto a machine that gets wiped
 (restore-card / Deep Freeze style), in one command.
 
 Status: **core + CLI + WPF GUI complete.** The core test suite is green and
-`PortableDev verify` passes every declared check (15/15) on the reference stick.
+`PortableDev verify` passes every declared check (30/30) on the reference stick.
 `apply` is idempotent — a second run reports `nothing to do` — and a failure now rolls
 the registry writes back instead of leaving half an environment behind.
 
@@ -22,7 +22,8 @@ portable-dev/
 ├─ tests/
 │  └─ PortableDev.Core.Runner/   self-contained assertions (no testhost)
 ├─ manifest/                manifest.toml + manifest.d/*.toml  (copied to the stick)
-└─ scripts/                 bootstrap + publish scripts
+├─ scripts/                 bootstrap + publish scripts, msvc-activate.cmd
+└─ docs/                    long-form notes; docs/msvc.md explains the MSVC toolchain
 ```
 
 ## Build
@@ -130,7 +131,7 @@ set to an empty string. Like `apply`, every mutation is journalled and backed up
 
 ## Tools on the stick
 
-Fourteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
+Nineteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
 
 | Tool | Version | Notes |
 |---|---|---|
@@ -148,12 +149,121 @@ Fourteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 | PowerShell | 7.6.8 | portable `pwsh`, self-contained .NET; the built-in 5.1 is untouched |
 | fastfetch | 2.70.0 | full package (presets + `lua55.dll`); feeds the GUI **系统状态** page, also on PATH |
 | Firefox | 159.0 | official zh-CN MSI unpacked; **launch via `Firefox.cmd`**, profile in `home\firefox\profile` (NSS, so logins travel with the stick); deliberately not on PATH |
+| Tabby | 1.0.238 | Electron terminal; portable because `data\` sits next to `Tabby.exe` (config, plugins, SSH profiles); **launch via `Tabby.cmd`**, not on PATH |
+| FlClash | 0.9.2 | proxy client; settings in `%APPDATA%\FlClash`, carried by a home link to `home\FlClash`; **launch via `FlClash.cmd`**, not on PATH |
+| Flutter | 3.47.9 | SDK + Dart 3.13.7 (DevTools 2.60.0); web (`flutter run -d chrome`) **and** Windows desktop builds — see [Building Windows desktop apps](#building-windows-desktop-apps); `PUB_CACHE` on the stick, analytics off |
+| MSVC + Windows SDK | 14.44.35207 / 10.0.22621.0 | real `cl.exe`, `link.exe` and the Windows SDK, installed by msvc-kit from Microsoft's own payloads — no Visual Studio installer, no admin, no registry writes; `cl`/`link` on PATH, `INCLUDE`/`LIB` in the environment |
 
 Firefox is declared as a tool but has **no `[[path]]` entry**: starting `firefox.exe`
 directly would use `%APPDATA%` and stop being portable. `Firefox.cmd` in the stick root
 passes `-profile <stick>\home\firefox\profile -no-remote`, and
 `distribution\policies.json` turns off self-update (the manifest owns versions), the
 default-browser check, and telemetry.
+
+The two GUI applications follow the same rule and are launched by a small `.cmd` in the
+stick root, because there is no command of theirs worth putting on PATH:
+
+- **Tabby** needs no machine-side help at all. Its main process redirects `userData` to
+  `<exe dir>\data` as soon as that directory exists, so `tools\tabby\<version>\data` *is*
+  the portable mode: config, plugins, hotkeys and SSH profiles live there and the GUI
+  upgrade moves the folder into the next version directory. Deleting it silently makes
+  the app non-portable again (it would fall back to `%APPDATA%\tabby`).
+- **FlClash 0.9.2** has no portable mode of its own: it resolves its data directory from
+  the Win32 known-folder API, so `HOME` cannot reach it and profiles always go to
+  `%APPDATA%\FlClash`. A `[[home_dir]]` junction carries them instead, which means
+  `apply` has to have run once on the machine. Its TUN mode additionally installs a
+  Windows *service* (`FlClashHelperService.exe`), which is machine state and cannot
+  travel; system-proxy mode needs no service.
+
+### Building Windows desktop apps
+
+`flutter build windows` normally insists on a Visual Studio installation that the VS
+Installer knows about. The stick instead carries a portable MSVC toolset, plus a thin
+Visual Studio *shape* around it, so the unmodified Flutter SDK builds against it.
+
+One command, from any shell:
+
+```bat
+call E:\PortableDev\scripts\msvc-activate.cmd
+cd /d E:\项目\PiliPlus
+flutter build windows --release
+```
+
+Verified end to end on this machine: a `flutter create` app built in **31.2 s** to
+`build\windows\x64\runner\Release\windemo.exe`, and `cl hello.c` compiles, links and runs.
+Updating or removing the toolset, and every failure mode we hit with its cause, is in
+**`source\docs\msvc.md`** on the stick (in the repo: `docs/msvc.md`).
+
+Plain C/C++ needs no activation at all - `apply` already exports the toolchain:
+
+```bat
+cl hello.c
+```
+
+What `scripts\msvc-activate.cmd` does, and why each part is needed:
+
+| Item | Why |
+|---|---|
+| `tools\msvc\setup.cmd` (generated by `msvc-kit setup --portable-root`) | exports `INCLUDE`, `LIB`, `PATH`, `VCToolsInstallDir`, `WindowsSdkDir`, `WindowsSDKVersion` — all relative to `%~dp0` |
+| `EnterpriseWDK=True`, `DisableRegistryUse=True` | the escape hatch in `cmVSSetupHelper.cxx`: with both set, CMake takes `VSINSTALLDIR` + `VisualStudioVersion` from the environment and never asks the Visual Studio Installer |
+| `VSINSTALLDIR`, `VisualStudioVersion` | the fake instance root and its version |
+| `ProgramFiles(x86)=<stick>\tools\msvc\pf86` | Flutter's `_vswherePath` is hard coded to `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`; pointing the variable at the stick makes it find our shim there |
+| `UseEnv=true` | tells the C++ MSBuild targets to build `INCLUDE`/`LIB` from the environment instead of the registry (otherwise `kernel32.lib` and then `MSVCRTD.lib` go missing) |
+| `CheckMSVCComponents=false` | MSBuild 17.3 predates MSVC 14.44 and would reject the pair with `MSB8052`; the ABI is the same `v143` |
+
+The pieces inside `tools\msvc` that Flutter needs and msvc-kit does not provide:
+
+- `VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt` — CMake reads the toolset
+  version from this file (`LoadVSInstanceVCToolsetVersion`); without it CMake reports
+  "could not find any instance of Visual Studio"
+- `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake` — a junction to `tools\cmake\<ver>`,
+  because `VisualStudio.cmakePath` is hard coded to that exact path
+- `MSBuild\Current\Bin\MSBuild.exe` + `MSBuild\Microsoft\VC\v170` — `cmake --build` uses the
+  Visual Studio generator and therefore MSBuild, not Ninja
+- `pf86\...\vswhere.exe` — a ~40 line C program that prints one JSON instance; it is
+  compiled by the same toolchain it describes
+
+`flutter doctor` reports `Visual Studio` with a `!` because it looks for the Windows SDK in
+`HKLM\SOFTWARE\Microsoft\Microsoft SDKs\Windows\v10.0`, which nothing wrote. Builds do not
+use that path and succeed regardless.
+
+### Moving DSH NEXT itself onto the stick
+
+The desktop app this stick is assembled with can live on the stick like any other tool.
+`Migrate-DSH.cmd` (a wrapper for `scripts\migrate-dsh.ps1`) does it in one go, and it has
+to run **with DSH NEXT closed**: the app and its session database are locked while it runs,
+so the script refuses instead of moving files under a live process.
+
+1. finds the unpacked install (`DSH-*-Portable` on any drive) or takes `-Source <folder>`
+2. moves it to `tools\dsh\<version>` — a rename when the stick and the install share a
+   volume, otherwise a copy that is verified by file count and then leaves the original
+   parked as `<install>.migrated-<stamp>` (never deleted: a recursive delete of a
+   half-locked install is how a test run once ate 53 files of a live app)
+3. copies `%USERPROFILE%\.dsh` — the conversations in `sessions\`, the profiles, the
+   storages and `.credentials.yaml` — to `home\.dsh`, checks every file for presence and
+   length, and parks the old folder as `.dsh.portabledev-old-<stamp>`
+4. records `home\.dsh` as the app's last data directory, so the first start is not
+   reported as a data-directory change
+5. writes `manifest\manifest.d\dsh.toml`, and takes back out any `[[home_dir]]` for
+   `~\.dsh` that an older run of the script added
+6. writes `DSH.cmd`, which sets `DSH_DESKTOP_NEXT_HOME` and `DSH_HOME` to
+   `<stick>\home\.dsh`, then runs `apply`
+
+**Why an environment variable and not a home link.** DSH's main process validates its data
+directory with `lstat()` and throws `Expected a real directory` for *any* reparse point, so
+a junction at `~\.dsh` kills the app at startup before a window appears — the first version
+of this script did exactly that. `DSH_DESKTOP_NEXT_HOME` is the app's own documented
+override (its settings page shows which source the directory came from), it is read before
+the `~/.dsh` default, and the launcher resolves `%~dp0` at launch time, so a new drive
+letter does not matter.
+
+The launcher also refuses to open an empty stick home while the machine profile still has
+conversations: it starts with the profile and tells you to run the migration, instead of
+showing an empty app.
+
+`-DryRun` prints the whole plan without touching anything; `-NoApply` stops before the
+registry; `-KeepOldData` leaves the real `.dsh` in place (the launcher keeps using it until
+the stick home has conversations).
 
 ## GUI
 
