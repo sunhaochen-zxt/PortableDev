@@ -1,0 +1,20 @@
+schema = 1
+
+[tool]
+id       = 'firefox'
+version  = '159.0'
+title    = 'Firefox portable (zh-CN)'
+kind     = 'prebuilt'
+dir      = 'tools/firefox/159.0'
+provides = ['firefox']
+# 官方 MSI 解包出来的整份安装目录（core\ 一层已剥掉）。profile 不在这里，
+# 由根目录的 Firefox.cmd 用 -profile 指到 home\firefox\profile：
+#   - Firefox 用 NSS（key4.db）保存密码/cookie，跟机器无关，所以换机器能带走；
+#   - Chrome 那种 DPAPI 加密则带不走，这也是这里选 FF 的原因。
+# 故意不把 firefox.exe 放进 PATH：不带 -profile 启动会落到 %APPDATA%，那就不是便携了。
+# distribution\policies.json 关掉了自更新（版本交给 manifest）和默认浏览器检查。
+notes    = 'portable Firefox; launch through Firefox.cmd so the profile stays on the stick'
+
+[[verify]]
+run    = 'firefox.exe --version'
+expect = 'Mozilla Firefox 159.0'

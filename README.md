@@ -130,7 +130,7 @@ set to an empty string. Like `apply`, every mutation is journalled and backed up
 
 ## Tools on the stick
 
-Thirteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
+Fourteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
 
 | Tool | Version | Notes |
 |---|---|---|
@@ -146,7 +146,14 @@ Thirteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 | VSCode | 1.143.1 | portable `data\`, settings in `data\user-data\User` |
 | Sublime Text | 4215 | portable `Data\`, settings in `Data\Packages\User`, `subl` on PATH |
 | PowerShell | 7.6.8 | portable `pwsh`, self-contained .NET; the built-in 5.1 is untouched |
-| fastfetch | 2.70.0 | single exe; feeds the GUI **系统状态** page, also on PATH |
+| fastfetch | 2.70.0 | full package (presets + `lua55.dll`); feeds the GUI **系统状态** page, also on PATH |
+| Firefox | 159.0 | official zh-CN MSI unpacked; **launch via `Firefox.cmd`**, profile in `home\firefox\profile` (NSS, so logins travel with the stick); deliberately not on PATH |
+
+Firefox is declared as a tool but has **no `[[path]]` entry**: starting `firefox.exe`
+directly would use `%APPDATA%` and stop being portable. `Firefox.cmd` in the stick root
+passes `-profile <stick>\home\firefox\profile -no-remote`, and
+`distribution\policies.json` turns off self-update (the manifest owns versions), the
+default-browser check, and telemetry.
 
 ## GUI
 

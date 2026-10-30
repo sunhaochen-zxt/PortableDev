@@ -4,10 +4,13 @@ schema = 1
 id       = 'fastfetch'
 version  = '2.70.0'
 title    = 'fastfetch'
-kind     = 'prebuilt'
+kind     = 'zip'
+archive  = 'downloads/fastfetch/2.70.0/fastfetch-windows-amd64.zip'
+sha256   = '89e5a20f46ac04b154c7d0ea13dbac97e43f799a98d7ae4c598863ba357a8c7f'
 dir      = 'tools/fastfetch/2.70.0'
 provides = ['fastfetch']
-# 单文件 exe。lua55.dll 只有用 LUA 配置模板时才需要，这里用默认配置，故不打包。
+# 整包解压（exe + flashfetch + lua55.dll + presets），不是只放一个 exe：
+# presets 是 fastfetch 的配置模板（neofetch / archey / ci ...），lua55.dll 供 LUA 配置用。
 # GUI 的「系统状态」页直接调用它；加进 PATH 也让 shell 里能敲 fastfetch。
 notes    = 'system information fetcher; drives the GUI 系统状态 page'
 
@@ -17,3 +20,9 @@ dir = '.'
 [[verify]]
 run    = 'fastfetch --version'
 expect = 'fastfetch 2.70.0'
+
+# Release 资产名不带版本号（fastfetch-windows-amd64.zip），版本取自 release 的 tag。
+[update]
+kind    = 'github'
+repo    = 'fastfetch-cli/fastfetch'
+pattern = '^fastfetch-windows-amd64\.zip$'
