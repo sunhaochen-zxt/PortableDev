@@ -243,6 +243,64 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
 }
 
 {
+    // ---- [[launch]]: generated launchers -----------------------------------
+    var launchTool = new ToolManifest
+    {
+        Tool = new ToolManifest.ToolSection { Id = "app", Version = "1.0", Kind = "prebuilt", Dir = "tools/app/1.0" },
+        Launch = new[]
+        {
+            new LaunchSpec
+            {
+                Name = "App",
+                Exe = "app.exe",
+                Args = new[] { "-profile", "{{STICK}}home\\app" },
+                Env = new[] { new EnvVarSpec { Name = "APP_PORTABLE", Value = "1" } },
+            },
+        },
+    };
+
+    var launchManifest = new RootManifest
+    {
+        Tools = new Dictionary<string, ToolManifest>(StringComparer.OrdinalIgnoreCase) { ["app"] = launchTool },
+    };
+    var launchResolver = new PathResolver(Stable, Stick);
+    var spec = launchTool.Launch[0];
+    var rendered = LaunchWriter.Render(spec, launchTool, launchResolver);
+
+    Check("Launcher starts the exe from its own folder",
+        rendered.Contains(@"start """" /d ""%~dp0tools\app\1.0"" ""%~dp0tools\app\1.0\app.exe"""),
+        rendered);
+    Check("Launcher sets its env for the child", rendered.Contains("set \"APP_PORTABLE=1\""), rendered);
+    Check("Launcher expands {{STICK}} to %~dp0 and quotes it",
+        rendered.Contains(@"-profile ""%~dp0home\app"""), rendered);
+    Check("Launcher says it is generated", rendered.Contains("do not edit"), rendered);
+    Check("Launcher path is <stick>\\<Name>.cmd",
+        LaunchWriter.Path(Stick, spec) == System.IO.Path.Combine(Stick, "App.cmd"),
+        LaunchWriter.Path(Stick, spec));
+
+    // Missing file -> Add; identical content -> None; different content -> Update.
+    var launcherPath = LaunchWriter.Path(Stick, spec);
+
+    Plan PlanWith(Func<string, string?> fileText) =>
+        new Planner(launchManifest, launchResolver).Build(
+            new MachineState { UserPathRaw = @"C:\Windows", StickRoot = Stick },
+            new PlannerOptions { FileText = fileText, DirectoryExists = _ => true });
+
+    var addPlan = PlanWith(_ => null);
+    var addStep = addPlan.Steps.First(s => s.Kind == "launcher");
+    Check("Launcher missing -> Add", addStep.Change == ChangeKind.Add, addStep.Change.ToString());
+    Check("Launcher Add points at the stick root", addStep.Target == launcherPath, addStep.Target);
+
+    var samePlan = PlanWith(p => p == launcherPath ? rendered : null);
+    Check("Launcher unchanged -> None",
+        samePlan.Steps.First(s => s.Kind == "launcher").Change == ChangeKind.None);
+
+    var driftPlan = PlanWith(p => p == launcherPath ? "@echo off\r\nrem old\r\n" : null);
+    Check("Launcher content drift -> Update",
+        driftPlan.Steps.First(s => s.Kind == "launcher").Change == ChangeKind.Update);
+}
+
+{
     try
     {
         var m = ManifestLoader.Load(stickRoot);

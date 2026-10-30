@@ -251,6 +251,7 @@ public static class Program
             TreatMissingToolsAsBlocker = opts.TreatMissingToolsAsBlocker,
             HomeAdopt = opts.HomeAdopt ?? manifest.Apply.HomeAdopt,
             DirectoryExists = Directory.Exists,
+            FileText = p => File.Exists(p) ? File.ReadAllText(p) : null,
             EnvironmentVariable = Environment.GetEnvironmentVariable,
         });
     }

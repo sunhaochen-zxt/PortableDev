@@ -11,6 +11,9 @@ public enum UndoKind
 
     /// <summary>A home-link junction that this run created, repointed or removed.</summary>
     HomeLink,
+
+    /// <summary>A generated launcher file that this run wrote or overwrote.</summary>
+    File,
 }
 
 /// <summary>

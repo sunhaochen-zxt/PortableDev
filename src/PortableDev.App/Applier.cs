@@ -202,6 +202,31 @@ public static class Applier
                 Console.WriteLine($"home     -> {step.Target}  {link.HostPath} => {link.StorePath}");
             }
 
+            // 2c. Launchers: plain files on the stick, so no elevation and no registry.
+            // Written before the registry work because they are the cheapest thing to undo
+            // and the most useful thing to have if a later step fails.
+            foreach (var step in plan.Steps.Where(s => s.Kind == "launcher" && s.Change != ChangeKind.None))
+            {
+                var existed = File.Exists(step.Target);
+                journal.Record("launcher.write", new
+                {
+                    step.Target,
+                    change = step.Change.ToString(),
+                    existed,
+                });
+
+                undo.Push(new UndoStep
+                {
+                    Kind = UndoKind.File,
+                    Target = step.Target,
+                    Value = existed ? File.ReadAllText(step.Target) : null,
+                    Existed = existed,
+                });
+
+                File.WriteAllText(step.Target, step.After ?? string.Empty, new System.Text.UTF8Encoding(false));
+                Console.WriteLine($"launcher -> {Path.GetFileName(step.Target)}  ({step.Change})");
+            }
+
             // 3. Environment variables.
             // The RAW (unexpanded) values are the only correct rollback source:
             // state.CurrentEnv is expanded, and writing that back would turn %USERPROFILE%
@@ -367,6 +392,13 @@ public static class Applier
                     case UndoKind.Path:
                         if (step.Existed) reg.WriteUserPathRaw(step.Value ?? string.Empty, step.ValueKind);
                         else reg.DeleteUserPath();
+                        break;
+
+                    case UndoKind.File:
+                        // A launcher this run created is deleted; one it overwrote gets its
+                        // previous text back, so a hand-maintained file is not lost.
+                        if (step.Existed) File.WriteAllText(step.Target, step.Value ?? string.Empty);
+                        else if (File.Exists(step.Target)) File.Delete(step.Target);
                         break;
 
                     case UndoKind.HomeLink:

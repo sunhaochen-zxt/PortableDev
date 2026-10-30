@@ -28,6 +28,7 @@ public static class PlanRenderer
             ("home", "Home links (settings that follow the stick)"),
             ("path", "PATH"),
             ("env", "Environment"),
+            ("launcher", "Launchers (generated .cmd at the stick root)"),
             ("tool", "Tools"),
         };
 
@@ -82,6 +83,15 @@ public static class PlanRenderer
                             ChangeKind.Add => $"  + link   {s.Target}: {s.After}",
                             ChangeKind.Update => $"  ~ relink {s.Target}: {s.Before} -> {s.After}",
                             _ => $"    {s.Target}  {s.After}",
+                        });
+                        break;
+
+                    case "launcher":
+                        o.WriteLine(s.Change switch
+                        {
+                            ChangeKind.Add => $"  + write  {s.Target}",
+                            ChangeKind.Update => $"  ~ rewrite {s.Target}  (content differs from the manifest)",
+                            _ => $"    {s.Target}  (up to date)",
                         });
                         break;
 

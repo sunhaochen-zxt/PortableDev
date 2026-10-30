@@ -18,7 +18,12 @@ provides = ['flclash']
 # FlClashHelperService.exe (TUN mode) installs a Windows *service* and EnableLoopback.exe
 # edits per-machine loopback exemptions; both are machine state that cannot travel on the
 # stick. System-proxy mode needs neither.
-notes    = 'portable proxy client; settings travel via the APPDATA\FlClash home link. GUI only, so no [[path]]; launch through FlClash.cmd'
+notes    = 'portable proxy client; settings travel via the APPDATA\FlClash home link. GUI only, so no [[path]]; FlClash.cmd is generated from [[launch]]'
+
+[[launch]]
+name  = 'FlClash'
+exe   = 'FlClash.exe'
+notes = 'start from this directory so the bundled data\ (app.so, GEOIP) is found'
 
 # FlClashCore.exe is mihomo and wants a config path, so `-v` is no version probe here.
 # Assert the three files the app cannot start without.

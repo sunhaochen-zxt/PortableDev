@@ -104,6 +104,33 @@ public sealed class ProfileSpec
     public string? Notes { get; init; }
 }
 
+/// <summary>
+/// One generated launcher at the stick root (<c>&lt;Name&gt;.cmd</c>), declared as
+/// <c>[[launch]]</c> in a tool manifest.
+/// </summary>
+public sealed class LaunchSpec
+{
+    /// <summary>File name without the .cmd extension, e.g. "Tabby".</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Executable to start, relative to the tool directory.</summary>
+    public required string Exe { get; init; }
+
+    /// <summary>Working directory, relative to the tool directory. "." = the tool dir.</summary>
+    public string Dir { get; init; } = ".";
+
+    /// <summary>
+    /// Arguments. <c>{{STICK}}</c> renders as <c>%~dp0</c> (the launcher's own folder, i.e.
+    /// the stick root), the other placeholders expand like everywhere else.
+    /// </summary>
+    public IReadOnlyList<string> Args { get; init; } = Array.Empty<string>();
+
+    /// <summary>Extra variables for the launched process only.</summary>
+    public IReadOnlyList<EnvVarSpec> Env { get; init; } = Array.Empty<EnvVarSpec>();
+
+    public string? Notes { get; init; }
+}
+
 /// <summary>Single tool manifest (manifest.d/*.toml).</summary>
 public sealed class ToolManifest
 {
@@ -118,6 +145,15 @@ public sealed class ToolManifest
 
     /// <summary>Optional named profiles; see <see cref="ProfileSpec"/>.</summary>
     public IReadOnlyList<ProfileSpec> Profiles { get; init; } = Array.Empty<ProfileSpec>();
+
+    /// <summary>
+    /// Launchers to generate at the stick root: <c>[[launch]]</c>.
+    ///
+    /// A launcher is data, not code: "start this exe from this directory with these
+    /// arguments". Keeping it in the manifest means the version-pinned path lives in one
+    /// place instead of being copy-pasted into a hand-written .cmd.
+    /// </summary>
+    public IReadOnlyList<LaunchSpec> Launch { get; init; } = Array.Empty<LaunchSpec>();
 
     public IReadOnlyList<VerifySpec> Verify { get; init; } = Array.Empty<VerifySpec>();
 

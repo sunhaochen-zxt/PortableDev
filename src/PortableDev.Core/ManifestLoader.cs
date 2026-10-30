@@ -184,6 +184,7 @@ public static class ManifestLoader
             Path = paths,
             Env = ReadEnv(table, "env", errors, file),
             Profiles = ReadProfiles(table, errors, file),
+            Launch = ReadLaunches(table, errors, file),
             Verify = verifies,
             Update = ReadUpdate(table),
             Prepare = ReadHook(table, "prepare"),
@@ -329,6 +330,74 @@ public static class ManifestLoader
         return list;
     }
 
+    /// <summary>
+    /// Read [[launch]] sections: one generated .cmd at the stick root per entry.
+    ///
+    ///   [[launch]]
+    ///   name = 'Tabby'
+    ///   exe  = 'Tabby.exe'
+    ///
+    /// The name doubles as the file name, so it must stay a plain file name: a name holding
+    /// a path separator or a drive letter would let a manifest write outside the stick root.
+    /// </summary>
+    private static List<LaunchSpec> ReadLaunches(TomlTable table, List<string> errors, string file)
+    {
+        var list = new List<LaunchSpec>();
+        if (!table.TryGetValue("launch", out var v) || v is not TomlTableArray arr) return list;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lt in arr)
+        {
+            var name = GetString(lt, "name", "").Trim();
+            var exe = GetString(lt, "exe", "").Trim();
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                errors.Add($"{file}: [[launch]] requires name");
+                continue;
+            }
+            if (name.IndexOfAny(new[] { '\\', '/', ':' }) >= 0 || name.Contains("..", StringComparison.Ordinal))
+            {
+                errors.Add($"{file}: [[launch]] name must be a plain file name: {name}");
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(exe))
+            {
+                errors.Add($"{file}: [[launch]] '{name}' requires exe");
+                continue;
+            }
+            if (!seen.Add(name))
+            {
+                errors.Add($"{file}: duplicate [[launch]] '{name}'");
+                continue;
+            }
+
+            var env = new List<EnvVarSpec>();
+            if (GetTable(lt, "env") is { } envTable)
+            {
+                foreach (var pair in envTable)
+                {
+                    if (pair.Value is not string value)
+                    {
+                        errors.Add($"{file}: [[launch]] '{name}' env.{pair.Key} must be a string");
+                        continue;
+                    }
+                    env.Add(new EnvVarSpec { Name = pair.Key, Value = value });
+                }
+            }
+
+            list.Add(new LaunchSpec
+            {
+                Name = name,
+                Exe = exe,
+                Dir = GetString(lt, "dir", "."),
+                Args = GetStringArray(lt, "args"),
+                Env = env,
+                Notes = GetStringOrNull(lt, "notes"),
+            });
+        }
+        return list;
+    }
 
     private static TomlTable? GetTable(TomlTable table, string key) =>
         table.TryGetValue(key, out var v) && v is TomlTable t ? t : null;

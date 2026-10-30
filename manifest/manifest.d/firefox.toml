@@ -13,7 +13,16 @@ provides = ['firefox']
 #   - Chrome 那种 DPAPI 加密则带不走，这也是这里选 FF 的原因。
 # 故意不把 firefox.exe 放进 PATH：不带 -profile 启动会落到 %APPDATA%，那就不是便携了。
 # distribution\policies.json 关掉了自更新（版本交给 manifest）和默认浏览器检查。
-notes    = 'portable Firefox; launch through Firefox.cmd so the profile stays on the stick'
+notes    = 'portable Firefox; Firefox.cmd is generated from [[launch]] so the profile stays on the stick'
+
+# 由 apply 生成 <盘根>\Firefox.cmd。{{STICK}} 展开成 %~dp0（启动器自己所在的目录），
+# 所以 profile 路径跟着盘走，换盘符不用改。
+[[launch]]
+name  = 'Firefox'
+exe   = 'firefox.exe'
+args  = ['-profile', '{{STICK}}home\firefox\profile', '-no-remote']
+env   = { MOZ_CRASHREPORTER_DISABLE = '1' }
+notes = '-no-remote is required: otherwise a running Firefox on the host takes the arguments and uses its own profile'
 
 [[verify]]
 run    = 'firefox.exe --version'

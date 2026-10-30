@@ -167,8 +167,24 @@ passes `-profile <stick>\home\firefox\profile -no-remote`, and
 `distribution\policies.json` turns off self-update (the manifest owns versions), the
 default-browser check, and telemetry.
 
-The two GUI applications follow the same rule and are launched by a small `.cmd` in the
-stick root, because there is no command of theirs worth putting on PATH:
+The GUI applications follow the same rule and are started by a `.cmd` in the stick root,
+because there is no command of theirs worth putting on PATH. Those three launchers are
+**generated from the manifest**, not hand-written:
+
+```toml
+[[launch]]
+name  = 'Tabby'                 # -> <stick>\Tabby.cmd
+exe   = 'Tabby.exe'             # relative to the tool directory
+args  = ['-profile', '{{STICK}}home\firefox\profile']   # {{STICK}} renders as %~dp0
+env   = { MOZ_CRASHREPORTER_DISABLE = '1' }
+```
+
+`apply` writes the file, `plan` shows it as its own group, and a file whose content drifted
+(repointed version, missing `-no-remote`) is reported as an update instead of being trusted.
+Everything is expressed relative to `%~dp0`, so the launcher keeps working after a
+drive-letter change and does not need the `C:\Dev` junction. `DSH.cmd` stays hand-written:
+it has a conditional fallback (an empty `home\.dsh` makes it start from the machine profile
+and print a hint), which is logic, not data.
 
 - **Tabby** needs no machine-side help at all. Its main process redirects `userData` to
   `<exe dir>\data` as soon as that directory exists, so `tools\tabby\<version>\data` *is*

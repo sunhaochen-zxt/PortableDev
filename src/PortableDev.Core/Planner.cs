@@ -179,7 +179,35 @@ public sealed class Planner
             }
         }
 
-        // ---- 5. Foreign PATH entries that shadow our commands ------------------
+        // ---- 5. Launchers at the stick root ------------------------------------
+        // Compared by content, not by existence: a launcher pinned to an older version in a
+        // hand-written file is exactly the drift this section exists to remove.
+        foreach (var (id, tool) in _manifest.Tools)
+        {
+            if (!tool.Tool.Enabled) continue;
+
+            foreach (var launch in tool.Launch)
+            {
+                var target = LaunchWriter.Path(_resolver.StickRoot, launch);
+                var content = LaunchWriter.Render(launch, tool, _resolver);
+                var current = options.FileText(target);
+
+                steps.Add(new PlanStep
+                {
+                    Kind = "launcher",
+                    Change = current is null
+                        ? ChangeKind.Add
+                        : string.Equals(current, content, StringComparison.Ordinal)
+                            ? ChangeKind.None
+                            : ChangeKind.Update,
+                    Target = target,
+                    Before = current,
+                    After = content,
+                });
+            }
+        }
+
+        // ---- 6. Foreign PATH entries that shadow our commands ------------------
         var foreign = PathEditor.ForeignEntries(state.UserPathRaw, stableRoot);
         var provided = _manifest.Tools.Values
             .Where(t => t.Tool.Enabled)
@@ -343,6 +371,13 @@ public sealed class PlannerOptions
     public bool HomeAdopt { get; init; }
     public bool TreatMissingToolsAsBlocker { get; init; }
     public Func<string, bool> DirectoryExists { get; init; } = _ => true;
+
+    /// <summary>
+    /// Read a file's text, or null when it does not exist. Injected for the same reason as
+    /// <see cref="DirectoryExists"/>: the planner compares generated launchers against what
+    /// is on disk without doing ambient I/O itself.
+    /// </summary>
+    public Func<string, string?> FileText { get; init; } = _ => null;
 
     /// <summary>
     /// How to resolve a home-dir root variable ("APPDATA", "USERPROFILE", ...) for a slot
