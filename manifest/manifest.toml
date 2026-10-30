@@ -27,6 +27,7 @@ path_order = [
     'powershell',
     'fastfetch',
     'flutter',
+    'msvc',
 ]
 
 [root]

@@ -247,9 +247,9 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
     {
         var m = ManifestLoader.Load(stickRoot);
         Check("Manifest loads", true);
-        Check("Manifest tool count == 18", m.Tools.Count == 18, $"got {m.Tools.Count}");
+        Check("Manifest tool count == 19", m.Tools.Count == 19, $"got {m.Tools.Count}");
         Check("Manifest stable root", m.Root.Stable == @"C:\Dev", m.Root.Stable);
-        Check("Manifest path order == 14", m.PathOrder.Count == 14, $"got {m.PathOrder.Count}");
+        Check("Manifest path order == 15", m.PathOrder.Count == 15, $"got {m.PathOrder.Count}");
         Check("Manifest env non-empty", m.Env.Count > 0);
 
         var resolver = new PathResolver(m.Root.Stable, Stick);
@@ -257,8 +257,8 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
         var plan = planner.Build(new MachineState { UserPathRaw = @"C:\Windows", StickRoot = Stick });
 
         var toolSteps = plan.Steps.Where(s => s.Kind == "tool").ToList();
-        Check("All 18 tools present", toolSteps.Count == 18, $"got {toolSteps.Count}");
-        Check("All 18 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
+        Check("All 19 tools present", toolSteps.Count == 19, $"got {toolSteps.Count}");
+        Check("All 19 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
             string.Join(",", toolSteps.Where(s => s.Change != ChangeKind.None).Select(s => s.Target)));
 
         // Derive the versions from the manifest instead of hard-coding them: this test is
