@@ -73,7 +73,7 @@ PortableDev doctor    # read-only diagnosis: stick, junction, PATH, tools
 PortableDev plan      # what would change; no side effects
 PortableDev apply     # execute the plan (backs up first, journals every step)
 PortableDev verify    # run every tool's declared [[verify]]
-PortableDev clean     # remove the junction and all managed PATH entries
+PortableDev clean     # undo apply: junction, home links, env vars, managed PATH
 PortableDev gui       # launch the WPF front-end (a sibling PortableDev.Gui.exe)
 PortableDev shell     # open a terminal that already has the environment applied
 PortableDev update    # ask upstream for newer versions (read-only)
@@ -107,6 +107,26 @@ values so `%VARS%` survive; the journal records every attempted undo. The stable
 is deliberately not rolled back — it is idempotent and undoing it would need a second UAC
 prompt. `--no-rollback` opts out and keeps the partial state, which is occasionally what
 you want when debugging a failure.
+
+### `clean` undoes `apply`
+
+`clean` is meant to leave the machine the way `apply` found it, so it reverts all four
+things apply changed:
+
+- the stable junction `C:\Dev` (through the same one-shot elevation broker);
+- every home link, leaving the data on the stick;
+- the environment variables apply set — restored to the value **and registry kind** they
+  had, or removed when they did not exist before;
+- the managed PATH entries, keeping foreign entries byte-for-byte and keeping any entry
+  you added yourself after applying.
+
+The original env values come from the journals apply writes *before* mutating: the
+earliest apply that touched a value wins, because that is "before apply". Where no such
+record exists (a machine applied before that bookkeeping, or a `--test-registry` run,
+which is ignored), `clean` only removes a variable that still carries exactly the value
+the current manifest declares, and reports anything it left alone rather than deleting a
+value that might be yours. A `Path` value that did not exist before is deleted rather than
+set to an empty string. Like `apply`, every mutation is journalled and backed up first.
 
 ## Tools on the stick
 
@@ -210,6 +230,7 @@ store = 'home/Code'       # optional; defaults to home/<path>
   onto the stick first. Nothing is deleted on the way.
 - `doctor` reports each slot as linked, wrong, or blocked.
 - `clean` removes the links and leaves the data on the stick.
+
 
 The user profile folder itself is deliberately **not** redirected, and neither are
 `.nuget` (a package cache) or `AppData\Local\Temp` (multi-GB, and being wiped every boot

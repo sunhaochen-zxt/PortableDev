@@ -97,7 +97,15 @@ public static class Applier
             var backupFile = Path.Combine(backupDir, $"path-{DateTime.Now:yyyyMMdd-HHmmss}.reg");
             reg.ExportBackup(backupFile);
             File.WriteAllText(Path.ChangeExtension(backupFile, ".txt"), state.UserPathRaw);
-            journal.Record("backup", new { backupFile, originalPath = state.UserPathRaw });
+            journal.Record("backup", new
+            {
+                backupFile,
+                originalPath = state.UserPathRaw,
+                pathKind = state.UserPathKind,
+                // Marks a throwaway run against HKCU\Environment-Test, so 'clean' never
+                // mistakes its values for the state of the real machine.
+                testRegistry = opts.TestRegistry,
+            });
             Console.WriteLine($"backup   -> {backupFile}");
 
             // 2. Junction (elevated helper when needed).
@@ -202,8 +210,19 @@ public static class Applier
             var envBefore = reg.ReadUserEnvRawWithKinds();
             foreach (var (name, value) in plan.EnvToSet)
             {
-                journal.Record("env.write", new { name, value });
                 var had = envBefore.TryGetValue(name, out var previous);
+
+                // "before"/"existed"/"kind" are what lets a later 'clean' put the machine
+                // back the way apply found it, not merely delete what today's manifest lists.
+                journal.Record("env.write", new
+                {
+                    name,
+                    value,
+                    before = had ? previous.Value : null,
+                    existed = had,
+                    kind = had ? previous.Kind.ToString() : null,
+                });
+
                 undo.Push(new UndoStep
                 {
                     Kind = UndoKind.Env,
@@ -219,10 +238,16 @@ public static class Applier
             // 4. PATH last, so a failure above leaves PATH untouched.
             if (!string.Equals(plan.NewUserPathRaw, state.UserPathRaw, StringComparison.Ordinal))
             {
-                journal.Record("path.write", new { before = state.UserPathRaw, after = plan.NewUserPathRaw });
                 // "Unknown" is how the reader reports "there is no Path value at all", which
                 // must be restored by deleting it rather than by writing an empty string.
                 var pathExisted = !string.Equals(state.UserPathKind, "Unknown", StringComparison.OrdinalIgnoreCase);
+                journal.Record("path.write", new
+                {
+                    before = state.UserPathRaw,
+                    after = plan.NewUserPathRaw,
+                    existed = pathExisted,
+                    kind = state.UserPathKind,
+                });
                 undo.Push(new UndoStep
                 {
                     Kind = UndoKind.Path,
@@ -392,6 +417,102 @@ public static class Applier
         return (undone, failed);
     }
 
+    /// <summary>
+    /// Put the user environment back the way apply found it. Returns how many values changed.
+    ///
+    /// Two sources, in this order:
+    ///  1. What apply itself recorded before its first write (<see cref="PriorState"/>):
+    ///     the exact prior value and registry kind, or "it did not exist".
+    ///  2. The current manifest, for machines whose apply predates that bookkeeping: a
+    ///     variable is only removed when it still carries exactly the manifest's value.
+    ///     Anything else is left alone — it may be the user's own setting, and deleting it
+    ///     to satisfy a teardown would be worse than leaving one variable behind.
+    /// </summary>
+    private static int RestoreEnv(
+        RegistryEnvironment reg,
+        Journal journal,
+        IReadOnlyDictionary<string, string> declared,
+        PriorState.Snapshot prior)
+    {
+        var envNow = reg.ReadUserEnvRawWithKinds();
+
+        var names = new HashSet<string>(prior.Env.Keys, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in declared.Keys) names.Add(name);
+
+        var changed = 0;
+
+        foreach (var name in names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+        {
+            var present = envNow.TryGetValue(name, out var current);
+
+            if (prior.Env.TryGetValue(name, out var priorVar))
+            {
+                if (priorVar.Existed)
+                {
+                    var already = present &&
+                        string.Equals(current.Value, priorVar.Value, StringComparison.Ordinal) &&
+                        string.Equals(current.Kind.ToString(), priorVar.Kind ?? "ExpandString",
+                            StringComparison.OrdinalIgnoreCase);
+                    if (already) continue;
+
+                    reg.WriteEnv(name, priorVar.Value ?? string.Empty, priorVar.Kind);
+                    journal.Record("env.restore", new { name, value = priorVar.Value, kind = priorVar.Kind });
+                    Console.WriteLine($"env      -> restored {name}");
+                    changed++;
+                }
+                else
+                {
+                    if (!present) continue;
+                    reg.DeleteEnv(name);
+                    journal.Record("env.delete", new { name, reason = "did not exist before apply" });
+                    Console.WriteLine($"env      -> removed {name}");
+                    changed++;
+                }
+                continue;
+            }
+
+            if (!present) continue;
+
+            if (declared.TryGetValue(name, out var expected) &&
+                string.Equals(current.Value, expected, StringComparison.Ordinal))
+            {
+                reg.DeleteEnv(name);
+                journal.Record("env.delete", new { name, reason = "matched the manifest value" });
+                Console.WriteLine($"env      -> removed {name} (matched the manifest value)");
+                changed++;
+            }
+            else
+            {
+                Console.WriteLine($"env      -> left {name} alone (differs from the manifest; may be yours)");
+                journal.Record("env.kept", new { name });
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// The environment variables apply would set right now, resolved exactly as
+    /// <see cref="Planner"/> resolves them (root manifest first, then each enabled tool).
+    /// Kept in step with the planner by construction: same two loops, same expansion.
+    /// </summary>
+    private static Dictionary<string, string> DeclaredEnv(RootManifest manifest, PathResolver resolver)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var e in manifest.Env)
+            map[e.Name] = resolver.Expand(e.Value);
+
+        foreach (var (_, tool) in manifest.Tools)
+        {
+            if (!tool.Tool.Enabled) continue;
+            foreach (var e in tool.Env)
+                map[e.Name] = resolver.Expand(e.Value, tool);
+        }
+
+        return map;
+    }
+
     public static int Clean(CommandOptions opts)
     {
         var (root, count) = VolumeLocator.Resolve(opts.Root);
@@ -421,7 +542,9 @@ public static class Applier
             return Exit.ElevationUnavailable;
         }
 
-        if (!opts.Yes && !ConfirmRaw("Remove the junction and restore PATH?")) return Exit.NotConfirmed;
+        if (!opts.Yes && !ConfirmRaw(
+            "Remove the junction, the home links, the environment variables apply set, and the managed PATH entries?"))
+            return Exit.NotConfirmed;
 
         var journalDir = Path.Combine(root, manifest.Apply.JournalDir.Replace('/', '\\'));
         var backupDir = Path.Combine(root, manifest.Apply.BackupDir.Replace('/', '\\'));
@@ -475,16 +598,57 @@ public static class Applier
                 }
             }
 
-            if (!string.Equals(raw, newPath, StringComparison.Ordinal))
+            // Environment variables, then PATH last (same ordering rule as apply).
+            //
+            // Deleting only the variables today's manifest declares is not enough to satisfy
+            // "clean leaves C: the way apply found it": the manifest may have been edited
+            // since, and a variable apply overwrote had a value of its own. PriorState reads
+            // what apply recorded before its first write, so the original values come back.
+            var prior = PriorState.Read(journalDir);
+            var declared = DeclaredEnv(manifest, resolver);
+            var envChanges = RestoreEnv(reg, journal, declared, prior);
+
+            var kindNow = reg.ReadUserPathKind().ToString();
+            var wantKind = prior.Path?.Kind ?? kindNow;
+            var pathChanged = false;
+
+            if (prior.Path is { Existed: false } && newPath.Length == 0)
             {
-                journal.Record("path.write", new { before = raw, after = newPath });
-                reg.WriteUserPathRaw(newPath);
+                // There was no Path value at all before apply: remove it, do not leave "".
+                reg.DeleteUserPath();
+                journal.Record("path.delete", new { before = raw });
+                Console.WriteLine("path     -> removed (it did not exist before apply)");
+                pathChanged = true;
+            }
+            else if (!string.Equals(raw, newPath, StringComparison.Ordinal) ||
+                     !string.Equals(kindNow, wantKind, StringComparison.OrdinalIgnoreCase))
+            {
+                reg.WriteUserPathRaw(newPath, wantKind);
+                journal.Record("path.restore", new
+                {
+                    before = raw,
+                    after = newPath,
+                    kind = wantKind,
+                    priorKnown = prior.Path is not null,
+                });
+                Console.WriteLine($"path     -> restored ({newPath.Length} char(s))");
+                pathChanged = true;
+            }
+            else if (newPath.Length == 0 && raw.Length > 0)
+            {
+                // No prior bookkeeping, but nothing of ours is left: an empty PATH value is
+                // never meaningful, so remove the value instead of writing an empty string.
+                reg.DeleteUserPath();
+                journal.Record("path.delete", new { before = raw });
+                Console.WriteLine("path     -> removed");
+                pathChanged = true;
             }
 
             var notified = EnvironmentBroadcast.Notify();
             journal.Record("broadcast", new { ok = notified });
 
-            journal.Record("done", new { });
+            journal.Record("done", new { envChanges, pathChanged });
+            Console.WriteLine($"env      -> {envChanges} variable(s) changed");
             Console.WriteLine("cleaned. Open a NEW terminal for the change to take effect.");
             return Exit.Ok;
         }

@@ -89,7 +89,7 @@ public static class Program
               apply     Execute the plan
               verify    Run every declared tool verification
               doctor    Diagnose stick, junction, PATH and tools
-              clean     Remove everything this tool added to the machine
+              clean     Undo apply: junction, home links, env vars and PATH entries
               locate    Print the detected stick root and exit
               gui       Launch the graphical interface
               update    Ask upstream for newer versions (read-only)
