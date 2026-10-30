@@ -9,15 +9,20 @@
 #   3. move <install> to tools\dsh\<version>       (same volume: one rename)
 #   4. copy %USERPROFILE%\.dsh to home\.dsh, then park the old folder as
 #      .dsh.portabledev-old-<stamp>                 (nothing is deleted)
-#   5. write manifest\manifest.d\dsh.toml and a [[home_dir]] for ~\.dsh
-#   6. write DSH.cmd next to PortableDev.cmd
-#   7. run "PortableDev.exe apply" so the junction and PATH exist on this machine
+#   5. record home\.dsh as the last data directory (so the first start is not reported
+#      as a data-directory change)
+#   6. write manifest\manifest.d\dsh.toml
+#   7. take back out any [[home_dir]] for ~\.dsh that an older run of this script added
+#   8. write DSH.cmd, which sets DSH_DESKTOP_NEXT_HOME to home\.dsh
+#   9. run "PortableDev.exe apply" so PATH and C:\Dev exist on this machine
 #
-# Why a junction and not an environment variable: DSH resolves its data directory with
-# os.homedir() (the Win32 user profile), and DSH_HOME only reaches its child processes;
-# DSH_DESKTOP_NEXT_HOME is read as a fallback behind a location file. A junction at
-# %USERPROFILE%\.dsh is what makes sessions, profiles, storages and .credentials.yaml
-# travel on the stick without any of that.
+# Why an environment variable and not a junction: DSH's main process validates its data
+# directory with lstat and throws "Expected a real directory: C:\Users\<user>\.dsh" for
+# any reparse point, so a junction at %USERPROFILE%\.dsh kills the app before it opens a
+# window - that is exactly what the first version of this script did. DSH_DESKTOP_NEXT_HOME
+# is the app's own documented override (its settings page shows it as the source of the
+# data directory), is read before the ~/.dsh default, and the launcher resolves %~dp0 at
+# launch time so a new drive letter does not matter.
 #
 # ASCII-only on purpose, like publish.ps1: Windows PowerShell 5.1 reads a BOM-less file
 # as ANSI and a stray non-ASCII byte silently eats the following line.
@@ -32,6 +37,8 @@ param(
     [string] $Version = '',
     # User profile whose .dsh should be migrated. Defaults to %USERPROFILE%.
     [string] $UserHome = '',
+    # Where DSH keeps its per-machine data-directory record. Defaults to %APPDATA%.
+    [string] $AppData = '',
     # Copy the app instead of moving it (leaves the original in place).
     [switch] $CopyOnly,
     # Copy the data but keep the real %USERPROFILE%\.dsh directory where it is.
@@ -115,6 +122,8 @@ else { Write-Warn 'app\PortableDev.exe is missing; the manifest cannot be valida
 
 if (-not $UserHome) { $UserHome = $env:USERPROFILE }
 if (-not $UserHome) { Fail 'cannot determine the user profile; pass -UserHome <path>.' }
+if (-not $AppData) { $AppData = $env:APPDATA }
+if (-not $AppData) { Fail 'cannot determine APPDATA; pass -AppData <path>.' }
 $srcData = Join-Path $UserHome '.dsh'
 $dstData = Join-Path $StickRoot 'home\.dsh'
 
@@ -293,6 +302,21 @@ else {
 # ---------------------------------------------------------------- 6. move data ----
 Write-Step 'Migrating user data (~\.dsh: sessions, profiles, credentials)'
 
+# A first version of this script made ~\.dsh a junction. DSH refuses that: its main
+# process lstat()s the data directory and throws "Expected a real directory" for any
+# reparse point, so the app died before opening a window. If such a link is still
+# around, drop it - a junction holds no data of its own.
+if (Test-Path -LiteralPath $srcData) {
+    $probeItem = Get-Item -LiteralPath $srcData -Force
+    if ($probeItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        if ($DryRun) { Write-Warn "$srcData is a junction left by the old design; it would be removed" }
+        else {
+            cmd.exe /c rmdir "$srcData" | Out-Null
+            Write-Warn "$srcData was a junction left by the old design; removed it"
+        }
+    }
+}
+
 if (-not (Test-Path -LiteralPath $srcData)) {
     Write-Warn "$srcData does not exist; a fresh home will be created on first launch"
 }
@@ -334,8 +358,8 @@ else {
 
         if ($KeepOldData) {
             Write-Warn '-KeepOldData: the real .dsh stays where it is'
-            Write-Note 'apply will therefore SKIP the ~\.dsh link (a real directory with data is never moved silently)'
-            Write-Note 'run "PortableDev.cmd apply --adopt-home" yourself if you want it linked'
+            Write-Note 'DSH.cmd points the app at home\.dsh all the same, so that copy just goes stale'
+            Write-Note 'the launcher falls back to the machine profile while home\.dsh has no sessions'
         }
         else {
             $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -343,6 +367,21 @@ else {
             Move-Item -LiteralPath $srcData -Destination $parked
             Write-Ok "old folder parked as $parked"
             Write-Note 'delete it once DSH starts correctly from the stick'
+        }
+
+        # Record the stick as "the directory used last time". Without this the first start
+        # reports the switch as a data-directory change (the same warning you get when a
+        # drive holding the old home is unplugged) instead of simply using it.
+        if (-not $KeepOldData) {
+            $locationRoot = Join-Path $AppData 'DSH NEXT\home'
+            $lastHome = Join-Path $locationRoot 'desktop-next-last-home.json'
+            if (-not (Test-Path $locationRoot)) {
+                New-Item -ItemType Directory -Force -Path $locationRoot | Out-Null
+            }
+            [System.IO.File]::WriteAllText($lastHome,
+                ('{"home":"' + $dstData.Replace('\', '\\') + '"}'),
+                (New-Object System.Text.UTF8Encoding($false)))
+            Write-Ok 'recorded home\.dsh as the last data directory'
         }
     }
 }
@@ -361,9 +400,14 @@ kind     = 'prebuilt'
 dir      = 'tools/dsh/@@VERSION@@'
 provides = ['dsh']
 # The app keeps nothing inside this folder: Electron's userData, sessions, profiles,
-# storages and .credentials.yaml all go to %USERPROFILE%\.dsh, which manifest.toml
-# links onto the stick. No [[path]] entry: it is a GUI, launched through DSH.cmd.
-notes    = 'DSH NEXT desktop; data lives in the ~\.dsh home link, launch through DSH.cmd'
+# storages and .credentials.yaml all go to the data directory, which DSH.cmd points at
+# home\.dsh on the stick with DSH_DESKTOP_NEXT_HOME.
+#
+# That is an environment variable and NOT a [[home_dir]] junction on purpose: the main
+# process validates its data directory with lstat and throws "Expected a real directory"
+# for any reparse point, so a junction at %USERPROFILE%\.dsh kills the app at startup
+# before it opens a window. No [[path]] entry either: it is a GUI, launched through DSH.cmd.
+notes    = 'DSH NEXT desktop; data goes to home\.dsh via DSH_DESKTOP_NEXT_HOME, launch through DSH.cmd'
 
 # GUI app, so there is no --version to ask and launching it would sit there until the
 # 60 s timeout. `dir` exits non-zero when a target is missing.
@@ -395,52 +439,53 @@ else {
     }
 }
 
-# ---------------------------------------------------------------- 8. home link ----
-Write-Step 'Declaring the ~\.dsh home link'
+# ------------------------------------------- 8. no home link (it would not start) ----
+Write-Step 'Checking for a ~\.dsh home link that would break the app'
 
 $manifestPath = Join-Path $StickRoot 'manifest\manifest.toml'
 if (-not (Test-Path $manifestPath)) { Fail "manifest not found: $manifestPath" }
 
-$homeBlock = @'
-
-# DSH NEXT keeps everything under `~/.dsh`: the conversations in sessions\, the profiles,
-# the storages, the Electron userData and .credentials.yaml. It resolves that directory
-# from the OS home (os.homedir()), so HOME cannot reach it and DSH_HOME only covers its
-# child processes; the junction below is what makes all of it travel on the stick.
-[[home_dir]]
-for  = 'DSH NEXT conversations, profiles and credentials'
-root = 'USERPROFILE'
-path = '.dsh'
-'@
-
-$declared = $false
-foreach ($line in [System.IO.File]::ReadAllLines($manifestPath)) {
-    if ($line -match "^\s*path\s*=\s*'\.dsh'\s*$") { $declared = $true; break }
+# An earlier version of this script declared [[home_dir]] for USERPROFILE\.dsh. DSH
+# validates its data directory with lstat and dies on any reparse point ("Expected a
+# real directory: C:\Users\<user>\.dsh"), so that declaration has to go. Remove the
+# block if a stick still carries one, and never write it again.
+$lines = [System.IO.File]::ReadAllLines($manifestPath)
+$blockIndex = -1
+for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -notmatch '^\s*\[\[home_dir\]\]\s*$') { continue }
+    for ($j = $i + 1; $j -lt $lines.Count; $j++) {
+        if ($lines[$j] -match '^\s*\[') { break }
+        if ($lines[$j] -match "^\s*path\s*=\s*'\.dsh'\s*$") { $blockIndex = $i; break }
+    }
+    if ($blockIndex -ge 0) { break }
 }
 
-if ($declared) { Write-Ok 'already declared in manifest\manifest.toml' }
-elseif ($DryRun) { Write-Note 'would add a [[home_dir]] for USERPROFILE\.dsh to manifest\manifest.toml' }
+if ($blockIndex -lt 0) { Write-Ok 'manifest declares no ~\.dsh home link' }
+elseif ($DryRun) { Write-Note 'would remove the [[home_dir]] for USERPROFILE\.dsh from manifest.toml' }
 else {
     $backupDir = Join-Path $StickRoot 'state\backup'
     if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Force -Path $backupDir | Out-Null }
     $backup = Join-Path $backupDir ('manifest.toml.' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     Copy-Item -LiteralPath $manifestPath -Destination $backup -Force
 
-    $lines = [System.IO.File]::ReadAllLines($manifestPath)
     $out = New-Object System.Collections.Generic.List[string]
-    $inserted = $false
-    foreach ($line in $lines) {
-        # [[home_dir]] must sit at top level; putting it before [apply] keeps the file
-        # readable and matches how the other slots are written.
-        if (-not $inserted -and $line -match '^\s*\[apply\]\s*$') {
-            foreach ($b in ($homeBlock -split '\r?\n')) { $out.Add($b) }
-            $inserted = $true
+    $skipping = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($i -eq $blockIndex) {
+            # drop the comment lines that introduced the block, keep the blank before it
+            while ($out.Count -gt 0 -and $out[$out.Count - 1].Trim().StartsWith('#')) {
+                $out.RemoveAt($out.Count - 1)
+            }
+            $skipping = $true
+            continue
         }
-        $out.Add($line)
+        if ($skipping) {
+            if ($lines[$i] -match '^\s*\[') { $skipping = $false } else { continue }
+        }
+        $out.Add($lines[$i])
     }
-    if (-not $inserted) { foreach ($b in ($homeBlock -split '\r?\n')) { $out.Add($b) } }
     [System.IO.File]::WriteAllLines($manifestPath, $out)
-    Write-Ok 'added [[home_dir]] USERPROFILE\.dsh'
+    Write-Ok 'removed the ~\.dsh home link from manifest\manifest.toml'
 
     if ($havePd) {
         $check = Invoke-PortableDev @('plan', '--root', $StickRoot)
@@ -461,13 +506,33 @@ Write-Step 'Writing the launcher'
 $cmdPath = Join-Path $StickRoot 'DSH.cmd'
 $launcher = @'
 @echo off
-rem Portable DSH NEXT: the app reads its data directory from the OS home, so
-rem %USERPROFILE%\.dsh is a junction into home\.dsh ([[home_dir]] in manifest\manifest.toml).
-rem Run "PortableDev.cmd apply" once per machine to create that link; without it DSH
-rem writes to the machine instead of the stick. The version in the path is pinned on
-rem purpose, like Firefox.cmd: the manifest owns versions, so this line is updated
-rem together with a tool upgrade.
+rem Portable DSH NEXT.
+rem
+rem The app resolves its data directory with os.homedir(), and its main process refuses
+rem any reparse point ("Expected a real directory: C:\Users\<user>\.dsh"), so a junction
+rem at %USERPROFILE%\.dsh is NOT an option - it kills the app before a window appears.
+rem DSH_DESKTOP_NEXT_HOME is the app's own override (its settings page lists it as a
+rem source of the data directory), and %~dp0 is resolved at launch time, so the data
+rem stays on the stick even when the drive letter changes.
+rem
+rem If home\.dsh has no conversations yet while the machine profile does, the data was
+rem never migrated: this start falls back to the machine profile instead of showing an
+rem empty app, and Migrate-DSH.cmd moves the data once DSH is closed.
+rem
+rem The version in the path is pinned on purpose, like Firefox.cmd: the manifest owns
+rem versions, so this line is updated together with a tool upgrade.
 setlocal
+set "DSH_STICK_HOME=%~dp0home\.dsh"
+if exist "%DSH_STICK_HOME%\sessions\" goto run
+if not exist "%USERPROFILE%\.dsh\sessions\" goto run
+echo [!] home\.dsh has no conversations yet, but %USERPROFILE%\.dsh does.
+echo     Run Migrate-DSH.cmd once (with DSH NEXT closed) to move them onto the stick.
+echo     Starting with the machine profile for now.
+start "" /d "%~dp0tools\dsh\@@VERSION@@" "%~dp0tools\dsh\@@VERSION@@\DSH NEXT.exe"
+exit /b 0
+:run
+set "DSH_DESKTOP_NEXT_HOME=%DSH_STICK_HOME%"
+set "DSH_HOME=%DSH_STICK_HOME%"
 start "" /d "%~dp0tools\dsh\@@VERSION@@" "%~dp0tools\dsh\@@VERSION@@\DSH NEXT.exe"
 '@
 $launcher = ($launcher.Replace('@@VERSION@@', $Version) -replace "`r`n", "`n") + "`n"
@@ -495,7 +560,7 @@ else {
     $applied.Text | Where-Object { "$_" -match '\S' } | ForEach-Object { Write-Host "         $_" }
     if ($applied.Code -ne 0) {
         Write-Warn "apply returned exit code $($applied.Code) - run 'PortableDev.cmd apply' by hand"
-        Write-Note 'exit 8 = UAC declined, 7 = junction failed, 9 = home link failed, 3 = manifest'
+        Write-Note 'exit 8 = UAC declined, 7 = junction failed, 3 = manifest'
     }
     else { Write-Ok 'applied' }
 }
@@ -506,22 +571,31 @@ Write-Step 'Checking the result'
 if ($DryRun) {
     Write-Note 'dry run: no verification, no changes'
 }
-elseif ($havePd) {
-    $verified = Invoke-PortableDev @('verify', '--root', $StickRoot)
-    $out = $verified.Text
-    $dsh = @($out | Where-Object { "$_" -match '^(PASS|FAIL)\s+dsh\s' })
-    foreach ($line in $dsh) { Write-Host "   $line" }
-    $summary = @($out | Where-Object { "$_" -match '^\d+/\d+ passed$' })
-    if ($summary.Count -gt 0) { Write-Note $summary[-1] }
-
-    $linked = $false
-    $slot = Join-Path $UserHome '.dsh'
-    if (Test-Path -LiteralPath $slot) {
-        $item = Get-Item -LiteralPath $slot -Force
-        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { $linked = $true }
+else {
+    if ($havePd) {
+        $verified = Invoke-PortableDev @('verify', '--root', $StickRoot)
+        $out = $verified.Text
+        $dsh = @($out | Where-Object { "$_" -match '^(PASS|FAIL)\s+dsh\s' })
+        foreach ($line in $dsh) { Write-Host "   $line" }
+        $summary = @($out | Where-Object { "$_" -match '^\d+/\d+ passed$' })
+        if ($summary.Count -gt 0) { Write-Note $summary[-1] }
     }
-    if ($linked) { Write-Ok "$slot -> the stick" }
-    elseif (-not $NoApply) { Write-Warn "$slot is not a junction; 'PortableDev.cmd apply' will create it" }
+
+    # The failure that cost a debugging round: the app dies at startup if its data
+    # directory (or any parent that has to be created) is a link. Check the two paths the
+    # launcher will hand over, not the machine profile.
+    $bad = @()
+    foreach ($p in @((Join-Path $StickRoot 'home'), $dstData)) {
+        if (-not (Test-Path -LiteralPath $p)) { $bad += "$p (missing)"; continue }
+        if ((Get-Item -LiteralPath $p -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            $bad += "$p (reparse point)"
+        }
+    }
+    if ($bad.Count -eq 0) { Write-Ok 'home\.dsh is a plain directory the app will accept' }
+    else {
+        foreach ($b in $bad) { Write-Warn $b }
+        Write-Warn 'DSH throws "Expected a real directory" on links - move the stick data to a real folder'
+    }
 }
 
 Write-Step 'Summary'
@@ -541,8 +615,8 @@ if (Test-Path -LiteralPath (Join-Path $dstData 'sessions')) {
     Write-Note "sessions : $n conversation file(s) carried over"
 }
 Write-Note 'launch   : DSH.cmd (in the stick root)'
-if (-not $DryRun -and -not $NoApply -and $havePd) {
-    Write-Note 'the ~\.dsh link is in place, so DSH starts with the stick data'
+if (-not $DryRun) {
+    Write-Note 'DSH.cmd sets DSH_DESKTOP_NEXT_HOME to home\.dsh; a direct exe launch would not'
 }
 Write-Host ''
 

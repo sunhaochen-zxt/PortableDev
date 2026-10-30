@@ -80,6 +80,12 @@ for  = 'FlClash proxy profiles and settings'
 root = 'APPDATA'
 path = 'FlClash'
 
+# DSH NEXT is deliberately NOT declared here. Its main process validates the data
+# directory with lstat and refuses any reparse point ("Expected a real directory:
+# C:\Users\<user>\.dsh"), so a junction at ~\.dsh makes the app die at startup before
+# it even opens a window. It is redirected by DSH.cmd instead, which sets
+# DSH_DESKTOP_NEXT_HOME to the stick's real path for that one process.
+
 [apply]
 # Move an existing real directory onto the stick instead of skipping it.
 # Off by default: an upgrade should not silently relocate somebody's data.
