@@ -1,0 +1,45 @@
+schema = 1
+
+[tool]
+id       = 'flutter'
+version  = '3.47.9'
+title    = 'Flutter SDK (Web target)'
+kind     = 'prebuilt'
+dir      = 'tools/flutter/3.47.9'
+provides = ['flutter', 'dart']
+# Official stable release zip, unpacked by hand into this directory:
+#   https://storage.flutter-io.cn/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.9-stable.zip
+#   sha256 d8e2b5977e09082c6440f89dc1aa887b94c8fbcc3b39222797046295a3f68a9e
+#
+# Only the WEB target is set up. `flutter build windows` needs Visual Studio's
+# "Desktop development with C++" workload, which this machine cannot have (no admin,
+# 28 GB free on C:) and which cannot travel on a stick - `flutter doctor` will report
+# it as missing, which is expected and does not affect web or Android.
+#
+# bin\cache\ carries the Dart SDK, the engine artifacts and the prebuilt
+# flutter_tools.snapshot, so it travels with this directory and a new machine does not
+# have to rebuild the tool (which needs the network).
+notes    = 'Web target only (Chrome/Edge); no Windows desktop build here - that needs Visual Studio C++; upgrade = replace this version directory'
+
+[[path]]
+dir = 'bin'
+
+# pub packages must not land in %LOCALAPPDATA%\Pub\Cache, or a restored machine has to
+# re-download every dependency. This is the same cache `dart pub get` uses.
+[[env]]
+name  = 'PUB_CACHE'
+value = '{{ROOT}}\cache\pub'
+
+# Flutter and Dart otherwise write an analytics/telemetry config into the user profile
+# (~/.dart-tool). Nothing here is worth carrying between machines.
+[[env]]
+name  = 'FLUTTER_SUPPRESS_ANALYTICS'
+value = 'true'
+
+[[verify]]
+run    = 'flutter --version'
+expect = 'Flutter 3.47.9'
+
+[[verify]]
+run    = 'dart --version'
+expect = 'Dart SDK version: 3.13.7'

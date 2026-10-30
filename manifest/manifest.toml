@@ -26,6 +26,7 @@ path_order = [
     'sublime-text',
     'powershell',
     'fastfetch',
+    'flutter',
 ]
 
 [root]
