@@ -2,10 +2,10 @@ schema = 1
 
 [tool]
 id      = 'powershell'
-version = '7.6.6'
+version = "7.6.8"
 title   = 'PowerShell 7'
 kind    = 'prebuilt'
-dir     = 'tools/powershell/7.6.6'
+dir     = 'tools/powershell/7.6.8'
 provides = ['pwsh']
 # Portable: carries its own .NET runtime, writes no registry keys and installs
 # no modules into the user profile. Use it instead of the built-in 5.1: pwsh -NoProfile
@@ -16,7 +16,7 @@ dir = '.'
 
 [[verify]]
 run    = 'pwsh --version'
-expect = 'PowerShell 7.6.6'
+expect = 'PowerShell 7.6.8'
 
 [update]
 kind    = 'github'

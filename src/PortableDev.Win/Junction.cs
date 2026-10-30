@@ -81,7 +81,9 @@ public static class Junction
         if (t.StartsWith(@"\??\", StringComparison.Ordinal)) t = t[4..];
         if (t.StartsWith(@"\\?\", StringComparison.Ordinal)) t = t[4..];
         if (t.StartsWith(@"Global\", StringComparison.OrdinalIgnoreCase)) t = t[7..];
-        return t.TrimEnd('\\');
+        // Some filesystems count the mandatory UTF-16 NUL in SubstituteNameLength; keeping
+        // it would make every target comparison fail and force a needless re-create.
+        return t.TrimEnd('\0').TrimEnd('\\');
     }
 
     /// <summary>
@@ -220,6 +222,15 @@ public static class Junction
             if (substituteNameLength <= 0) return null;
 
             // PathBuffer starts right after the four USHORTs: 8 + 8 = 16.
+            // Validate the claimed range against what the driver actually wrote before
+            // handing it to Marshal.Copy: a corrupt or hostile reparse point could
+            // otherwise make us read past the native buffer, which raises an
+            // AccessViolation that no try/catch in managed code can catch.
+            var pathBufferBytes = (long)returned - 16;
+            if (substituteNameOffset < 0) return null;
+            if (substituteNameLength % 2 != 0) return null;
+            if (substituteNameOffset + (long)substituteNameLength > pathBufferBytes) return null;
+
             var chars = new char[substituteNameLength / 2];
             Marshal.Copy(buffer + 16 + substituteNameOffset, chars, 0, chars.Length);
             return NormalizeLinkTarget(new string(chars));

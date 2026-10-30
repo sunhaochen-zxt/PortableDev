@@ -120,15 +120,20 @@ public static class Verifier
             using var p = Process.Start(psi);
             if (p is null) return new VerifyResult(toolId, spec.Run, false, "process failed to start", -1);
 
-            var stdout = p.StandardOutput.ReadToEnd();
-            var stderr = p.StandardError.ReadToEnd();
+            // Drain both pipes concurrently. Reading stdout to completion first deadlocks
+            // as soon as a tool fills the other pipe's buffer (typically a tool that writes
+            // its diagnostics to stderr): the child blocks on write, we block on read, and
+            // the 60 s timeout below is never reached because we are not waiting on the
+            // process at all. async drain lets WaitForExit own the timeout.
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(60_000))
             {
                 try { p.Kill(); } catch { }
                 return new VerifyResult(toolId, spec.Run, false, "timeout", -1);
             }
 
-            var output = (stdout + "\n" + stderr).Trim();
+            var output = (stdout.GetAwaiter().GetResult() + "\n" + stderr.GetAwaiter().GetResult()).Trim();
             var expectOk = Matches(spec, output);
             var ok = p.ExitCode == 0 && expectOk;
 

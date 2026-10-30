@@ -106,7 +106,7 @@ public static class HomeLinks
                     var name = Path.GetFileName(entry);
                     var dest = Path.Combine(storePath, name);
                     if (Directory.Exists(dest) || File.Exists(dest)) continue;
-                    if (Directory.Exists(entry)) Directory.Move(entry, dest);
+                    if (Directory.Exists(entry)) MoveDirectory(entry, dest);
                     else File.Move(entry, dest);
                 }
                 Directory.Delete(hostPath, recursive: true);
@@ -124,7 +124,9 @@ public static class HomeLinks
             try
             {
                 Directory.Delete(storePath, recursive: false);
-                Directory.Move(staging, storePath);
+                // The final hop crosses volumes (system drive -> stick), where
+                // Directory.Move cannot be used at all; MoveDirectory falls back to copy.
+                MoveDirectory(staging, storePath);
                 moved = true;
                 return (true, null);
             }
@@ -139,6 +141,54 @@ public static class HomeLinks
         catch (Exception ex)
         {
             return (false, "could not move " + hostPath + " onto the stick: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Move a directory, falling back to copy-then-delete when the two paths are on
+    /// different volumes.
+    ///
+    /// Directory.Move is a single rename: across volumes it throws
+    /// "Source and destination path must have identical roots. Move will not work
+    /// across volumes." That is the normal case here — the store lives on the stick
+    /// and the host directory on the system drive — so a plain Directory.Move made
+    /// --adopt-home fail every time on the very setups this tool exists for.
+    ///
+    /// Only IOException is treated as "try a copy": access-denied and other IO
+    /// failures would fail the copy too, so the caller still sees the real error.
+    /// A partial copy is left in place on purpose — it is a duplicate of data that
+    /// is still at the source, and the merge branch above reconciles it next run.
+    /// </summary>
+    private static void MoveDirectory(string from, string to)
+    {
+        try
+        {
+            Directory.Move(from, to);
+            return;
+        }
+        catch (IOException)
+        {
+            // Cross-volume: not a rename, fall through to copy + delete.
+        }
+
+        CopyDirectory(from, to);
+        Directory.Delete(from, recursive: true);
+    }
+
+    private static void CopyDirectory(string from, string to)
+    {
+        var root = Path.GetFullPath(from).TrimEnd('\\');
+        Directory.CreateDirectory(to);
+
+        foreach (var dir in Directory.GetDirectories(root, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(root, dir)));
+
+        foreach (var file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var dest = Path.Combine(to, Path.GetRelativePath(root, file));
+            File.Copy(file, dest, overwrite: false);
+            // File.Copy does not carry timestamps; config dirs and build caches care.
+            try { File.SetLastWriteTimeUtc(dest, File.GetLastWriteTimeUtc(file)); } catch { /* cosmetic */ }
         }
     }
 

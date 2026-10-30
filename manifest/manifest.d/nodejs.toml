@@ -2,11 +2,11 @@ schema = 1
 
 [tool]
 id      = 'nodejs'
-version = '24.22.1'
+version = "26.12.1"
 title   = 'Node.js'
 kind    = 'zip'
-archive = 'downloads/nodejs/24.22.1/node-v24.22.1-win-x64.zip'
-sha256  = 'd2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5'
+archive = 'downloads/nodejs/26.12.1/node-v26.12.1-win-x64.zip'
+sha256  = 'b3efd5c70cba3308ed46e7e699a9b8aac075bbc6b027fcb39c84c31acc25e2b4'
 strip   = 1
 
 [[path]]
@@ -14,7 +14,7 @@ dir = '.'
 
 [[verify]]
 run    = 'node --version'
-expect = 'v24.22.1'
+expect = 'v26.12.1'
 
 [[verify]]
 run    = 'npm --version'

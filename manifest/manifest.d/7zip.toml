@@ -2,11 +2,11 @@ schema = 1
 
 [tool]
 id      = '7zip'
-version = '25.01'
+version = "26.05"
 title   = '7-Zip (standalone 7zr)'
 kind    = 'raw'
-archive = 'downloads/7zip/25.01/7zr.exe'
-sha256  = '256feca8e274e5da655e2a284fabafd9f554365eb164862089dacd4e8276d282'
+archive = "downloads/7zip/26.05/7zr.exe"
+sha256  = "9bf582b894dfa665f852d7e9112b02290a1c303c2d95a21fcdc41ffcb03143b7"
 rename  = '7zr.exe'
 
 # The NSIS installer (7z2501-x64.exe) is kept in downloads for reference but is
@@ -22,4 +22,6 @@ expect = '7-Zip'
 kind    = 'sevenzip'
 index   = 'https://www.7-zip.org/download.html'
 pattern = '7-Zip\s+(?<ver>\d+\.\d+)'
-url     = 'https://www.7-zip.org/a/7z{version_compact}-x64.exe'
+# 这个工具就是独立的 7zr，GitHub release 直接提供裸 exe。
+# （www.7-zip.org/a/ 下没有 extra 包，安装器解出来也没有 7zr.exe。）
+url     = 'https://github.com/ip7z/7zip/releases/download/{version}/7zr.exe'

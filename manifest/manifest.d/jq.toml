@@ -2,11 +2,11 @@ schema = 1
 
 [tool]
 id      = 'jq'
-version = '1.7.1'
+version = "1.8.2"
 title   = 'jq'
 kind    = 'raw'
-archive = 'downloads/jq/1.7.1/jq-windows-amd64.exe'
-sha256  = '7451fbbf37feffb9bf262bd97c54f0da558c63f0748e64152dd87b0a07b6d6ab'
+archive = "downloads/jq/1.8.2/jq-windows-amd64.exe"
+sha256  = "a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627"
 rename  = 'jq.exe'
 
 [[path]]
@@ -14,7 +14,7 @@ dir = '.'
 
 [[verify]]
 run    = 'jq --version'
-expect = 'jq-1.7.1'
+expect = 'jq-1.8.2'
 
 [update]
 kind         = 'github'

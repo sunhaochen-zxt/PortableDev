@@ -15,6 +15,7 @@ param(
     [string] $Configuration = 'Release',
     [switch] $SkipManifest,
     [switch] $PruneManifest,
+    [switch] $ForceManifest,
     [switch] $KeepStage
 )
 
@@ -74,6 +75,13 @@ if (-not (Test-Path $dotnet)) { throw "dotnet.exe not found at $dotnet" }
 
 Write-Host "sdk      : $($sdkDir.FullName)"
 Write-Host "stick    : $StickRoot"
+
+# NuGet must resolve packages from the stick's own cache. The whole point of the drive is
+# that it works on a machine with no internet and no %USERPROFILE%\.nuget\packages; without
+# this the implicit restore behind 'dotnet publish' goes to nuget.org and fails offline
+# (NU1301), even though every package it needs is already under cache\nuget.
+$env:NUGET_PACKAGES = Join-Path $StickRoot 'cache\nuget'
+Write-Host "nuget    : $env:NUGET_PACKAGES"
 
 # ---------------------------------------------------------------- publish ----
 $stage = Join-Path $solutionRoot 'artifacts\app'
@@ -178,6 +186,7 @@ if (-not $SkipManifest) {
 
     $srcFiles = Get-ChildItem $srcManifest -Recurse -File
     $copied = 0
+    $stale = 0
     foreach ($f in $srcFiles) {
         $rel = $f.FullName.Substring($srcManifest.Length + 1)
         $dest = Join-Path $dstManifest $rel
@@ -188,10 +197,29 @@ if (-not $SkipManifest) {
                 ((Get-FileHash $f.FullName -Algorithm SHA256).Hash -eq (Get-FileHash $dest -Algorithm SHA256).Hash)
 
         if (-not $same) {
+            # The stick copy is what the machine actually runs, and it can be edited in
+            # place (the GUI writes manifest.d\<id>.toml when a tool is added or upgraded).
+            # Overwriting it with an older repo copy silently downgrades tools and drops
+            # sections such as [[home_dir]] - so refuse and ask for -ForceManifest.
+            if (-not $ForceManifest -and (Test-Path $dest) -and
+                ((Get-Item $dest).LastWriteTimeUtc -gt (Get-Item $f.FullName).LastWriteTimeUtc)) {
+                Write-Host "manifest : STALE $rel"
+                Write-Host "           the stick copy is NEWER than the repo copy; not overwriting it"
+                $stale++
+                continue
+            }
             Copy-Item $f.FullName $dest -Force
             Write-Host "manifest : updated $rel"
             $copied++
         }
+    }
+
+    if ($stale -gt 0) {
+        Write-Host ""
+        Write-Host "manifest : $stale file(s) on the stick are newer than the repo."
+        Write-Host "           Copy them back first (the repo is the source of truth), or rerun"
+        Write-Host "           with -ForceManifest to deliberately overwrite the stick."
+        throw "refusing to overwrite a newer manifest on the stick"
     }
 
     $dstFiles = Get-ChildItem $dstManifest -Recurse -File

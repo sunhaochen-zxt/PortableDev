@@ -5,8 +5,10 @@ schema = 1
 #   {{ROOT}}   -> stable junction path (default C:\Dev)
 #   {{TOOL}}   -> {{ROOT}}\tools\<id>\<version>
 
-# NOTE: everything below must come BEFORE the first [table] header, otherwise
-# TOML folds it into the preceding table (a real bug this caught).
+# NOTE: path_order is a bare key, so it must come BEFORE the first [table] header,
+# otherwise TOML folds it into the preceding table (a real bug this caught).
+# Every [[array-of-tables]] section must likewise stay INSIDE its parent table:
+# a [[home_dir]] written under [[env]] silently becomes env.home_dir and is lost.
 
 # Order in which tool path entries are prepended to PATH.
 # Tools not listed here still apply, appended in id order.
@@ -28,6 +30,52 @@ path_order = [
 [root]
 stable = 'C:\Dev'
 marker = '.portabledev-root'
+
+# Directories that must live on the stick, so they are not lost when the machine
+# is restored. Each one becomes a junction on the system drive pointing into
+# {{ROOT}}\home.
+#
+# The user profile folder itself is NOT redirected: NTFS cannot host a junction
+# over it, and the browser and installer profiles must not move.
+#
+# Deliberately not listed:
+#   .nuget   - hundreds of MB of package cache; losing it only costs a re-download
+#   AppData\Local\Temp - multi-GB; wiping it on every boot is a feature, not a loss
+[[home_dir]]
+for  = 'VSCode windows and settings'
+root = 'APPDATA'
+path = 'Code'
+
+[[home_dir]]
+for  = 'VSCode Insiders windows and settings'
+root = 'APPDATA'
+path = 'Code - Insiders'
+
+[[home_dir]]
+for  = 'Sublime Text settings'
+root = 'APPDATA'
+path = 'Sublime Text'
+
+[[home_dir]]
+for  = 'pwsh profile and history'
+root = 'APPDATA'
+path = 'PowerShell'
+
+[[home_dir]]
+for  = 'clangd index and misc tool config'
+root = 'USERPROFILE'
+path = '.config'
+
+[[home_dir]]
+for  = 'hex editors and other portable tools'
+root = 'USERPROFILE'
+path = '.portable'
+
+[apply]
+# Move an existing real directory onto the stick instead of skipping it.
+# Off by default: an upgrade should not silently relocate somebody's data.
+# Turn it on when you want this machine's existing settings carried over.
+home_adopt = false
 
 # Machine-independent environment. Everything that would normally leak into
 # %APPDATA% / %LOCALAPPDATA% is redirected onto the stick here.
@@ -58,4 +106,3 @@ value = '1'
 [[env]]
 name = 'PYTHONUTF8'
 value = '1'
-
