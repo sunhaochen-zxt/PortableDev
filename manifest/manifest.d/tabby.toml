@@ -1,0 +1,30 @@
+schema = 1
+
+[tool]
+id       = 'tabby'
+version  = '1.0.238'
+title    = 'Tabby terminal (portable)'
+kind     = 'prebuilt'
+dir      = 'tools/tabby/1.0.238'
+# The empty data\ next to Tabby.exe IS the portable switch. Tabby's main process runs
+# this before it creates any window:
+#   const dir = path.join(path.dirname(app.getPath('exe')), 'data')
+#   fs.existsSync(dir) && app.setPath('userData', dir)
+# so config.yaml, plugins, hotkeys, SSH profiles and the window layout land there
+# instead of %APPDATA%\tabby, and the GUI upgrade moves that folder into the next
+# version directory. Do not delete it: without it Tabby silently falls back to APPDATA.
+data     = 'data'
+provides = ['tabby']
+notes    = 'portable Electron app: data\ next to Tabby.exe holds userData. GUI only, so no [[path]]; launch through Tabby.cmd'
+
+# A GUI has no --version to ask, and running Tabby.exe from a check would leave a window
+# open until the 60 s timeout kills it. Assert the files instead: `dir` exits non-zero when
+# one is missing, and "app.asar" is the only thing a healthy install can print for it.
+[[verify]]
+run    = 'cmd.exe /c dir /b resources\app.asar'
+expect = 'app.asar'
+
+# The portability itself is worth checking: a missing data\ is a silent non-portable app.
+[[verify]]
+run    = 'cmd.exe /c dir /b /ad'
+expect = 'data'

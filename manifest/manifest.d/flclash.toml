@@ -1,0 +1,31 @@
+schema = 1
+
+[tool]
+id       = 'flclash'
+version  = '0.9.2'
+title    = 'FlClash (portable)'
+kind     = 'prebuilt'
+dir      = 'tools/flclash/0.9.2'
+provides = ['flclash']
+# data\ in this folder is NOT user data: it is the Flutter bundle (app.so, flutter_assets,
+# GEOIP/GEOSITE). That is why [tool].data is deliberately NOT set here - declaring it would
+# make an upgrade shuffle the old bundle over the new one.
+#
+# User data (profiles, subscriptions, settings) goes to %APPDATA%\FlClash, which is why
+# manifest.toml declares a [[home_dir]] for it. Without apply, the app writes to the real
+# APPDATA and is not portable - the junction is what makes it so.
+#
+# FlClashHelperService.exe (TUN mode) installs a Windows *service* and EnableLoopback.exe
+# edits per-machine loopback exemptions; both are machine state that cannot travel on the
+# stick. System-proxy mode needs neither.
+notes    = 'portable proxy client; settings travel via the APPDATA\FlClash home link. GUI only, so no [[path]]; launch through FlClash.cmd'
+
+# FlClashCore.exe is mihomo and wants a config path, so `-v` is no version probe here.
+# Assert the three files the app cannot start without.
+[[verify]]
+run    = 'cmd.exe /c dir /b FlClash.exe FlClashCore.exe'
+expect = 'FlClashCore.exe'
+
+[[verify]]
+run    = 'cmd.exe /c dir /b data\app.so'
+expect = 'app.so'

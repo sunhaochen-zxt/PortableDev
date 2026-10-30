@@ -247,7 +247,7 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
     {
         var m = ManifestLoader.Load(stickRoot);
         Check("Manifest loads", true);
-        Check("Manifest tool count == 14", m.Tools.Count == 14, $"got {m.Tools.Count}");
+        Check("Manifest tool count == 16", m.Tools.Count == 16, $"got {m.Tools.Count}");
         Check("Manifest stable root", m.Root.Stable == @"C:\Dev", m.Root.Stable);
         Check("Manifest path order == 13", m.PathOrder.Count == 13, $"got {m.PathOrder.Count}");
         Check("Manifest env non-empty", m.Env.Count > 0);
@@ -257,8 +257,8 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
         var plan = planner.Build(new MachineState { UserPathRaw = @"C:\Windows", StickRoot = Stick });
 
         var toolSteps = plan.Steps.Where(s => s.Kind == "tool").ToList();
-        Check("All 14 tools present", toolSteps.Count == 14, $"got {toolSteps.Count}");
-        Check("All 14 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
+        Check("All 16 tools present", toolSteps.Count == 16, $"got {toolSteps.Count}");
+        Check("All 16 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
             string.Join(",", toolSteps.Where(s => s.Change != ChangeKind.None).Select(s => s.Target)));
 
         // Derive the versions from the manifest instead of hard-coding them: this test is

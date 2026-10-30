@@ -72,6 +72,14 @@ for  = 'hex editors and other portable tools'
 root = 'USERPROFILE'
 path = '.portable'
 
+# FlClash 0.9.2 has no portable mode of its own: profiles, subscriptions and settings
+# always go to %APPDATA%\FlClash, through the Win32 known-folder API, so HOME cannot
+# reach it. The junction is the only thing that carries them on the stick.
+[[home_dir]]
+for  = 'FlClash proxy profiles and settings'
+root = 'APPDATA'
+path = 'FlClash'
+
 [apply]
 # Move an existing real directory onto the stick instead of skipping it.
 # Off by default: an upgrade should not silently relocate somebody's data.
