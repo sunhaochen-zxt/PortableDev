@@ -143,7 +143,7 @@ Fourteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 | jq | 1.8.2 | |
 | 7-Zip | 26.05 | standalone `7zr`; zip/tar.gz are unpacked in-process |
 | LLVM / clang | 23.1.3 | llvm-mingw (UCRT); add `-static` for standalone exes |
-| VSCode | 1.143.1 | portable `data\`, settings in `data\user-data\User` |
+| VSCode | 1.144.0 | portable `data\`, settings in `data\user-data\User` |
 | Sublime Text | 4215 | portable `Data\`, settings in `Data\Packages\User`, `subl` on PATH |
 | PowerShell | 7.6.8 | portable `pwsh`, self-contained .NET; the built-in 5.1 is untouched |
 | fastfetch | 2.70.0 | full package (presets + `lua55.dll`); feeds the GUI **系统状态** page, also on PATH |

@@ -2,10 +2,10 @@ schema = 1
 
 [tool]
 id      = 'vscode'
-version = '1.143.1'
+version = "1.144.0"
 title   = 'Visual Studio Code (portable)'
 kind    = 'prebuilt'
-dir     = 'tools/vscode/1.143.1'
+dir     = "tools/vscode/1.144.0"
 # Portable data dir lives next to Code.exe; it is created on first run and
 # carries settings + extensions with the stick.
 data    = 'data'
@@ -15,7 +15,7 @@ dir = 'bin'
 
 [[verify]]
 run    = 'bin\code.cmd --version'
-expect = '1.143.1'
+expect = '1.144.0'
 
 [update]
 kind  = 'vscode'

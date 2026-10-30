@@ -34,16 +34,32 @@ public static class Upgrader
     {
         var toolId = tool.Tool.Id;
 
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
+
         var archiveName = FileNameOf(info.DownloadUrl);
         if (archiveName.Length == 0)
             return Fail(log, "下载地址里没有文件名：" + info.DownloadUrl);
 
+        // Some update endpoints carry no file name in the path — the VS Code one is
+        // ".../<version>/win32-x64-archive/stable" — so the last segment is a word like
+        // "stable" and the download ends up with no extension. The real name is only in the
+        // redirect target / Content-Disposition. Ask for it up front: one HEAD next to a
+        // 350 MB GET, and every later step that looks at the name ("is this a zip?") and
+        // every human looking at downloads\ sees the actual package.
+        if (Path.GetExtension(archiveName).Length == 0)
+        {
+            var remoteName = await RemoteNameAsync(http, info.DownloadUrl, ct);
+            if (remoteName.Length > 0 && !string.Equals(remoteName, archiveName, StringComparison.Ordinal))
+            {
+                log("下载文件名取自重定向：" + remoteName);
+                archiveName = remoteName;
+            }
+        }
+
         var downloadDir = Path.Combine(stickRoot, "downloads", toolId, info.AvailableVersion);
         var archivePath = Path.Combine(downloadDir, archiveName);
         Directory.CreateDirectory(downloadDir);
-
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
-        http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
 
         // The published checksum is resolved here, i.e. only when a download is really
         // going to be used. Without this the value was always null and the "corrupt
@@ -140,7 +156,7 @@ public static class Upgrader
             ? "tools/" + toolId + "/" + oldVersion
             : tool.Tool.Dir!.Replace('\\', '/');
 
-        log("更新清单 -> " + info.AvailableVersion + "（版本、目录、archive、sha256、校验期望）");
+        log("更新清单 -> " + info.AvailableVersion + "（version、dir、校验期望，以及清单里已有的 archive/sha256 行）");
 
         var text = ManifestEditor.Read(stickRoot, toolId);
         var archiveRel = Path.GetRelativePath(stickRoot, archivePath).Replace('\\', '/');
@@ -208,15 +224,57 @@ public static class Upgrader
             var oldAbs = Path.Combine(stickRoot, oldDirRel.Replace('/', '\\'));
             if (Directory.Exists(oldAbs))
             {
-                try
+                // Portable user data lives INSIDE the version directory: vscode keeps
+                // settings and extensions in tools\vscode\<version>\data (635 MB here), and
+                // it must stay next to Code.exe. Deleting the old version directory would
+                // delete it, so move it first and keep the old directory if that fails.
+                var dataReady = true;
+                if (!string.IsNullOrWhiteSpace(tool.Tool.Data))
                 {
-                    Directory.Delete(oldAbs, recursive: true);
-                    deleted = true;
-                    log("已删除旧版本目录 " + oldDirRel);
+                    var rel = tool.Tool.Data!.Replace('/', '\\');
+                    var oldData = Path.Combine(oldAbs, rel);
+                    var newData = Path.Combine(targetDir, rel);
+
+                    if (Directory.Exists(oldData))
+                    {
+                        if (Directory.Exists(newData))
+                        {
+                            dataReady = false;
+                            log("新版本目录里已经有 " + tool.Tool.Data + "，旧版本目录连同旧数据保留在 " + oldDirRel);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                Directory.Move(oldData, newData);
+                                log("已把便携数据目录 " + tool.Tool.Data + " 搬到新版本（" + dirRel + "）");
+                            }
+                            catch (Exception ex)
+                            {
+                                dataReady = false;
+                                log("便携数据目录搬不动（" + ex.Message + "），旧版本目录保留，请手动把 "
+                                    + oldDirRel + "\\" + rel + " 移到 " + dirRel + "\\" + rel);
+                            }
+                        }
+                    }
                 }
-                catch (Exception ex)
+
+                if (!dataReady)
                 {
-                    log("旧版本目录删不掉（可能还被占用），可以稍后手动删除：" + oldDirRel + " — " + ex.Message);
+                    log("为保住用户数据，旧版本目录不删除：" + oldDirRel);
+                }
+                else
+                {
+                    try
+                    {
+                        Directory.Delete(oldAbs, recursive: true);
+                        deleted = true;
+                        log("已删除旧版本目录 " + oldDirRel);
+                    }
+                    catch (Exception ex)
+                    {
+                        log("旧版本目录删不掉（可能还被占用），可以稍后手动删除：" + oldDirRel + " — " + ex.Message);
+                    }
                 }
             }
         }
@@ -265,5 +323,49 @@ public static class Upgrader
             var i = url.LastIndexOf('/');
             return i < 0 ? string.Empty : url[(i + 1)..];
         }
+    }
+
+    /// <summary>
+    /// The file name the server actually serves, from Content-Disposition or from the last
+    /// segment of the redirect target. Empty when the server refuses to say — the caller then
+    /// keeps the name it had, and the extractor falls back to sniffing the content.
+    /// </summary>
+    private static async Task<string> RemoteNameAsync(HttpClient http, string url, CancellationToken ct)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Head, url);
+            using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!res.IsSuccessStatusCode) return string.Empty;
+
+            var disposition = res.Content.Headers.ContentDisposition;
+            var name = disposition?.FileNameStar ?? disposition?.FileName;
+            name = name?.Trim().Trim('"');
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                name = LastSegment(name!);
+                if (name.Length > 0) return name;
+            }
+
+            var finalUri = res.RequestMessage?.RequestUri;
+            if (finalUri is not null)
+            {
+                var candidate = Uri.UnescapeDataString(Path.GetFileName(finalUri.AbsolutePath));
+                // Require an extension: a bare word is exactly what we are trying to replace.
+                if (candidate.Length > 0 && Path.GetExtension(candidate).Length > 1) return candidate;
+            }
+        }
+        catch
+        {
+            // Offline or blocked HEAD: not fatal, the download itself will report trouble.
+        }
+
+        return string.Empty;
+    }
+
+    private static string LastSegment(string name)
+    {
+        var i = Math.Max(name.LastIndexOf('/'), name.LastIndexOf('\\'));
+        return i < 0 ? name : name[(i + 1)..];
     }
 }

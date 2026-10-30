@@ -97,13 +97,15 @@ public static class ToolInstaller
             result.Log.Add("已安装 " + count + " 个文件到 " + target);
             result.Log.Add("PATH 尚未改变：回到工具页按“应用”或运行 apply 才会生效。");
 
-            return new InstallResult
+            var done = new InstallResult
             {
                 Ok = true,
                 TargetDir = target,
                 FileCount = count,
                 Message = "安装完成，共 " + count + " 个文件",
             };
+            done.Log.AddRange(result.Log);
+            return done;
         }
         catch (Exception ex)
         {
@@ -130,21 +132,66 @@ public static class ToolInstaller
         return Directory.Exists(entries[0]) ? entries[0] : null;
     }
 
+    /// <summary>
+    /// What the file actually is. The name is not evidence: an update URL such as
+    /// <c>https://update.code.visualstudio.com/1.144.0/win32-x64-archive/stable</c> has no
+    /// file name at all, so the download lands as "stable" with no extension. Dispatching on
+    /// the extension then sent a zip to 7zr (7z format only), which answered "Cannot open
+    /// the file as archive". Read the first bytes instead.
+    /// </summary>
+    private enum ArchiveKind { Unknown, Zip, Gzip, SevenZip, Cab, Xz }
+
+    private static ArchiveKind Detect(string archive)
+    {
+        try
+        {
+            using var fs = File.OpenRead(archive);
+            Span<byte> head = stackalloc byte[8];
+            var read = fs.Read(head);
+            if (read >= 4 && head[0] == 0x50 && head[1] == 0x4B
+                && ((head[2] == 0x03 && head[3] == 0x04)   // normal entry
+                 || (head[2] == 0x05 && head[3] == 0x06)   // empty archive
+                 || (head[2] == 0x07 && head[3] == 0x08))) // spanned
+                return ArchiveKind.Zip;
+            if (read >= 2 && head[0] == 0x1F && head[1] == 0x8B)
+                return ArchiveKind.Gzip;
+            if (read >= 6 && head[0] == 0x37 && head[1] == 0x7A && head[2] == 0xBC
+                && head[3] == 0xAF && head[4] == 0x27 && head[5] == 0x1C)
+                return ArchiveKind.SevenZip;
+            if (read >= 4 && head[0] == 0x4D && head[1] == 0x53 && head[2] == 0x43 && head[3] == 0x46)
+                return ArchiveKind.Cab;
+            if (read >= 6 && head[0] == 0xFD && head[1] == 0x37 && head[2] == 0x7A
+                && head[3] == 0x58 && head[4] == 0x5A && head[5] == 0x00)
+                return ArchiveKind.Xz;
+        }
+        catch
+        {
+            // Unreadable file: fall through, Extract reports the real error.
+        }
+
+        return ArchiveKind.Unknown;
+    }
+
     private static bool Extract(string stickRoot, string archive, string dest, List<string> log, out string error)
     {
         error = string.Empty;
         var lower = archive.ToLowerInvariant();
+        var kind = Detect(archive);
 
         try
         {
-            if (lower.EndsWith(".zip", StringComparison.Ordinal))
+            if (kind == ArchiveKind.Zip
+                || (kind == ArchiveKind.Unknown && lower.EndsWith(".zip", StringComparison.Ordinal)))
             {
                 log.Add("使用内置 zip 解压");
                 ZipFile.ExtractToDirectory(archive, dest, overwriteFiles: true);
                 return true;
             }
 
-            if (lower.EndsWith(".tar.gz", StringComparison.Ordinal) || lower.EndsWith(".tgz", StringComparison.Ordinal))
+            if (kind == ArchiveKind.Gzip
+                || (kind == ArchiveKind.Unknown
+                    && (lower.EndsWith(".tar.gz", StringComparison.Ordinal)
+                        || lower.EndsWith(".tgz", StringComparison.Ordinal))))
             {
                 log.Add("使用内置 tar.gz 解压");
                 using var file = File.OpenRead(archive);
@@ -153,10 +200,23 @@ public static class ToolInstaller
                 return true;
             }
 
+            if (kind == ArchiveKind.Cab)
+            {
+                error = "不支持的格式：cab（Windows Installer 包）。请用 msiexec /a 或换成官方 zip 包。";
+                return false;
+            }
+
+            if (kind == ArchiveKind.Xz)
+            {
+                error = "不支持的格式：xz。目前只处理 zip、tar.gz 和 7z。";
+                return false;
+            }
+
             var sevenZip = FindSevenZip(stickRoot);
             if (sevenZip is null)
             {
-                error = "需要 tools\\7zip\\<版本>\\7z.exe 才能解开 " + Path.GetExtension(archive) + " 包";
+                error = "无法识别这个压缩包的格式，且盘上没有 tools\\7zip\\<版本>\\7z.exe 可以尝试："
+                    + Path.GetFileName(archive);
                 return false;
             }
 
@@ -208,7 +268,11 @@ public static class ToolInstaller
         }
     }
 
-    /// <summary>Locate 7z.exe / 7zr.exe on the stick (used for real 7z archives only).</summary>
+    /// <summary>
+    /// Locate the 7-Zip binary on the stick, best first. 7zr is the reduced build that only
+    /// understands the 7z format, so it must never be the first choice when a multi-format
+    /// 7za/7z happens to be installed too.
+    /// </summary>
     private static string? FindSevenZip(string stickRoot)
     {
         var baseDir = Path.Combine(stickRoot, "tools", "7zip");
@@ -216,7 +280,7 @@ public static class ToolInstaller
 
         foreach (var dir in Directory.GetDirectories(baseDir).OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase))
         {
-            foreach (var n in new[] { "7z.exe", "7zr.exe" })
+            foreach (var n in new[] { "7z.exe", "7za.exe", "7zr.exe" })
             {
                 var p = Path.Combine(dir, n);
                 if (File.Exists(p)) return p;

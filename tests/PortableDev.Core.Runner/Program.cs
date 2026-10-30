@@ -261,8 +261,14 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
         Check("All 14 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
             string.Join(",", toolSteps.Where(s => s.Change != ChangeKind.None).Select(s => s.Target)));
 
-        Check("VSCode prebuilt dir resolves", plan.NewUserPathRaw.Contains(@"C:\Dev\tools\vscode\1.143.1\bin"));
-        Check("llvm-mingw bin resolves", plan.NewUserPathRaw.Contains(@"C:\Dev\tools\llvm-mingw\20261020\bin"));
+        // Derive the versions from the manifest instead of hard-coding them: this test is
+        // about "the prebuilt dir resolves to a stable-root path", not about which version
+        // happens to be installed, and a literal here turns every tool upgrade red.
+        var vscodeVersion = m.Tools["vscode"].Tool.Version;
+        var llvmVersion = m.Tools["llvm-mingw"].Tool.Version;
+        Check("VSCode prebuilt dir resolves", plan.NewUserPathRaw.Contains(@"C:\Dev\tools\vscode\" + vscodeVersion + @"\bin"),
+            plan.NewUserPathRaw);
+        Check("llvm-mingw bin resolves", plan.NewUserPathRaw.Contains(@"C:\Dev\tools\llvm-mingw\" + llvmVersion + @"\bin"));
 
         var second = planner.Build(new MachineState { UserPathRaw = plan.NewUserPathRaw, StickRoot = Stick });
         Check("Real manifest plan idempotent", second.NewUserPathRaw == plan.NewUserPathRaw);
