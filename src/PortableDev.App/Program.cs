@@ -110,6 +110,8 @@ public static class Program
               --no-rollback       Skip the automatic undo when apply fails
                                   (default: restore the previous registry values)
               --fetch             With update: download the new packages too
+              --profile <name>    With shell: also set that profile's variables
+                                  (declared as [[profile]] in a tool manifest)
               --trace             Print the computed PATH/env, change nothing
               --dry-run           Alias for plan
 
@@ -282,7 +284,12 @@ public sealed class CommandOptions
     /// Off by default, because "PATH says the tools are here and they are not" is a
     /// worse place to end up than "nothing changed, here is the error".
     /// </summary>
-    public bool NoRollback { get; private set; }    public string? Root { get; private set; }
+    public bool NoRollback { get; private set; }
+
+    /// <summary>--profile: with "shell", the named env profile to add to that terminal.</summary>
+    public string? Profile { get; private set; }
+
+    public string? Root { get; private set; }
     public string? Stable { get; private set; }
 
     /// <summary>--elevated-job kind: junction-create | junction-remove.</summary>
@@ -330,6 +337,9 @@ public sealed class CommandOptions
                 case "--root":
                     o.Root = Value(args, ref i, a, o);
                     break;
+                case "--profile":
+                    o.Profile = Value(args, ref i, a, o);
+                    break;
                 case "--stable":
                     o.Stable = Value(args, ref i, a, o);
                     break;
@@ -347,6 +357,7 @@ public sealed class CommandOptions
                     break;
                 default:
                     if (a.StartsWith("--root=", StringComparison.Ordinal)) o.Root = a["--root=".Length..];
+                    else if (a.StartsWith("--profile=", StringComparison.Ordinal)) o.Profile = a["--profile=".Length..];
                     else if (a.StartsWith("--stable=", StringComparison.Ordinal)) o.Stable = a["--stable=".Length..];
                     else if (a.StartsWith("--job=", StringComparison.Ordinal)) o.JobKind = a["--job=".Length..];
                     else if (a.StartsWith("--link=", StringComparison.Ordinal)) o.Link = a["--link=".Length..];

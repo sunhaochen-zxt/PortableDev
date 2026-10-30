@@ -29,12 +29,18 @@ stick without downloading the tool again.
 > may not be redistributed - a stick is fine for your own use, publishing the contents is
 > not.
 
-## Two levels of "activated"
+## Activation: three levels
 
 | Level | How | What you get |
 |---|---|---|
 | Always on | `PortableDev apply` | `cl`/`link` on PATH, `INCLUDE`, `LIB`, `VCToolsInstallDir`, `WindowsSdkDir`, `WindowsSDKVersion` in the user environment |
-| On demand | `call scripts\msvc-activate.cmd` | the six extra variables Flutter's Windows build needs |
+| Per shell | `PortableDev shell --profile msvc` | the six extra variables Flutter's Windows build needs |
+| Per script | `call scripts\msvc-activate.cmd` | the same six, in the current process |
+
+The six live in `manifest\manifest.d\msvc.toml` as a `[[profile]]`, so there is one source
+of truth; `msvc-activate.cmd` is for callers that are already a batch file (a `[[profile]]`
+only reaches a shell that `PortableDev` started). They must not go into the registry:
+`ProgramFiles(x86)` and `EnterpriseWDK` change how unrelated programs behave.
 
 So plain C/C++ needs nothing:
 
@@ -43,10 +49,10 @@ cl hello.c
 hello.exe
 ```
 
-and Flutter needs one line first:
+and Flutter needs one command first:
 
 ```bat
-call E:\PortableDev\scripts\msvc-activate.cmd
+PortableDev.cmd shell --profile msvc
 cd /d E:\项目\PiliPlus
 flutter build windows --release
 ```
@@ -100,12 +106,17 @@ msvc-kit download --vs-channel 2022 --msvc-version 14.44 --sdk-version 10.0.2262
     --arch x64 --target E:\PortableDev\tools\msvc --no-sdk --parallel-downloads 16
 ```
 
-After a version change, four places carry the number and all of them must agree:
+After a version change, five places carry the number and all of them must agree:
 
-1. `manifest\manifest.d\msvc.toml` - `version`, `[[path]]`, every `[[env]]`
+1. `manifest\manifest.d\msvc.toml` - `version`, `[[path]]`, every `[[env]]`, and the
+   `[[profile]]`'s `VisualStudioVersion`
 2. `scripts\msvc-activate.cmd` - `VisualStudioVersion`
 3. `tools\msvc\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt`
-4. `tools\msvc\setup.cmd` - regenerate rather than edit:
+4. `tools\msvc\pf86\...\vswhere.exe` - the shim's `MSVC_INSTALL_VERSION`; rebuild it from
+   `scripts\vswhere-shim.c` (the source sits next to the exe too, because `tools\` is not
+   in git). The shim derives `installationPath` from its own location, so only the version
+   string travels with a toolset upgrade.
+5. `tools\msvc\setup.cmd` - regenerate rather than edit:
    `msvc-kit setup --script --shell cmd --portable-root "%~dp0" --dir E:\PortableDev\tools\msvc > setup.cmd`
 
 Then `PortableDev apply --yes`, `PortableDev verify` (expect 30/30), and rebuild a Flutter

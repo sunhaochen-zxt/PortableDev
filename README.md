@@ -22,7 +22,7 @@ portable-dev/
 ├─ tests/
 │  └─ PortableDev.Core.Runner/   self-contained assertions (no testhost)
 ├─ manifest/                manifest.toml + manifest.d/*.toml  (copied to the stick)
-├─ scripts/                 bootstrap + publish scripts, msvc-activate.cmd
+├─ scripts/                 publish + migration scripts, msvc-activate.cmd
 └─ docs/                    long-form notes; docs/msvc.md explains the MSVC toolchain
 ```
 
@@ -77,9 +77,16 @@ PortableDev verify    # run every tool's declared [[verify]]
 PortableDev clean     # undo apply: junction, home links, env vars, managed PATH
 PortableDev gui       # launch the WPF front-end (a sibling PortableDev.Gui.exe)
 PortableDev shell     # open a terminal that already has the environment applied
+PortableDev shell --profile msvc     # ... plus a named profile's variables
 PortableDev update    # ask upstream for newer versions (read-only)
 PortableDev update --fetch jq   # download an update without installing it
 ```
+
+`--profile <name>` adds the variables of a `[[profile]]` declared in a tool manifest to
+that one terminal. Profiles exist for variables that must not be written to the registry -
+`ProgramFiles(x86)`, `EnterpriseWDK` and friends change how unrelated programs behave, so
+they are opt-in per shell. `msvc` is the one shipped today; see
+`source\docs\msvc.md`.
 
 Options: `--json`, `--yes`, `--root <path>`, `--stable <path>`, `--no-junction`,
 `--no-elevate`, `--test-registry`, `--strict`, `--adopt-home`, `--no-adopt-home`,
@@ -184,10 +191,14 @@ Visual Studio *shape* around it, so the unmodified Flutter SDK builds against it
 One command, from any shell:
 
 ```bat
-call E:\PortableDev\scripts\msvc-activate.cmd
+PortableDev.cmd shell --profile msvc
 cd /d E:\项目\PiliPlus
 flutter build windows --release
 ```
+
+That opens a terminal with the toolchain in it. If you are already inside a batch file or
+a CI step, `call E:\PortableDev\scripts\msvc-activate.cmd` sets the same variables in the
+current process instead.
 
 Verified end to end on this machine: a `flutter create` app built in **31.2 s** to
 `build\windows\x64\runner\Release\windemo.exe`, and `cl hello.c` compiles, links and runs.

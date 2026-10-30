@@ -90,3 +90,16 @@ expect = 'MSBuild.exe'
 [[verify]]
 run    = 'cmd.exe /c dir /b "pf86\Microsoft Visual Studio\Installer\vswhere.exe"'
 expect = 'vswhere.exe'
+
+# A profile is a set of variables that must NOT reach the registry: ProgramFiles(x86) and
+# EnterpriseWDK change how unrelated programs behave, so they exist only in a shell that
+# asked for them:
+#
+#   PortableDev.cmd shell --profile msvc
+#
+# That is the preferred way to prepare a `flutter build windows`. scripts\msvc-activate.cmd
+# sets the same values and stays for callers that are already a batch file.
+[[profile]]
+name  = 'msvc'
+notes = 'Visual Studio shape for Flutter/CMake/MSBuild; use with shell --profile msvc'
+env   = { EnterpriseWDK = 'True', DisableRegistryUse = 'True', VSINSTALLDIR = '{{TOOL}}', VisualStudioVersion = '17.14.35207.0', 'ProgramFiles(x86)' = '{{TOOL}}\pf86', UseEnv = 'true', CheckMSVCComponents = 'false' }

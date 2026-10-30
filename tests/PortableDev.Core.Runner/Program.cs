@@ -275,6 +275,22 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
         Check("Real manifest 2nd run no path churn",
             !second.Steps.Any(s => s.Kind == "path" && s.Change != ChangeKind.None));
         Check("Real plan has no stick drive in PATH", !plan.NewUserPathRaw.Contains(@"E:\"));
+
+        // Profiles: declared inside a tool manifest, collected globally, never applied.
+        var profile = m.FindProfile("msvc");
+        Check("Profile msvc declared", profile is not null);
+        Check("Profile is owned by its tool", profile?.ToolId == "msvc", profile?.ToolId);
+        Check("Profile has env", (profile?.Env.Count ?? 0) >= 6, $"{profile?.Env.Count}");
+        Check("Profile lookup is case-insensitive", m.FindProfile("MSVC") is not null);
+        Check("Unknown profile returns null", m.FindProfile("nope") is null);
+        Check("Profile env never reaches PATH", !plan.NewUserPathRaw.Contains("EnterpriseWDK"));
+
+        // {{TOOL}} inside a profile must expand to that tool's directory on the stable root.
+        var toolSpec = m.Tools["msvc"];
+        var expanded = resolver.Expand(
+            profile?.Env.First(e => e.Name == "VSINSTALLDIR").Value ?? "", toolSpec);
+        Check("Profile {{TOOL}} expands to the tool dir",
+            expanded == Path.Combine(Stable, "tools", "msvc"), expanded);
     }
     catch (Exception ex)
     {

@@ -64,6 +64,29 @@ public static class ShellLauncher
                 env[spec.Name] = resolver.Expand(spec.Value, tool);
         }
 
+        // --profile <name>: a named set of variables that must not go into the registry
+        // (see ProfileSpec). Expanded with its owning tool so {{TOOL}} works, and applied
+        // last so a profile can override a tool's global value for this shell only.
+        if (!string.IsNullOrWhiteSpace(opts.Profile))
+        {
+            var profile = manifest.FindProfile(opts.Profile);
+            if (profile is null)
+            {
+                var known = manifest.Profiles.Count == 0
+                    ? "none declared"
+                    : string.Join(", ", manifest.Profiles.Select(p => p.Name));
+                Console.Error.WriteLine($"unknown profile '{opts.Profile}'; available: {known}");
+                return 2;
+            }
+
+            var owner = profile.ToolId is not null && manifest.Tools.TryGetValue(profile.ToolId, out var t)
+                ? t
+                : null;
+
+            foreach (var spec in profile.Env)
+                env[spec.Name] = owner is null ? resolver.Expand(spec.Value) : resolver.Expand(spec.Value, owner);
+        }
+
         // Pick the default shell from what is actually installed: since the stick
         // ships PowerShell 7, "shell" should open pwsh, not the built-in 5.1. Asking
         // for powershell/ps explicitly still gets you 5.1, on purpose.

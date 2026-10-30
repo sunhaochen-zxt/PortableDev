@@ -36,6 +36,7 @@ public static class ManifestLoader
         var env = ReadEnv(rootTable, "env", errors, rootFile);
 
         var tools = new Dictionary<string, ToolManifest>(StringComparer.OrdinalIgnoreCase);
+        var profiles = new List<ProfileSpec>();
         var toolDir = Path.Combine(stickRoot, "manifest", ToolDirName);
         if (Directory.Exists(toolDir))
         {
@@ -53,6 +54,25 @@ public static class ManifestLoader
                     continue;
                 }
                 tools[tool.Tool.Id] = tool;
+
+                // Profiles are declared inside a tool manifest so that {{TOOL}} has an
+                // owner to expand to; stamp the id here, then collect them globally.
+                foreach (var profile in tool.Profiles)
+                {
+                    if (profiles.Any(p => string.Equals(p.Name, profile.Name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        errors.Add($"{file}: duplicate [[profile]] '{profile.Name}'");
+                        continue;
+                    }
+
+                    profiles.Add(new ProfileSpec
+                    {
+                        Name = profile.Name,
+                        ToolId = tool.Tool.Id,
+                        Env = profile.Env,
+                        Notes = profile.Notes,
+                    });
+                }
             }
         }
 
@@ -71,6 +91,7 @@ public static class ManifestLoader
                 HomeAdopt = GetBool(applySection, "home_adopt", false),
             },
             HomeDirs = ReadHomeDirs(rootTable, errors, rootFile),
+            Profiles = profiles,
             PathOrder = pathOrder,
             Env = env,
             Tools = tools,
@@ -162,6 +183,7 @@ public static class ManifestLoader
             },
             Path = paths,
             Env = ReadEnv(table, "env", errors, file),
+            Profiles = ReadProfiles(table, errors, file),
             Verify = verifies,
             Update = ReadUpdate(table),
             Prepare = ReadHook(table, "prepare"),
@@ -255,7 +277,58 @@ public static class ManifestLoader
         return list;
     }
 
-    // ---- small typed accessors (Tomlyn gives object) ------------------------
+    /// <summary>
+    /// Read [[profile]] sections: a name plus an inline env table.
+    ///
+    ///   [[profile]]
+    ///   name = 'msvc'
+    ///   env  = { EnterpriseWDK = 'True', VSINSTALLDIR = '{{TOOL}}' }
+    ///
+    /// Inline rather than repeated [[profile.env]] on purpose: a profile is one indivisible
+    /// set of variables, so it reads better as one line per profile and cannot be split in
+    /// half by a typo in a nested header.
+    /// </summary>
+    private static List<ProfileSpec> ReadProfiles(TomlTable table, List<string> errors, string file)
+    {
+        var list = new List<ProfileSpec>();
+        if (!table.TryGetValue("profile", out var v) || v is not TomlTableArray arr) return list;
+
+        foreach (var pt in arr)
+        {
+            var name = GetString(pt, "name", "").Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                errors.Add($"{file}: [[profile]] requires name");
+                continue;
+            }
+
+            var env = new List<EnvVarSpec>();
+            if (GetTable(pt, "env") is { } envTable)
+            {
+                foreach (var pair in envTable)
+                {
+                    if (pair.Value is not string value)
+                    {
+                        errors.Add($"{file}: [[profile]] '{name}' env.{pair.Key} must be a string");
+                        continue;
+                    }
+                    env.Add(new EnvVarSpec { Name = pair.Key, Value = value });
+                }
+            }
+
+            if (env.Count == 0)
+                errors.Add($"{file}: [[profile]] '{name}' declares no env");
+
+            list.Add(new ProfileSpec
+            {
+                Name = name,
+                Env = env,
+                Notes = GetStringOrNull(pt, "notes"),
+            });
+        }
+        return list;
+    }
+
 
     private static TomlTable? GetTable(TomlTable table, string key) =>
         table.TryGetValue(key, out var v) && v is TomlTable t ? t : null;

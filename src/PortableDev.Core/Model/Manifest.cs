@@ -51,6 +51,20 @@ public sealed class RootManifest
     /// </summary>
     public IReadOnlyList<HomeDirSection> HomeDirs { get; init; } = Array.Empty<HomeDirSection>();
 
+    /// <summary>
+    /// Named environment profiles, gathered from every tool manifest.
+    ///
+    /// A profile is a set of variables that must not be applied globally: setting
+    /// EnterpriseWDK or ProgramFiles(x86) for every process on the machine would change
+    /// how unrelated programs behave. They are injected only into a shell that asks for
+    /// them ("PortableDev shell --profile msvc") or into a script that does.
+    /// </summary>
+    public IReadOnlyList<ProfileSpec> Profiles { get; init; } = Array.Empty<ProfileSpec>();
+
+    /// <summary>Find a profile by name, or null. Matching is case-insensitive.</summary>
+    public ProfileSpec? FindProfile(string name) =>
+        Profiles.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+
     public sealed class HomeDirSection
     {
         /// <summary>Environment variable holding the directory on this machine, e.g. "APPDATA".</summary>
@@ -74,6 +88,22 @@ public sealed class EnvVarSpec
     public required string Value { get; init; }
 }
 
+/// <summary>
+/// A named set of environment variables that is never written to the registry.
+/// Declared as [[profile]] in a tool manifest, where {{TOOL}} expands to that tool.
+/// </summary>
+public sealed class ProfileSpec
+{
+    public required string Name { get; init; }
+
+    /// <summary>Id of the tool that declared the profile; drives {{TOOL}} expansion.</summary>
+    public string? ToolId { get; init; }
+
+    public IReadOnlyList<EnvVarSpec> Env { get; init; } = Array.Empty<EnvVarSpec>();
+
+    public string? Notes { get; init; }
+}
+
 /// <summary>Single tool manifest (manifest.d/*.toml).</summary>
 public sealed class ToolManifest
 {
@@ -85,6 +115,9 @@ public sealed class ToolManifest
 
     /// <summary>Environment variables this tool contributes.</summary>
     public IReadOnlyList<EnvVarSpec> Env { get; init; } = Array.Empty<EnvVarSpec>();
+
+    /// <summary>Optional named profiles; see <see cref="ProfileSpec"/>.</summary>
+    public IReadOnlyList<ProfileSpec> Profiles { get; init; } = Array.Empty<ProfileSpec>();
 
     public IReadOnlyList<VerifySpec> Verify { get; init; } = Array.Empty<VerifySpec>();
 
