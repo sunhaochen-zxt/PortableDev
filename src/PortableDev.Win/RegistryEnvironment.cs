@@ -67,18 +67,58 @@ public sealed class RegistryEnvironment
     }
 
     /// <summary>Write raw PATH back as REG_EXPAND_SZ. Never uses setx.</summary>
-    public void WriteUserPathRaw(string rawPath)
+    public void WriteUserPathRaw(string rawPath) => WriteUserPathRaw(rawPath, null);
+
+    /// <summary>
+    /// Write raw PATH back in the registry kind it had before the run. Restoring a value
+    /// that was REG_SZ as REG_EXPAND_SZ would start expanding a literal "%PATH%" that the
+    /// user meant literally.
+    /// </summary>
+    public void WriteUserPathRaw(string rawPath, string? kindName)
     {
         using var key = _hive.CreateSubKey(_subKey, writable: true)
             ?? throw new SecurityException($"cannot open HKCU\\{_subKey} for writing");
 
-        key.SetValue("Path", rawPath ?? string.Empty, RegistryValueKind.ExpandString);
+        key.SetValue("Path", rawPath ?? string.Empty, ParseKind(kindName, RegistryValueKind.ExpandString));
     }
+
+    /// <summary>
+    /// Remove the user PATH value entirely. Only for undo, when the value did not exist
+    /// before the run: writing an empty string instead would leave a value behind that
+    /// was never there.
+    /// </summary>
+    public void DeleteUserPath()
+    {
+        using var key = _hive.OpenSubKey(_subKey, writable: true);
+        key?.DeleteValue("Path", throwOnMissingValue: false);
+    }
+
+    /// <summary>Map a persisted kind name back to a registry kind.</summary>
+    private static RegistryValueKind ParseKind(string? kindName, RegistryValueKind fallback) =>
+        kindName switch
+        {
+            "ExpandString" => RegistryValueKind.ExpandString,
+            "String" => RegistryValueKind.String,
+            _ => fallback,
+        };
 
     /// <summary>All user environment variables except PATH, unexpanded.</summary>
     public IReadOnlyDictionary<string, string> ReadUserEnvRaw()
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, (value, _)) in ReadUserEnvRawWithKinds())
+            result[name] = value;
+        return result;
+    }
+
+    /// <summary>
+    /// All user environment variables except PATH with their registry kind, unexpanded.
+    /// Rollback needs the kind as well as the value, or a REG_SZ value comes back as an
+    /// expanding one.
+    /// </summary>
+    public IReadOnlyDictionary<string, (string Value, RegistryValueKind Kind)> ReadUserEnvRawWithKinds()
+    {
+        var result = new Dictionary<string, (string, RegistryValueKind)>(StringComparer.OrdinalIgnoreCase);
         using var key = _hive.OpenSubKey(_subKey, writable: false);
         if (key is null) return result;
 
@@ -88,18 +128,27 @@ public sealed class RegistryEnvironment
             if (name.Equals("Path", StringComparison.OrdinalIgnoreCase)) continue;
 
             var value = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
-            if (value is not null) result[name] = value;
+            if (value is null) continue;
+
+            RegistryValueKind kind;
+            try { kind = key.GetValueKind(name); }
+            catch { kind = RegistryValueKind.String; }
+
+            result[name] = (value, kind);
         }
         return result;
     }
 
-    /// <summary>Set one variable, preserving REG_EXPAND_SZ semantics.</summary>
-    public void WriteEnv(string name, string value)
+    /// <summary>Set one variable as REG_EXPAND_SZ (the default for manifest values).</summary>
+    public void WriteEnv(string name, string value) => WriteEnv(name, value, null);
+
+    /// <summary>Set one variable in a specific registry kind, preserving the original on undo.</summary>
+    public void WriteEnv(string name, string value, string? kindName)
     {
         using var key = _hive.CreateSubKey(_subKey, writable: true)
             ?? throw new SecurityException($"cannot open HKCU\\{_subKey} for writing");
 
-        key.SetValue(name, value, RegistryValueKind.ExpandString);
+        key.SetValue(name, value, ParseKind(kindName, RegistryValueKind.ExpandString));
     }
 
     public void DeleteEnv(string name)

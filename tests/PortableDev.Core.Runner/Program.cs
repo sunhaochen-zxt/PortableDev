@@ -541,14 +541,15 @@ expect = 'PowerShell 7.6.8'
     var undo = new UndoStack();
     Check("Empty undo stack is empty", undo.Count == 0 && undo.Reverse().Count == 0);
 
-    undo.Push(new UndoStep { Kind = UndoKind.Env, Target = "HOME", Value = @"%USERPROFILE%\h", Existed = true });
+    undo.Push(new UndoStep { Kind = UndoKind.Env, Target = "HOME", Value = @"%USERPROFILE%\h", Existed = true, ValueKind = "ExpandString" });
     undo.Push(new UndoStep { Kind = UndoKind.Env, Target = "PD_NEW", Existed = false });
-    undo.Push(new UndoStep { Kind = UndoKind.Path, Target = "PATH", Value = @"%USERPROFILE%\bin;C:\Windows" });
+    undo.Push(new UndoStep { Kind = UndoKind.Path, Target = "PATH", Value = @"%USERPROFILE%\bin;C:\Windows", ValueKind = "String" });
     undo.Push(new UndoStep
     {
         Kind = UndoKind.HomeLink,
         Target = @"C:\Users\admin\.config",
         StorePath = @"C:\Dev\home\.config",
+        PreviousTarget = @"D:\old\.config",
     });
 
     var reverse = undo.Reverse();
@@ -562,10 +563,26 @@ expect = 'PowerShell 7.6.8'
         reverse[2].Target + "," + reverse[3].Target);
     Check("Undo restores the raw PATH, never an expanded one",
         reverse[1].Value is not null && reverse[1].Value!.Contains("%USERPROFILE%"), reverse[1].Value);
+    Check("Undo remembers the PATH registry kind",
+        reverse[1].ValueKind == "String", reverse[1].ValueKind);
+    Check("Undo remembers the env registry kind",
+        reverse[3].ValueKind == "ExpandString", reverse[3].ValueKind);
     Check("Undo deletes an env var that did not exist before", !reverse[2].Existed);
     Check("Undo removes only the link this run created",
         reverse[0].StorePath == @"C:\Dev\home\.config", reverse[0].StorePath);
+    Check("Undo retargets a link this run repointed, never deletes it",
+        reverse[0].PreviousTarget == @"D:\old\.config", reverse[0].PreviousTarget);
     Check("Undo stack count survives reversal", undo.Count == 4);
+
+    // An empty real directory that became a link must come back as a directory, not vanish.
+    var empty = new UndoStep
+    {
+        Kind = UndoKind.HomeLink,
+        Target = @"C:\Users\admin\.portable",
+        StorePath = @"C:\Dev\home\.portable",
+        WasEmptyDirectory = true,
+    };
+    Check("Undo recreates a replaced empty directory", empty.WasEmptyDirectory && empty.PreviousTarget is null);
 }
 
 // ---- Checksum sidecars: the SHA256 pipeline must never invent a hash ----

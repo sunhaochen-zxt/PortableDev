@@ -237,10 +237,12 @@ Three deliberate constraints:
   the same `Planner` the CLI calls, so what is shown is exactly what `plan` would print.
 - **No MVVM framework.** `ObservableObject` and `RelayCommand` are about eighty lines; a
   portable tool cannot afford a dependency that has to resolve on a restored machine.
-  WPF's `ObservableCollection` is thread-affine, so every collection mutation — a page
-  refresh, a streamed CLI log line, a progress verdict — goes through one dispatcher
-  helper (`Infrastructure\UiThread`) instead of relying on where the continuation happens
-  to resume.
+  WPF's `ObservableCollection` is thread-affine, so the contract is that a *refresh* never
+  starts on a worker thread: `AppViewModel` marshals each page refresh as a whole, and
+  `ProgressViewModel` marshals every streamed CLI line through `Infrastructure\UiThread`.
+  The page view models then fill their collections directly — they rely on that contract
+  rather than each calling the dispatcher, which is why no `ConfigureAwait(false)` is
+  allowed anywhere in that path.
 
 ## Design decisions worth knowing
 
@@ -269,9 +271,13 @@ Three deliberate constraints:
 - **Degraded mode exists.** `--no-junction` produces a working environment that
   breaks if the drive letter changes — used when `C:\` is not writable.
 - **A failed apply undoes itself.** Env vars and PATH are restored from their raw
-  (unexpanded) previous values in reverse order; home links created by the run are removed;
-  adopted data stays on the stick. The stable junction stays, because removing it needs a
-  second UAC prompt and the next apply wants it anyway. `--no-rollback` turns this off.
+  (unexpanded) previous values, *with the registry kind they had* (`REG_SZ` is not turned
+  into `REG_EXPAND_SZ`), in reverse order; a variable or a `Path` value that did not exist
+  before is deleted rather than set to an empty string. Home links are put back the way
+  they were: one this run created is removed, one it repointed is pointed at its old
+  target again, and an empty directory it replaced is recreated. Adopted data stays on the
+  stick. The stable junction stays, because removing it needs a second UAC prompt and the
+  next apply wants it anyway. `--no-rollback` turns this off.
 
 ## Exit codes
 

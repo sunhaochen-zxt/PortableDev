@@ -139,10 +139,38 @@ public static class Applier
                 var link = plan.HomeLinks.First(h => h.Display == step.Target);
                 journal.Record("home.link", new { step.Target, link.HostPath, link.StorePath });
 
-                // Only a link this run creates from nothing is undoable. A slot that already
-                // held a real directory may have had its data moved onto the stick (adopt);
-                // moving that data back would be a new risk, and it is safe where it is.
-                if (!link.IsLink && !(link.Exists && link.IsRealWithContent))
+                // Record what the slot looked like BEFORE HomeLinks.Apply touches it, so a
+                // later failure can put it back: a link this run repointed must be retargeted
+                // at the old store, an empty real directory must be recreated, and a slot
+                // that did not exist at all must lose the link again.
+                //
+                // A slot that already held a real directory with data in it is deliberately
+                // NOT undone: the run may have moved that data onto the stick (adopt), and
+                // moving it back would duplicate the risk instead of removing it.
+                if (link.IsLink)
+                {
+                    // The step is an Update here, so the target necessarily differs from the
+                    // one this run installs; keep the old one to restore it.
+                    undo.Push(new UndoStep
+                    {
+                        Kind = UndoKind.HomeLink,
+                        Target = link.HostPath,
+                        StorePath = link.StorePath,
+                        PreviousTarget = link.LinkTarget,
+                    });
+                }
+                else if (link.Exists && !link.IsRealWithContent)
+                {
+                    // Empty real directory: undo removes the link and recreates the directory.
+                    undo.Push(new UndoStep
+                    {
+                        Kind = UndoKind.HomeLink,
+                        Target = link.HostPath,
+                        StorePath = link.StorePath,
+                        WasEmptyDirectory = true,
+                    });
+                }
+                else if (!link.Exists)
                 {
                     undo.Push(new UndoStep
                     {
@@ -151,7 +179,7 @@ public static class Applier
                         StorePath = link.StorePath,
                     });
                 }
-                else if (link.Exists && !link.IsLink && link.IsRealWithContent)
+                else
                 {
                     rollbackNotes.Add(link.HostPath + " moved onto the stick; a rollback leaves the data there");
                 }
@@ -169,18 +197,20 @@ public static class Applier
             // 3. Environment variables.
             // The RAW (unexpanded) values are the only correct rollback source:
             // state.CurrentEnv is expanded, and writing that back would turn %USERPROFILE%
-            // into a literal path.
-            var envBefore = reg.ReadUserEnvRaw();
+            // into a literal path. The registry KIND travels with them: a REG_SZ value that
+            // contains a literal "%PATH%" must not come back as REG_EXPAND_SZ.
+            var envBefore = reg.ReadUserEnvRawWithKinds();
             foreach (var (name, value) in plan.EnvToSet)
             {
                 journal.Record("env.write", new { name, value });
-                var had = envBefore.TryGetValue(name, out var previousRaw);
+                var had = envBefore.TryGetValue(name, out var previous);
                 undo.Push(new UndoStep
                 {
                     Kind = UndoKind.Env,
                     Target = name,
-                    Value = previousRaw,
+                    Value = had ? previous.Value : null,
                     Existed = had,
+                    ValueKind = had ? previous.Kind.ToString() : null,
                 });
                 reg.WriteEnv(name, value);
             }
@@ -190,11 +220,16 @@ public static class Applier
             if (!string.Equals(plan.NewUserPathRaw, state.UserPathRaw, StringComparison.Ordinal))
             {
                 journal.Record("path.write", new { before = state.UserPathRaw, after = plan.NewUserPathRaw });
+                // "Unknown" is how the reader reports "there is no Path value at all", which
+                // must be restored by deleting it rather than by writing an empty string.
+                var pathExisted = !string.Equals(state.UserPathKind, "Unknown", StringComparison.OrdinalIgnoreCase);
                 undo.Push(new UndoStep
                 {
                     Kind = UndoKind.Path,
                     Target = "PATH",
                     Value = state.UserPathRaw,
+                    Existed = pathExisted,
+                    ValueKind = pathExisted ? state.UserPathKind : null,
                 });
                 reg.WriteUserPathRaw(plan.NewUserPathRaw);
                 Console.WriteLine("path     -> updated");
@@ -298,23 +333,44 @@ public static class Applier
                 switch (step.Kind)
                 {
                     case UndoKind.Env:
-                        if (step.Existed) reg.WriteEnv(step.Target, step.Value ?? string.Empty);
+                        // Restore the original registry kind too, and delete a variable that
+                        // did not exist before instead of leaving an empty string behind.
+                        if (step.Existed) reg.WriteEnv(step.Target, step.Value ?? string.Empty, step.ValueKind);
                         else reg.DeleteEnv(step.Target);
                         break;
 
                     case UndoKind.Path:
-                        reg.WriteUserPathRaw(step.Value ?? string.Empty);
+                        if (step.Existed) reg.WriteUserPathRaw(step.Value ?? string.Empty, step.ValueKind);
+                        else reg.DeleteUserPath();
                         break;
 
                     case UndoKind.HomeLink:
-                        // Only remove a link this run created, and only while it still points
-                        // where we put it: somebody else may have repointed it since.
                         var actual = Junction.GetTarget(step.Target);
+
+                        // The slot was a link to somewhere else before this run repointed it:
+                        // put the old target back rather than deleting the link. Only while it
+                        // still points where we put it - somebody else may have repointed it
+                        // since, and their choice wins.
+                        if (step.PreviousTarget is not null)
+                        {
+                            if (actual is null) break;
+                            if (step.StorePath is not null && !PathEditor.PathsEqual(actual, step.StorePath)) break;
+                            var (restored, restoreError) = Junction.Create(step.Target, step.PreviousTarget);
+                            if (!restored) throw new IOException(restoreError ?? "could not restore the previous junction target");
+                            break;
+                        }
+
+                        // Otherwise only remove a link this run created, and only while it still
+                        // points where we put it.
                         if (actual is null) break;
                         if (step.StorePath is not null && !PathEditor.PathsEqual(actual, step.StorePath)) break;
 
                         var (removed, removeError) = Junction.Remove(step.Target);
                         if (!removed) throw new IOException(removeError ?? "junction removal failed");
+
+                        // The slot used to be an empty real directory; give it back as such.
+                        if (step.WasEmptyDirectory && !Directory.Exists(step.Target))
+                            Directory.CreateDirectory(step.Target);
                         break;
                 }
 
