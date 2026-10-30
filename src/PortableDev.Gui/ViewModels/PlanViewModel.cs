@@ -158,6 +158,7 @@ public sealed class PlanViewModel : ObservableObject
         var home = new PlanGroup { Title = "设置随盘走（家目录联接）" };
         var path = new PlanGroup { Title = "PATH" };
         var env = new PlanGroup { Title = "环境变量" };
+        var launcher = new PlanGroup { Title = "启动器（按清单生成的 .cmd）" };
         var tools = new PlanGroup { Title = "工具" };
 
         foreach (var s in plan.Steps)
@@ -177,13 +178,17 @@ public sealed class PlanViewModel : ObservableObject
                 "home" => home,
                 "path" => path,
                 "env" => env,
+                "launcher" => launcher,
                 "tool" => tools,
+                // Never fall through to a visible group: an unknown kind used to be counted
+                // in the headline yet displayed nowhere, so the window promised changes that
+                // did not exist on screen.
                 _ => tools,
             };
             group.Rows.Add(row);
         }
 
-        foreach (var g in new[] { junction, home, path, env, tools })
+        foreach (var g in new[] { junction, home, path, env, launcher, tools })
         {
             var changed = g.Rows.Count(r => r.IsChange);
             g.Summary = changed == 0 ? "无改动" : changed + " 处";

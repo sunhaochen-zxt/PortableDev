@@ -245,15 +245,11 @@ public static class Program
         }
 
         var planner = new Planner(manifest, resolver);
-        return planner.Build(state, new PlannerOptions
-        {
-            NoJunction = opts.NoJunction,
-            TreatMissingToolsAsBlocker = opts.TreatMissingToolsAsBlocker,
-            HomeAdopt = opts.HomeAdopt ?? manifest.Apply.HomeAdopt,
-            DirectoryExists = Directory.Exists,
-            FileText = p => File.Exists(p) ? File.ReadAllText(p) : null,
-            EnvironmentVariable = Environment.GetEnvironmentVariable,
-        });
+        return planner.Build(state, PlannerOptions.Live(
+            noJunction: opts.NoJunction,
+            strict: opts.TreatMissingToolsAsBlocker,
+            homeAdopt: opts.HomeAdopt ?? manifest.Apply.HomeAdopt,
+            environmentVariable: Environment.GetEnvironmentVariable));
     }
 
     private static int RunApply(CommandOptions opts) => Applier.Run(opts);

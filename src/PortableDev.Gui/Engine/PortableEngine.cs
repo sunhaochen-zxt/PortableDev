@@ -112,13 +112,11 @@ public static class PortableEngine
         var resolver = new PathResolver(stable, stick.Root);
         var state = ReadState(stick.Root, resolver.StableRoot, degraded ? stick.Root : null);
 
-        return new Planner(stick.Manifest, resolver).Build(state, new PlannerOptions
-        {
-            NoJunction = degraded,
-            TreatMissingToolsAsBlocker = strict,
-            HomeAdopt = stick.Manifest.Apply.HomeAdopt,
-            EnvironmentVariable = Environment.GetEnvironmentVariable,
-        });
+        return new Planner(stick.Manifest, resolver).Build(state, PlannerOptions.Live(
+            noJunction: degraded,
+            strict: strict,
+            homeAdopt: stick.Manifest.Apply.HomeAdopt,
+            environmentVariable: Environment.GetEnvironmentVariable));
     }
 
     /// <summary>Same state the CLI reads. Exposed so the dashboard can show it verbatim.</summary>

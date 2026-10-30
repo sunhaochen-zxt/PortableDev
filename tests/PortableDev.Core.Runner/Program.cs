@@ -243,6 +243,28 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
 }
 
 {
+    // ---- PlannerOptions.Live: the hooks both front-ends must share ----------
+    // The GUI once assembled its options by hand and omitted FileText/DirectoryExists, so
+    // its preview planned against an empty disk and promised changes that did not exist.
+    var live = PlannerOptions.Live();
+    var liveFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+        "pd-live-" + Guid.NewGuid().ToString("N") + ".txt");
+    try
+    {
+        System.IO.File.WriteAllText(liveFile, "probe");
+        Check("PlannerOptions.Live reads file text", live.FileText(liveFile) == "probe");
+        Check("PlannerOptions.Live reports a missing file as null", live.FileText(liveFile + ".nope") is null);
+        Check("PlannerOptions.Live sees real directories", live.DirectoryExists(System.IO.Path.GetTempPath()));
+        Check("PlannerOptions.Live does not invent directories",
+            !live.DirectoryExists(System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"))));
+    }
+    finally
+    {
+        if (System.IO.File.Exists(liveFile)) System.IO.File.Delete(liveFile);
+    }
+}
+
+{
     // ---- [[launch]]: generated launchers -----------------------------------
     var launchTool = new ToolManifest
     {

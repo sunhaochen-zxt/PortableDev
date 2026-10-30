@@ -208,7 +208,7 @@ public sealed class DashboardViewModel : ObservableObject
 
         var managed = PathEditor.ManagedEntries(state.UserPathRaw, manifest.Root.Stable);
         var desired = new Planner(manifest, new PathResolver(manifest.Root.Stable, state.StickRoot))
-            .Build(state, new PlannerOptions { DirectoryExists = Directory.Exists })
+            .Build(state, PlannerOptions.Live())
             .Steps.Count(s => s.Kind == "path" && s.Change != ChangeKind.None);
         Rows.Add(new StatusRow("PATH 条目") { Ok = managed.Count > 0 && desired == 0, Detail = managed.Count + " 条受管" + (desired > 0 ? "，" + desired + " 条待更新" : "") });
 

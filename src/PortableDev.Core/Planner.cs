@@ -380,6 +380,28 @@ public sealed class PlannerOptions
     public Func<string, string?> FileText { get; init; } = _ => null;
 
     /// <summary>
+    /// The options a real run uses: the injected hooks point at the actual filesystem.
+    ///
+    /// Both front-ends must build their options through this method. They used to assemble
+    /// them by hand, and the GUI forgot two of the hooks - its preview then planned against
+    /// an empty disk, so every generated launcher looked missing ("将执行 3 处改动") while
+    /// apply, reading the real files, correctly reported nothing to do.
+    /// </summary>
+    public static PlannerOptions Live(
+        bool noJunction = false,
+        bool strict = false,
+        bool homeAdopt = false,
+        Func<string, string?>? environmentVariable = null) => new()
+    {
+        NoJunction = noJunction,
+        TreatMissingToolsAsBlocker = strict,
+        HomeAdopt = homeAdopt,
+        DirectoryExists = System.IO.Directory.Exists,
+        FileText = p => System.IO.File.Exists(p) ? System.IO.File.ReadAllText(p) : null,
+        EnvironmentVariable = environmentVariable ?? Environment.GetEnvironmentVariable,
+    };
+
+    /// <summary>
     /// How to resolve a home-dir root variable ("APPDATA", "USERPROFILE", ...) for a slot
     /// the caller did not describe. Injected so the planner performs no ambient reads; the
     /// CLI and GUI pass <c>Environment.GetEnvironmentVariable</c>.
