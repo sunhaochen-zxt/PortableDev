@@ -283,7 +283,7 @@ Seven pages, no framework, no external dependency:
 | Page | What it does |
 |---|---|
 | 概览 / Dashboard | stick, junction target, PATH/env counts, per-check rows, one-click apply; an ambiguous or missing stick is shown with the candidate roots |
-| 软件包 / Packages | App-Store style: **推荐** is a curated shelf ranked by GitHub stars, **全部软件** pages through every app in Main and Extras (about 4,200, from the cached index — browsing works offline); search covers everything, one click **安装**, installed list with **移除**. Search reads the same Core parser as `pkg search`; install/remove shell out to the CLI, so the GUI keeps its single write path |
+| 软件包 / Packages | App-Store style: **推荐** is a curated shelf ranked by GitHub stars, **全部软件** pages through every app in Main and Extras (about 4,200, from the cached index — browsing works offline) with category chips (开发/终端/编辑/系统/网络/媒体/美化/其他, classified from the app id; curated labels win); search covers everything, one click **安装**, installed list with **移除**. Search reads the same Core parser as `pkg search`; install/remove shell out to the CLI, so the GUI keeps its single write path |
 | 工具 / Tools | every declared tool, version and location; **全部验证** runs the same checks as `verify` and shows *why* a check failed; **检查更新** queries upstream and offers **升级**, which then downloads, verifies the published SHA256, repoints version/dir in the manifest, runs `apply` and self-checks — no manual follow-up; per-row **安装 / 编辑 / 目录** and a **新增工具** form |
 | 变更预览 / Plan | the diff, grouped and colour-coded by add/update/remove, including **家目录联接 / home links**; degraded-mode toggle |
 | 体检 / Doctor | the same rules as `PortableDev doctor`, plus `clean` |

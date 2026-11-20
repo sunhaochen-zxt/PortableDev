@@ -943,6 +943,26 @@ expect = 'PowerShell 7.6.8'
     Check("Stars: owner without repo is ignored", ScoopStars.RepoOf("https://github.com/onlyowner") is null);
 }
 
+// ---- Browse categories: curated labels win, keywords cover the rest ----
+{
+    Check("Category: curated label wins", ScoopCategories.Classify("ripgrep") == "开发",
+        ScoopCategories.Classify("ripgrep"));
+    Check("Category: openjdk is dev", ScoopCategories.Classify("openjdk") == "开发");
+    Check("Category: qbittorrent is network", ScoopCategories.Classify("qbittorrent") == "网络");
+    Check("Category: notepad2 is editor", ScoopCategories.Classify("notepad2") == "编辑");
+    Check("Category: wallpaper-engine is theme", ScoopCategories.Classify("wallpaper-engine") == "美化");
+    Check("Category: an unknown name falls into 其他", ScoopCategories.Classify("zzz-unknown-zzz") == "其他");
+    Check("Category: short keyword needs a token", ScoopCategories.Classify("go") == "开发");
+    Check("Category: 全部 is first and 其他 last",
+        ScoopCategories.Order[0] == ScoopCategories.All
+        && ScoopCategories.Order[^1] == ScoopCategories.Other);
+    Check("Category: every curated app keeps its own label",
+        ScoopCatalog.Featured.All(e => ScoopCategories.Classify(e.App) == e.Category));
+    Check("Category: every result lands in a known shelf",
+        new[] { "python", "vim", "ffmpeg", "7zip", "firefox", "unknownthing" }
+            .All(a => ScoopCategories.Order.Contains(ScoopCategories.Classify(a))));
+}
+
 Console.WriteLine();
 Console.WriteLine($"==== {passed} passed, {failures} failed ====");
 return failures == 0 ? 0 : 1;

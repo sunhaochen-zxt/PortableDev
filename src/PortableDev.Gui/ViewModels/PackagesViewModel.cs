@@ -36,6 +36,14 @@ public sealed class PackageRow
     public string InstalledText => IsInstalled ? "已安装" : string.Empty;
 }
 
+/// <summary>A category chip for the browse view.</summary>
+public sealed class CategoryChip
+{
+    public string Name { get; init; } = string.Empty;
+    public string Label { get; init; } = string.Empty;
+    public bool IsSelected { get; init; }
+}
+
 /// <summary>One already-installed bucket package.</summary>
 public sealed class InstalledPackageRow
 {
@@ -74,6 +82,8 @@ public sealed class PackagesViewModel : ObservableObject
     private int _mode;
 
     private List<ScoopIndex.Entry>? _allEntries;
+    private List<ScoopIndex.Entry> _filtered = new();
+    private string _category = ScoopCategories.All;
     private int _browsePage = 1;
     private int _browseTotalPages;
 
@@ -110,6 +120,12 @@ public sealed class PackagesViewModel : ObservableObject
             var target = step == "next" ? _browsePage + 1 : _browsePage - 1;
             _ = ShowPageAsync(target);
         });
+        SelectCategoryCommand = new RelayCommand<string>(category =>
+        {
+            _category = string.IsNullOrWhiteSpace(category) ? ScoopCategories.All : category;
+            ApplyCategory();
+            _ = ShowPageAsync(1);
+        });
     }
 
     public ObservableCollection<PackageRow> Featured { get; } = new();
@@ -124,6 +140,10 @@ public sealed class PackagesViewModel : ObservableObject
     public RelayCommand ClearCommand { get; }
     public RelayCommand<string> SetModeCommand { get; }
     public RelayCommand<string> GoPageCommand { get; }
+    public RelayCommand<string> SelectCategoryCommand { get; }
+
+    /// <summary>Category chips for the browse view, with counts.</summary>
+    public ObservableCollection<CategoryChip> Categories { get; } = new();
 
     public string Query { get => _query; set => Set(ref _query, value); }
     public string Status { get => _status; private set => Set(ref _status, value); }
@@ -139,7 +159,7 @@ public sealed class PackagesViewModel : ObservableObject
 
     public string PageInfo => _browseTotalPages == 0
         ? string.Empty
-        : $"第 {_browsePage} / {_browseTotalPages} 页 · 共 {_allEntries?.Count ?? 0} 个";
+        : $"第 {_browsePage} / {_browseTotalPages} 页 · 共 {_filtered.Count} 个";
 
     public bool CanGoPrev => _browsePage > 1;
     public bool CanGoNext => _browsePage < _browseTotalPages;
@@ -193,7 +213,7 @@ public sealed class PackagesViewModel : ObservableObject
             }
 
             _allEntries = entries.OrderBy(e => e.App, StringComparer.OrdinalIgnoreCase).ToList();
-            _browseTotalPages = Math.Max(1, (_allEntries.Count + PageSize - 1) / PageSize);
+            ApplyCategory();
             await ShowPageAsync(1);
         }
         catch (Exception ex)
@@ -208,14 +228,14 @@ public sealed class PackagesViewModel : ObservableObject
 
     private async Task ShowPageAsync(int page)
     {
-        if (_allEntries is null || _allEntries.Count == 0) return;
+        if (_allEntries is null || _filtered.Count == 0) return;
 
         _browsePage = Math.Clamp(page, 1, _browseTotalPages);
         OnPropertyChanged(nameof(PageInfo));
         OnPropertyChanged(nameof(CanGoPrev));
         OnPropertyChanged(nameof(CanGoNext));
 
-        var slice = _allEntries
+        var slice = _filtered
             .Skip((_browsePage - 1) * PageSize)
             .Take(PageSize)
             .ToList();
@@ -228,10 +248,11 @@ public sealed class PackagesViewModel : ObservableObject
                 App = entry.App,
                 Bucket = entry.Bucket,
                 Version = "?",
+                Category = ScoopCategories.Classify(entry.App),
                 IsInstalled = installed.Contains(entry.App),
             });
 
-        Status = $"全部软件：共 {_allEntries.Count} 个，第 {_browsePage} / {_browseTotalPages} 页。"
+        Status = $"{_category}：共 {_filtered.Count} 个，第 {_browsePage} / {_browseTotalPages} 页。"
             + "版本信息按当前页读取。";
 
         // Versions are only fetched for the forty rows on screen; a short budget keeps a
@@ -260,6 +281,7 @@ public sealed class PackagesViewModel : ObservableObject
                     Bucket = entry.Bucket,
                     Version = package.Version,
                     Description = package.Description ?? string.Empty,
+                    Category = ScoopCategories.Classify(entry.App),
                     IsInstalled = installed.Contains(entry.App),
                 };
 
@@ -277,6 +299,48 @@ public sealed class PackagesViewModel : ObservableObject
 
         try { await Task.WhenAll(tasks); }
         catch (OperationCanceledException) { }
+    }
+
+    private void ApplyCategory()
+    {
+        if (_allEntries is null)
+        {
+            _filtered = new List<ScoopIndex.Entry>();
+        }
+        else if (_category == ScoopCategories.All)
+        {
+            _filtered = _allEntries;
+        }
+        else
+        {
+            _filtered = _allEntries.Where(e => ScoopCategories.Classify(e.App) == _category).ToList();
+        }
+
+        _browseTotalPages = Math.Max(1, (_filtered.Count + PageSize - 1) / PageSize);
+        OnPropertyChanged(nameof(PageInfo));
+        OnPropertyChanged(nameof(CanGoPrev));
+        OnPropertyChanged(nameof(CanGoNext));
+        BuildChips();
+    }
+
+    private void BuildChips()
+    {
+        Categories.Clear();
+        foreach (var category in ScoopCategories.Order)
+        {
+            var count = _allEntries is null
+                ? 0
+                : category == ScoopCategories.All
+                    ? _allEntries.Count
+                    : _allEntries.Count(e => ScoopCategories.Classify(e.App) == category);
+
+            Categories.Add(new CategoryChip
+            {
+                Name = category,
+                Label = count > 0 ? $"{category} {count}" : category,
+                IsSelected = string.Equals(category, _category, StringComparison.OrdinalIgnoreCase),
+            });
+        }
     }
 
     // ------------------------------------------------------------- home shelf ----
@@ -461,6 +525,7 @@ public sealed class PackagesViewModel : ObservableObject
                         Bucket = hit.Bucket,
                         Version = package?.Version ?? "?",
                         Description = package?.Description ?? string.Empty,
+                        Category = ScoopCategories.Classify(hit.App),
                     };
                 }
                 catch (OperationCanceledException)

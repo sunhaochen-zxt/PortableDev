@@ -50,6 +50,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -102,8 +103,38 @@
             </StackPanel>
         </Grid>
 
+        <!-- Category chips (browse mode) -->
+        <ItemsControl Grid.Row="3" ItemsSource="{Binding Categories}" Margin="2,0,2,6"
+                      Visibility="{Binding ShowBrowse, Converter={StaticResource BoolToVis}}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Content="{Binding Label}" Margin="0,0,6,6" Padding="10,4"
+                            Command="{Binding DataContext.SelectCategoryCommand,
+                                RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding Name}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
         <!-- Recommended shelf -->
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+        <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding ShowFeatured, Converter={StaticResource BoolToVis}}">
             <ItemsControl ItemsSource="{Binding Featured}" ItemTemplate="{StaticResource PackageCard}">
                 <ItemsControl.ItemsPanel>
@@ -115,7 +146,7 @@
         </ScrollViewer>
 
         <!-- Paged browser -->
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+        <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding ShowBrowse, Converter={StaticResource BoolToVis}}">
             <ItemsControl ItemsSource="{Binding Browse}" ItemTemplate="{StaticResource PackageCard}">
                 <ItemsControl.ItemsPanel>
@@ -127,7 +158,7 @@
         </ScrollViewer>
 
         <!-- Search results -->
-        <Border Grid.Row="3" Style="{StaticResource Card}"
+        <Border Grid.Row="4" Style="{StaticResource Card}"
                 Visibility="{Binding ShowResults, Converter={StaticResource BoolToVis}}">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Results}">
@@ -170,7 +201,7 @@
         </Border>
 
         <!-- Installed -->
-        <Border Grid.Row="4" Style="{StaticResource Card}" Margin="0,10,0,0" MaxHeight="150">
+        <Border Grid.Row="5" Style="{StaticResource Card}" Margin="0,10,0,0" MaxHeight="150">
             <DockPanel>
                 <Grid DockPanel.Dock="Top">
                     <TextBlock Text="已安装（pkg）" Style="{StaticResource SectionTitle}" />
