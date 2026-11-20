@@ -5,7 +5,7 @@ portable drive (USB stick or external disk) onto a machine that gets wiped
 (restore-card / Deep Freeze style), in one command.
 
 Status: **core + CLI + WPF GUI complete.** The core test suite is green and
-`PortableDev verify` passes every declared check (30/30) on the reference stick.
+`PortableDev verify` passes every declared check on the reference stick.
 `apply` is idempotent — a second run reports `nothing to do` — and a failure now rolls
 the registry writes back instead of leaving half an environment behind.
 
@@ -80,6 +80,9 @@ PortableDev shell     # open a terminal that already has the environment applied
 PortableDev shell --profile msvc     # ... plus a named profile's variables
 PortableDev update    # ask upstream for newer versions (read-only)
 PortableDev update --fetch jq   # download an update without installing it
+PortableDev pkg add fd          # install a package from a Scoop bucket
+PortableDev pkg list            # what pkg add installed
+PortableDev pkg remove fd       # remove it (persist data survives)
 ```
 
 `--profile <name>` adds the variables of a `[[profile]]` declared in a tool manifest to
@@ -149,7 +152,7 @@ Eighteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 | Ninja | |
 | ripgrep | |
 | jq | |
-| 7-Zip | standalone `7zr`; zip/tar.gz are unpacked in-process |
+| 7-Zip | full `7z` + `7zr`; zip/tar.gz are unpacked in-process, 7z/NSIS by `7z.exe` |
 | LLVM / clang | llvm-mingw (UCRT); add `-static` for standalone exes |
 | VSCode | portable `data\`, settings in `data\user-data\User` |
 | Sublime Text | portable `Data\`, settings in `Data\Packages\User`, `subl` on PATH |
@@ -311,6 +314,43 @@ support is discovered with a one-byte ranged GET when HEAD is refused or silent,
 CDN that answers `405` to HEAD still gets the parallel path. The archive is unpacked
 into a **new** version directory and only then is the manifest version rewritten, so a
 failed or corrupt download never damages a working tool.
+
+### Installing packages from Scoop buckets
+
+`PortableDev pkg` reads [Scoop](https://scoop.sh) bucket manifests and installs them as
+ordinary PortableDev tools:
+
+```powershell
+PortableDev pkg add fd                    # Main bucket first, then Extras
+PortableDev pkg add extras/notepadplusplus
+PortableDev pkg add fd --dry-run          # dependencies, urls and scripts; changes nothing
+PortableDev pkg list
+PortableDev pkg remove fd                 # persist data kept; --purge deletes it too
+```
+
+The bucket supplies **version, url, hash, extract_dir, persist and depends**. The `hash` in
+a bucket manifest is a value a human reviewed in a pull request, which makes it a stronger
+trust anchor than a `.sha256` fetched later from the same server. Everything else stays
+PortableDev's job: the archive is unpacked into `tools\<id>\<version>`, every `persist` path
+moves to `tools\<id>\persist` (a junction for directories, a hard link for files, both
+written against the `C:\Dev` path so a drive-letter change does not break them), and a
+generated `manifest.d\pkg-<id>.toml` makes `apply`, `plan`, `verify` and the GUI work
+unchanged.
+
+Deliberately **not** implemented, because each one is Scoop's runtime rather than its data:
+
+| Feature | Behaviour |
+|---|---|
+| shims, aliases, Start-menu shortcuts | not created; `bin` entries become `[[path]]` directories |
+| `installer.script` | refused: those packages write outside their own directory and stop being portable |
+| `pre_install` / `post_install` | parsed and reported, never executed |
+| `env_set` | ignored with a warning |
+| `depends` | installed first, in dependency order; a cycle is an error |
+| zip / tar.gz / 7z / msi / Inno / NSIS | unpacked (`msiexec /a`, `innounp`, `7z x`); anything else is reported |
+
+A package may not reuse the id of a hand-written tool: two manifests with the same id make
+the whole manifest unreadable, so `pkg add 7zip` is refused while `manifest.d\7zip.toml`
+exists.
 
 ### Download integrity
 

@@ -179,6 +179,7 @@ public static class ManifestLoader
                 Notes = GetStringOrNull(t, "notes"),
                 Provides = GetStringArray(t, "provides"),
                 Conflicts = GetStringArray(t, "conflicts"),
+                Source = GetStringOrNull(t, "source"),
                 Enabled = GetBool(t, "enabled", true),
             },
             Path = paths,
@@ -187,6 +188,7 @@ public static class ManifestLoader
             Launch = ReadLaunches(table, errors, file),
             Verify = verifies,
             Update = ReadUpdate(table),
+            Persist = ReadPersist(table),
             Prepare = ReadHook(table, "prepare"),
             Post = ReadHook(table, "post"),
         };
@@ -217,6 +219,22 @@ public static class ManifestLoader
         var script = GetString(t, "script", "");
         if (string.IsNullOrWhiteSpace(script)) return null;
         return new ToolManifest.HookSpec { Script = script, TimeoutSeconds = GetInt(t, "timeout_seconds", 120) };
+    }
+
+    /// <summary>Reads [[persist]]: directories that outlive their version.</summary>
+    private static List<ToolManifest.PersistSpec> ReadPersist(TomlTable table)
+    {
+        var list = new List<ToolManifest.PersistSpec>();
+        if (!table.TryGetValue("persist", out var v) || v is not TomlTableArray arr) return list;
+
+        foreach (var pt in arr)
+        {
+            var source = GetString(pt, "source", "").Trim();
+            var target = GetString(pt, "target", "").Trim();
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(target)) continue;
+            list.Add(new ToolManifest.PersistSpec { Source = source, Target = target });
+        }
+        return list;
     }
 
     /// <summary>Reads [[home_dir]]: directories on the machine that must live on the stick.</summary>

@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using PortableDev.Core.Model;
+using PortableDev.Core.Packages;
 using PortableDev.Core.Update;
 using PortableDev.Gui.ViewModels;
 

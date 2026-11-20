@@ -1,6 +1,7 @@
 // Self-contained test runner: bypasses the dotnet test testhost parent-process issue.
 using PortableDev.Core;
 using PortableDev.Core.Model;
+using PortableDev.Core.Packages;
 using PortableDev.Core.Update;
 
 var failures = 0;
@@ -797,6 +798,116 @@ expect = 'PowerShell 7.6.8'
 
     var small = Downloader.BuildPlan(3L * 1024 * 1024, 16);
     Check("Chunk plan never makes a chunk below the minimum", small.Count == 6, small.Count.ToString());
+}
+
+// ---- Scoop bucket manifests: map only what an install can honour ----
+{
+    const string Hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    string Json(string body) => body.Replace("__HASH__", Hash);
+
+    var archJson = Json("""
+    {
+      "version": "15.2.0",
+      "architecture": {
+        "64bit": {
+          "url": "https://example.test/ripgrep-15.2.0-x64.zip",
+          "hash": "__HASH__",
+          "extract_dir": "ripgrep-15.2.0-x64"
+        },
+        "32bit": {
+          "url": "https://example.test/ripgrep-32.zip",
+          "hash": "__HASH__"
+        }
+      },
+      "bin": ["rg.exe"],
+      "depends": ["7zip"]
+    }
+    """);
+
+    var (arch, archError) = ScoopManifest.Parse(archJson, "ripgrep", "Main");
+    Check("Scoop: 64bit entry wins", arch is not null && arch.Url.EndsWith("-x64.zip", StringComparison.Ordinal),
+        archError);
+    Check("Scoop: extract_dir is read", arch?.ExtractDir == "ripgrep-15.2.0-x64", arch?.ExtractDir);
+    Check("Scoop: hash is normalised", arch?.Sha256 == Hash);
+    Check("Scoop: bin and depends are read",
+        arch is not null && arch.Bin.SequenceEqual(new[] { "rg.exe" }) && arch.Depends.SequenceEqual(new[] { "7zip" }));
+
+    var (renamed, renameError) = ScoopManifest.Parse(Json("""
+    {"version":"1.0.238","url":"https://example.test/tabby-setup.exe#/dl.7z","hash":"__HASH__","bin":"Tabby.exe"}
+    """), "tabby", "Extras");
+    Check("Scoop: #/rename fragment becomes RenameTo",
+        renamed is not null && renamed.RenameTo == "dl.7z" && !renamed.Url.Contains('#'), renameError);
+    Check("Scoop: a single bin string is accepted", renamed?.Bin.SequenceEqual(new[] { "Tabby.exe" }) == true);
+
+    var (sha512, sha512Error) = ScoopManifest.Parse("""
+    {"version":"1.0","url":"https://example.test/a.zip","hash":"sha512:da732cb94ce449cc901c1d29b2fd9ab9822070d01675087ba"}
+    """, "app", "Extras");
+    Check("Scoop: sha512 is refused with the reason",
+        sha512 is null && sha512Error?.Contains("sha512", StringComparison.OrdinalIgnoreCase) == true, sha512Error);
+
+    var (noHash, noHashError) = ScoopManifest.Parse("""
+    {"version":"1.0","url":"https://example.test/a.zip"}
+    """, "app", "Main");
+    Check("Scoop: a manifest without hash is refused", noHash is null && noHashError?.Contains("hash") == true, noHashError);
+
+    var (multiUrl, multiError) = ScoopManifest.Parse("""
+    {"version":"1.0","url":["https://example.test/a.exe","https://example.test/b.exe"],"hash":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+    """, "app", "Main");
+    Check("Scoop: multi-url manifests are refused", multiUrl is null, multiError);
+
+    var (persisted, persistError) = ScoopManifest.Parse(Json("""
+    {"version":"1.0","url":"https://example.test/a.zip","hash":"__HASH__",
+     "persist":["config",["data","data-store"]]}
+    """), "app", "Main");
+    Check("Scoop: persist normalises string and pair forms",
+        persisted is not null
+        && persisted.Persist.Count == 2
+        && persisted.Persist[0].Source == "config" && persisted.Persist[0].Target == "config"
+        && persisted.Persist[1].Source == "data" && persisted.Persist[1].Target == "data-store",
+        persistError);
+
+    Check("Scoop: bin directory is the PATH entry", GeneratedManifest.DirOf(@"bin\rg.exe") == "bin");
+    Check("Scoop: a root-level bin gets '.'", GeneratedManifest.DirOf("rg.exe") == ".");
+
+    var rendered = GeneratedManifest.Render(arch!, new[] { "bin" });
+    Check("Scoop: generated manifest names its source",
+        rendered.Contains("source  = 'scoop:Main/ripgrep'", StringComparison.Ordinal), rendered);
+    Check("Scoop: generated manifest puts bin on PATH",
+        rendered.Contains("[[path]]", StringComparison.Ordinal) && rendered.Contains("dir = 'bin'", StringComparison.Ordinal));
+    Check("Scoop: generated manifest claims its binaries",
+        rendered.Contains("provides = ['rg']", StringComparison.Ordinal), rendered);
+}
+
+// ---- Dependency order: dependencies first, cycles refused ----
+{
+    ScoopPackage Pkg(string id, string bucket, params string[] depends) => new(
+        id, bucket, "1.0", "https://example.test/" + id + ".zip",
+        new string('a', 64), null, null,
+        Array.Empty<string>(), Array.Empty<string>(),
+        Array.Empty<ToolManifest.PersistSpec>(), depends.ToList(), false,
+        Array.Empty<string>(), false);
+
+    var packages = new Dictionary<string, ScoopPackage>(StringComparer.OrdinalIgnoreCase);
+    Task<(ScoopPackage? Package, string? Error)> Fetch(string resource, CancellationToken ct) =>
+        Task.FromResult(packages.TryGetValue(resource, out var p) ? (p, (string?)null) : ((ScoopPackage?)null, "not found"));
+
+    packages["Main/a"] = Pkg("a", "Main");
+    packages["Main/b"] = Pkg("b", "Main", "a");
+    packages["Main/c"] = Pkg("c", "Main", "b");
+
+    var (order, errors) = PackageGraph.ResolveAsync(packages["Main/c"], Fetch).GetAwaiter().GetResult();
+    Check("Deps: resolved dependencies first",
+        errors.Count == 0 && order.Select(p => p.Id).SequenceEqual(new[] { "a", "b", "c" }),
+        string.Join(",", order.Select(p => p.Id)) + " | " + string.Join(",", errors));
+
+    packages["Main/loop1"] = Pkg("loop1", "Main", "loop2");
+    packages["Main/loop2"] = Pkg("loop2", "Main", "loop1");
+    var (_, loopErrors) = PackageGraph.ResolveAsync(packages["Main/loop1"], Fetch).GetAwaiter().GetResult();
+    Check("Deps: a cycle is reported", loopErrors.Any(e => e.Contains("循环")), string.Join(";", loopErrors));
+
+    packages["Main/needy"] = Pkg("needy", "Main", "ghost");
+    var (_, missing) = PackageGraph.ResolveAsync(packages["Main/needy"], Fetch).GetAwaiter().GetResult();
+    Check("Deps: a missing dependency is reported", missing.Any(e => e.Contains("ghost")), string.Join(";", missing));
 }
 
 Console.WriteLine();

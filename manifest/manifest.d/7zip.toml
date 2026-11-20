@@ -3,16 +3,21 @@ schema = 1
 [tool]
 id      = '7zip'
 version = "26.05"
-title   = '7-Zip (standalone 7zr)'
-kind    = 'raw'
-archive = "downloads/7zip/26.05/7zr.exe"
-sha256  = "9bf582b894dfa665f852d7e9112b02290a1c303c2d95a21fcdc41ffcb03143b7"
-rename  = '7zr.exe'
+title   = '7-Zip (full 7z + 7zr)'
+kind    = '7z-sfx'
+archive = "downloads/7zip/26.05/7z2605-x64.exe"
+sha256  = "fd99e86f57d8f429ef5ed045bf98315af962e2309b0f1ba87a147a44c71647d0"
 
-# The NSIS installer (7z2501-x64.exe) is kept in downloads for reference but is
-# not used: 7zr is the standalone extractor and needs no registry integration.
+# The NSIS installer is unpacked here, never run: registry integration and the Start
+# menu are exactly what a stick must not do. `pkg add` needs the full 7z.exe (rar, NSIS,
+# MSI-in-7z), so the reduced 7zr alone is not enough; 7zr.exe stays because several
+# checks and every older manifest still call it.
 [[path]]
 dir = '.'
+
+[[verify]]
+run    = '7z i'
+expect = '7-Zip'
 
 [[verify]]
 run    = '7zr i'
@@ -22,6 +27,6 @@ expect = '7-Zip'
 kind    = 'sevenzip'
 index   = 'https://www.7-zip.org/download.html'
 pattern = '7-Zip\s+(?<ver>\d+\.\d+)'
-# 这个工具就是独立的 7zr，GitHub release 直接提供裸 exe。
-# （www.7-zip.org/a/ 下没有 extra 包，安装器解出来也没有 7zr.exe。）
-url     = 'https://github.com/ip7z/7zip/releases/download/{version}/7zr.exe'
+# The NSIS installer is the only place 7z.exe is published; the extra package carries
+# 7za.exe only. 7za unpacks the installer, which is why this still works from nothing.
+url     = 'https://github.com/ip7z/7zip/releases/download/{version}/7z{version_compact}-x64.exe'

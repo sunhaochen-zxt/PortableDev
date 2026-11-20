@@ -157,6 +157,15 @@ public sealed class ToolManifest
 
     public IReadOnlyList<VerifySpec> Verify { get; init; } = Array.Empty<VerifySpec>();
 
+    /// <summary>
+    /// Directories that must survive an upgrade: <c>[[persist]]</c>.
+    ///
+    /// The store lives outside the version directory (tools\&lt;id&gt;\persist\&lt;target&gt;), so a
+    /// new version gets a fresh tree while the data is still there; install code puts a
+    /// junction back into the version directory afterwards.
+    /// </summary>
+    public IReadOnlyList<PersistSpec> Persist { get; init; } = Array.Empty<PersistSpec>();
+
     /// <summary>Where to look for newer versions. Null means "never check".</summary>
     public UpdateSpec? Update { get; init; }
 
@@ -192,6 +201,12 @@ public sealed class ToolManifest
 
         public string? Notes { get; init; }
 
+        /// <summary>
+        /// Where this tool came from, when it was generated: <c>scoop:Main/ripgrep</c>.
+        /// Null for hand-written manifests. <c>pkg list</c>/<c>pkg remove</c> key off it.
+        /// </summary>
+        public string? Source { get; init; }
+
         /// <summary>Command names this tool claims, used for conflict detection.</summary>
         public IReadOnlyList<string> Provides { get; init; } = Array.Empty<string>();
 
@@ -199,6 +214,16 @@ public sealed class ToolManifest
 
         /// <summary>False excludes the tool from path/env application.</summary>
         public bool Enabled { get; init; } = true;
+    }
+
+    /// <summary>One entry of <c>[[persist]]</c>: a directory that outlives its version.</summary>
+    public sealed class PersistSpec
+    {
+        /// <summary>Path inside the installed version directory.</summary>
+        public string Source { get; init; } = ".";
+
+        /// <summary>Path under tools\&lt;id&gt;\persist.</summary>
+        public string Target { get; init; } = ".";
     }
 
     public sealed class PathEntry

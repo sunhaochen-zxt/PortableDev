@@ -64,6 +64,7 @@ public static class Program
             "gui" => RunGui(opts),
             "shell" => ShellLauncher.Run(opts),
             "update" => UpdateCommand.Run(opts),
+            "pkg" => PackageCommand.Run(opts),
             "--elevated-job" => RunElevatedJob(opts),
             _ => Unknown(cmd),
         };
@@ -93,6 +94,7 @@ public static class Program
               locate    Print the detected stick root and exit
               gui       Launch the graphical interface
               update    Ask upstream for newer versions (read-only)
+              pkg       Install packages from Scoop buckets: add/list/remove
               shell     Open a terminal that already has the environment
                         (works even when Explorer has not refreshed its PATH)
 
@@ -273,6 +275,27 @@ public sealed class CommandOptions
     /// <summary>--fetch: download updates but do not install them.</summary>
     public bool Fetch { get; private set; }
 
+    /// <summary>--bucket: bucket a pkg add looks in ("Main" when unqualified).</summary>
+    public string? Bucket { get; private set; }
+
+    /// <summary>--dry-run: with pkg add, print what would happen and change nothing.</summary>
+    public bool DryRun { get; private set; }
+
+    /// <summary>--no-apply: stop after writing the manifest.</summary>
+    public bool NoApply { get; private set; }
+
+    /// <summary>--allow-scripts: acknowledge pre/post_install scripts (not executed yet).</summary>
+    public bool AllowScripts { get; private set; }
+
+    /// <summary>--refresh: ignore the cached bucket manifest.</summary>
+    public bool Refresh { get; private set; }
+
+    /// <summary>--purge: with pkg remove, delete the persist store too.</summary>
+    public bool Purge { get; private set; }
+
+    /// <summary>Mark the run as confirmed, for a command that implies --yes.</summary>
+    internal void Confirm() => Yes = true;
+
     /// <summary>--adopt-home / --no-adopt-home: override [apply].home_adopt.</summary>
     public bool? HomeAdopt { get; private set; }
 
@@ -328,6 +351,14 @@ public sealed class CommandOptions
                 case "--strict": o.TreatMissingToolsAsBlocker = true; break;
                 case "--trace": o.Trace = true; break;
                 case "--fetch": o.Fetch = true; break;
+                case "--dry-run": o.DryRun = true; break;
+                case "--no-apply": o.NoApply = true; break;
+                case "--allow-scripts": o.AllowScripts = true; break;
+                case "--refresh": o.Refresh = true; break;
+                case "--purge": o.Purge = true; break;
+                case "--bucket":
+                    o.Bucket = Value(args, ref i, a, o);
+                    break;
                 case "--adopt-home": o.HomeAdopt = true; break;
                 case "--no-adopt-home": o.HomeAdopt = false; break;
                 case "--no-rollback": o.NoRollback = true; break;
@@ -354,6 +385,7 @@ public sealed class CommandOptions
                     break;
                 default:
                     if (a.StartsWith("--root=", StringComparison.Ordinal)) o.Root = a["--root=".Length..];
+                    else if (a.StartsWith("--bucket=", StringComparison.Ordinal)) o.Bucket = a["--bucket=".Length..];
                     else if (a.StartsWith("--profile=", StringComparison.Ordinal)) o.Profile = a["--profile=".Length..];
                     else if (a.StartsWith("--stable=", StringComparison.Ordinal)) o.Stable = a["--stable=".Length..];
                     else if (a.StartsWith("--job=", StringComparison.Ordinal)) o.JobKind = a["--job=".Length..];

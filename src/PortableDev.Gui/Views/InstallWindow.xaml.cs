@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using Microsoft.Win32;
 using PortableDev.Core;
+using PortableDev.Core.Packages;
 using PortableDev.Gui.Engine;
 
 namespace PortableDev.Gui.Views;
