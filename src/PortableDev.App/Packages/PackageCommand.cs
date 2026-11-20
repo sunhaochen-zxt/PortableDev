@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -260,7 +261,10 @@ public static class PackageCommand
         Console.WriteLine("      清单：" + Path.GetFileName(manifestFile));
 
         if (package.Scripts.Count > 0 && opts.AllowScripts)
-            Console.WriteLine("      ! 脚本未执行：--allow-scripts 仅确认了意图，脚本执行器尚未实现");
+        {
+            if (!opts.Yes && !ConfirmScripts(package)) return false;
+            if (!RunScripts(package, result.TargetDir)) return false;
+        }
 
         return true;
     }
@@ -455,6 +459,91 @@ public static class PackageCommand
         var manifest = ManifestLoader.Load(root);
         var stable = opts.NoJunction ? root : manifest.Root.Stable;
         return (root, manifest, stable);
+    }
+
+    /// <summary>
+    /// Run the manifest's pre/post_install scripts with Scoop's variables in scope
+    /// (<c>$dir</c>, <c>$version</c>, <c>$persist_dir</c>). Only reached with
+    /// --allow-scripts: this executes PowerShell that came from the bucket.
+    /// </summary>
+    private static bool RunScripts(ScoopPackage package, string toolDir)
+    {
+        var persistDir = Path.Combine(Path.GetDirectoryName(toolDir)!, "persist");
+        var prelude = string.Join("; ",
+            "$dir = " + Ps(toolDir),
+            "$version = " + Ps(package.Version),
+            "$persist_dir = " + Ps(persistDir),
+            "$original_dir = $dir");
+
+        for (var index = 0; index < package.Scripts.Count; index++)
+        {
+            var scriptPath = Path.Combine(Path.GetTempPath(),
+                "pd-script-" + Guid.NewGuid().ToString("N")[..8] + ".ps1");
+            try
+            {
+                File.WriteAllText(scriptPath, prelude + "\r\n" + package.Scripts[index],
+                    new UTF8Encoding(false));
+
+                Console.WriteLine($"      执行脚本 {index + 1}/{package.Scripts.Count}…");
+                var psi = new ProcessStartInfo("powershell.exe")
+                {
+                    WorkingDirectory = toolDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+                psi.ArgumentList.Add("-NoProfile");
+                psi.ArgumentList.Add("-ExecutionPolicy");
+                psi.ArgumentList.Add("Bypass");
+                psi.ArgumentList.Add("-File");
+                psi.ArgumentList.Add(scriptPath);
+
+                using var process = Process.Start(psi);
+                if (process is null) { Console.Error.WriteLine("      无法启动 powershell"); return false; }
+
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(600_000))
+                {
+                    try { process.Kill(true); } catch { }
+                    Console.Error.WriteLine("      脚本超时");
+                    return false;
+                }
+
+                var output = stdout.GetAwaiter().GetResult().Trim();
+                var error = stderr.GetAwaiter().GetResult().Trim();
+                if (output.Length > 0) Console.WriteLine("      " + output);
+                if (process.ExitCode != 0)
+                {
+                    Console.Error.WriteLine($"      脚本退出码 {process.ExitCode} {error}");
+                    return false;
+                }
+            }
+            finally
+            {
+                try { if (File.Exists(scriptPath)) File.Delete(scriptPath); } catch { }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>A single-quoted PowerShell string, with quotes doubled.</summary>
+    private static string Ps(string value) => "'" + value.Replace("'", "''") + "'";
+
+    private static bool ConfirmScripts(ScoopPackage package)
+    {
+        foreach (var script in package.Scripts)
+        {
+            Console.WriteLine("      --- 脚本 ---");
+            foreach (var line in script.Split('\n')) Console.WriteLine("      " + line.TrimEnd());
+        }
+        Console.Write("      执行这些脚本？[y/N] ");
+        var answer = Console.ReadLine()?.Trim();
+        return answer is not null
+            && (answer.Equals("y", StringComparison.OrdinalIgnoreCase)
+                || answer.Equals("yes", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool Confirm()

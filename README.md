@@ -343,7 +343,7 @@ Deliberately **not** implemented, because each one is Scoop's runtime rather tha
 |---|---|
 | shims, aliases, Start-menu shortcuts | not created; `bin` entries become `[[path]]` directories |
 | `installer.script` | refused: those packages write outside their own directory and stop being portable |
-| `pre_install` / `post_install` | parsed and reported, never executed |
+| `pre_install` / `post_install` | parsed and reported; executed only with `--allow-scripts`, after their text is printed |
 | `env_set` | ignored with a warning |
 | `depends` | installed first, in dependency order; a cycle is an error |
 | zip / tar.gz / 7z / msi / Inno / NSIS | unpacked (`msiexec /a`, `innounp`, `7z x`); anything else is reported |
