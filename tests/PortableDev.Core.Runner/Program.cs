@@ -933,6 +933,16 @@ expect = 'PowerShell 7.6.8'
     Check("Search: limit is honoured", ScoopIndex.Search(entries, "fd", 1).Count == 1);
 }
 
+// ---- Popularity ranking: only GitHub home pages produce a repo ----
+{
+    Check("Stars: plain github url", ScoopStars.RepoOf("https://github.com/BurntSushi/ripgrep") == "BurntSushi/ripgrep");
+    Check("Stars: trailing slash", ScoopStars.RepoOf("https://github.com/BurntSushi/ripgrep/") == "BurntSushi/ripgrep");
+    Check("Stars: .git suffix is stripped", ScoopStars.RepoOf("http://github.com/a/b.git") == "a/b");
+    Check("Stars: non-github homepage is ignored", ScoopStars.RepoOf("https://www.videolan.org/") is null);
+    Check("Stars: empty homepage is ignored", ScoopStars.RepoOf(null) is null);
+    Check("Stars: owner without repo is ignored", ScoopStars.RepoOf("https://github.com/onlyowner") is null);
+}
+
 Console.WriteLine();
 Console.WriteLine($"==== {passed} passed, {failures} failed ====");
 return failures == 0 ? 0 : 1;

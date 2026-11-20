@@ -14,6 +14,7 @@
             <inf:BoolToSoftBrushConverter x:Key="BoolToSoftBrush" />
             <inf:ChangeGlyphBrushConverter x:Key="ChangeBrush" />
             <inf:InverseBoolConverter x:Key="InverseBool" />
+            <inf:NonEmptyToVisibilityConverter x:Key="NonEmptyVis" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

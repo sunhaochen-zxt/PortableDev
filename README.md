@@ -283,7 +283,7 @@ Seven pages, no framework, no external dependency:
 | Page | What it does |
 |---|---|
 | 概览 / Dashboard | stick, junction target, PATH/env counts, per-check rows, one-click apply; an ambiguous or missing stick is shown with the candidate roots |
-| 软件包 / Packages | search the Scoop buckets by name, see the version and one-line description, and **安装** in one click; installed packages are listed with **移除**. Search reads the same Core parser as `pkg search`; install/remove shell out to the CLI, so the GUI keeps its single write path |
+| 软件包 / Packages | App-Store style: **推荐** is a curated shelf ranked by GitHub stars, **全部软件** pages through every app in Main and Extras (about 4,200, from the cached index — browsing works offline); search covers everything, one click **安装**, installed list with **移除**. Search reads the same Core parser as `pkg search`; install/remove shell out to the CLI, so the GUI keeps its single write path |
 | 工具 / Tools | every declared tool, version and location; **全部验证** runs the same checks as `verify` and shows *why* a check failed; **检查更新** queries upstream and offers **升级**, which then downloads, verifies the published SHA256, repoints version/dir in the manifest, runs `apply` and self-checks — no manual follow-up; per-row **安装 / 编辑 / 目录** and a **新增工具** form |
 | 变更预览 / Plan | the diff, grouped and colour-coded by add/update/remove, including **家目录联接 / home links**; degraded-mode toggle |
 | 体检 / Doctor | the same rules as `PortableDev doctor`, plus `clean` |
@@ -340,8 +340,10 @@ PortableDev pkg remove fd                 # persist data kept; --purge deletes i
 
 The search list comes from each bucket's GitHub tree (one request per bucket, cached on the
 stick for 12 hours and readable offline for up to 30 days); descriptions are fetched only
-for the results that are shown. The same page exists in the GUI: **软件包** has the search
-box, one-click **安装**, and the installed list with **移除**.
+for the results that are shown. The same page exists in the GUI: **软件包** opens on a
+recommended shelf — a hand-curated set of apps ranked by their GitHub star count, cached for
+a day because the unauthenticated API allows 60 requests per hour — and has the search box,
+one-click **安装**, and the installed list with **移除**.
 
 The bucket supplies **version, url, hash, extract_dir, persist and depends**. The `hash` in
 a bucket manifest is a value a human reviewed in a pull request, which makes it a stronger

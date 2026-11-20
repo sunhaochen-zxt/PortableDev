@@ -24,6 +24,12 @@ public sealed class ScoopSource
     private readonly HttpClient _http;
     private readonly string _cacheRoot;
 
+    /// <summary>
+    /// Set once the API answers 403/429. Without it, a blocked raw host makes every app
+    /// try the API too, which burns the quota the star ranking needs for nothing.
+    /// </summary>
+    private volatile bool _apiBlocked;
+
     /// <param name="cacheRoot">
     /// Stick root (the list is cached under cache\scoop) or null for a throwaway cache in
     /// %TEMP%, which is what update checks from an unknown location fall back to.
@@ -74,13 +80,18 @@ public sealed class ScoopSource
         }
 
         var raw = $"https://raw.githubusercontent.com/ScoopInstaller/{bucket}/master/bucket/{app}.json";
-        var body = await TryGetStringAsync(raw, parseApiEnvelope: false, ct);
+        var (body, status) = await TryGetAsync(raw, parseApiEnvelope: false, ct);
         var via = "raw";
 
-        if (body is null)
+        // Only a transport failure falls back to the API. A 404 means the app is not in
+        // this bucket, and asking the rate-limited API for it as well would burn the
+        // quota that the star ranking needs.
+        if (body is null && status == 0 && !_apiBlocked)
         {
             var api = $"https://api.github.com/repos/ScoopInstaller/{bucket}/contents/bucket/{app}.json";
-            body = await TryGetStringAsync(api, parseApiEnvelope: true, ct);
+            var (apiBody, apiStatus) = await TryGetAsync(api, parseApiEnvelope: true, ct);
+            body = apiBody;
+            if (apiStatus is 403 or 429) _apiBlocked = true;
             via = "api";
         }
 
@@ -113,26 +124,27 @@ public sealed class ScoopSource
         return (package, null);
     }
 
-    private async Task<string?> TryGetStringAsync(string url, bool parseApiEnvelope, CancellationToken ct)
+    /// <summary>Body plus HTTP status; 0 means the request never got an answer.</summary>
+    private async Task<(string? Body, int Status)> TryGetAsync(string url, bool parseApiEnvelope, CancellationToken ct)
     {
         try
         {
             using var res = await _http.GetAsync(url, ct);
-            if (!res.IsSuccessStatusCode) return null;
+            if (!res.IsSuccessStatusCode) return (null, (int)res.StatusCode);
             var text = await res.Content.ReadAsStringAsync(ct);
 
-            if (!parseApiEnvelope) return text;
+            if (!parseApiEnvelope) return (text, 200);
 
             // GitHub contents API: {"content":"<base64>","encoding":"base64",...}
             using var doc = JsonDocument.Parse(text);
-            if (!doc.RootElement.TryGetProperty("content", out var content)) return null;
+            if (!doc.RootElement.TryGetProperty("content", out var content)) return (null, 200);
             var encoded = content.GetString();
-            if (string.IsNullOrEmpty(encoded)) return null;
-            return Encoding.UTF8.GetString(Convert.FromBase64String(encoded.Replace("\n", "")));
+            if (string.IsNullOrEmpty(encoded)) return (null, 200);
+            return (Encoding.UTF8.GetString(Convert.FromBase64String(encoded.Replace("\n", ""))), 200);
         }
         catch
         {
-            return null;
+            return (null, 0);
         }
     }
 

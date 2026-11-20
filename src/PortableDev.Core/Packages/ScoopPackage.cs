@@ -35,6 +35,9 @@ public sealed record ScoopPackage(
     /// <summary>One-line description from the manifest, for search results.</summary>
     public string? Description { get; init; }
 
+    /// <summary>Project home page; GitHub urls are also the popularity key.</summary>
+    public string? Homepage { get; init; }
+
     /// <summary>True when the package is a plain archive this tool can unpack.</summary>
     public bool IsPortable => !HasInstaller;
 }
@@ -115,6 +118,7 @@ public static class ScoopManifest
                 root.TryGetProperty("env_set", out var es) && es.ValueKind == JsonValueKind.Object)
             {
                 Description = Str(root, "description"),
+                Homepage = Str(root, "homepage"),
             };
 
             return (package, null);

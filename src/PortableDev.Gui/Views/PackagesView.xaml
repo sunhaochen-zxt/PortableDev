@@ -7,8 +7,48 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
              FontFamily="{StaticResource UiFont}">
+
+    <UserControl.Resources>
+        <!-- One card for the recommended shelf and the paged browser. -->
+        <DataTemplate x:Key="PackageCard">
+            <Border Style="{StaticResource Card}" Width="258" Margin="0,0,10,10" Padding="13,11">
+                <StackPanel>
+                    <Grid>
+                        <TextBlock Text="{Binding App}" Foreground="{StaticResource TextBrush}"
+                                   FontWeight="SemiBold" FontSize="13.5" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding StarsText}" Style="{StaticResource Muted}"
+                                   HorizontalAlignment="Right" />
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="4" Padding="6,1"
+                                Visibility="{Binding Category, Converter={StaticResource NonEmptyVis}}">
+                            <TextBlock Text="{Binding Category}" FontSize="10.5"
+                                       Foreground="{StaticResource AccentBrush}" />
+                        </Border>
+                        <TextBlock Text="{Binding Version}" Style="{StaticResource Muted}"
+                                   FontFamily="{StaticResource MonoFont}" Margin="8,0,0,0" />
+                        <TextBlock Text="{Binding InstalledText}" Style="{StaticResource Muted}"
+                                   Foreground="{StaticResource OkBrush}" Margin="8,0,0,0" />
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding Description}" Style="{StaticResource Muted}"
+                               TextWrapping="Wrap" MaxHeight="34" Margin="0,6,0,0" />
+
+                    <Button Content="安装" Style="{StaticResource PrimaryButton}"
+                            Padding="12,5" HorizontalAlignment="Right" Margin="0,8,0,0"
+                            Command="{Binding DataContext.InstallCommand,
+                                RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -25,61 +65,112 @@
 
                 <TextBox x:Name="QueryBox" Style="{StaticResource Input}"
                          Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
-                         KeyDown="OnQueryKeyDown" />
+                         KeyDown="OnQueryKeyDown"
+                         TextChanged="OnQueryChanged"
+                         ToolTip="输入包名，例如 fd、ripgrep、notepad；回车搜索" />
 
                 <Button Grid.Column="1" Content="搜索" Style="{StaticResource PrimaryButton}"
                         Margin="8,0,0,0" Command="{Binding SearchCommand}" />
-                <Button Grid.Column="2" Content="清空" Style="{StaticResource FlatButton}"
+                <Button Grid.Column="2" Content="清除搜索" Style="{StaticResource FlatButton}"
                         Margin="8,0,0,0" Command="{Binding ClearCommand}" />
             </Grid>
         </Border>
 
-        <!-- Results -->
-        <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,12,0,0">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="{Binding Status}" Style="{StaticResource Muted}"
-                           TextWrapping="Wrap" Margin="0,0,0,8" />
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Results}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
-                                        Padding="2,9">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
+        <!-- Status -->
+        <TextBlock Grid.Row="1" Text="{Binding Status}" Style="{StaticResource Muted}"
+                   TextWrapping="Wrap" Margin="2,10,2,6" />
 
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="{Binding App}" Foreground="{StaticResource TextBrush}"
-                                                           FontWeight="SemiBold" />
-                                                <TextBlock Text="{Binding Bucket}" Style="{StaticResource Muted}"
-                                                           Margin="8,1,0,0" />
-                                                <TextBlock Text="{Binding Version}" Style="{StaticResource Muted}"
-                                                           FontFamily="{StaticResource MonoFont}" Margin="8,1,0,0" />
-                                            </StackPanel>
-                                            <TextBlock Text="{Binding Description}" Style="{StaticResource Muted}"
-                                                       TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+        <!-- Mode switch + pager -->
+        <Grid Grid.Row="2" Margin="2,0,2,8">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="{Binding FeaturedTab}" Style="{StaticResource FlatButton}" Padding="12,5"
+                        Command="{Binding SetModeCommand}" CommandParameter="featured" />
+                <Button Content="{Binding AllTab}" Style="{StaticResource FlatButton}" Padding="12,5"
+                        Margin="6,0,0,0" Command="{Binding SetModeCommand}" CommandParameter="all" />
+                <Button Content="刷新" Style="{StaticResource FlatButton}" Padding="12,5" Margin="6,0,0,0"
+                        Command="{Binding RefreshCommand}" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                        Visibility="{Binding ShowBrowse, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="{Binding PageInfo}" Style="{StaticResource Muted}"
+                           VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Button Content="上一页" Style="{StaticResource FlatButton}" Padding="10,4"
+                        IsEnabled="{Binding CanGoPrev}" Command="{Binding GoPageCommand}" CommandParameter="prev" />
+                <Button Content="下一页" Style="{StaticResource FlatButton}" Padding="10,4" Margin="6,0,0,0"
+                        IsEnabled="{Binding CanGoNext}" Command="{Binding GoPageCommand}" CommandParameter="next" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Recommended shelf -->
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding ShowFeatured, Converter={StaticResource BoolToVis}}">
+            <ItemsControl ItemsSource="{Binding Featured}" ItemTemplate="{StaticResource PackageCard}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Paged browser -->
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding ShowBrowse, Converter={StaticResource BoolToVis}}">
+            <ItemsControl ItemsSource="{Binding Browse}" ItemTemplate="{StaticResource PackageCard}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Search results -->
+        <Border Grid.Row="3" Style="{StaticResource Card}"
+                Visibility="{Binding ShowResults, Converter={StaticResource BoolToVis}}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Results}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                                    Padding="2,9">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding App}" Foreground="{StaticResource TextBrush}"
+                                                       FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Bucket}" Style="{StaticResource Muted}"
+                                                       Margin="8,1,0,0" />
+                                            <TextBlock Text="{Binding Version}" Style="{StaticResource Muted}"
+                                                       FontFamily="{StaticResource MonoFont}" Margin="8,1,0,0" />
+                                            <TextBlock Text="{Binding InstalledText}" Style="{StaticResource Muted}"
+                                                       Foreground="{StaticResource OkBrush}" Margin="8,1,0,0" />
                                         </StackPanel>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource Muted}"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                                    </StackPanel>
 
-                                        <Button Grid.Column="1" Content="安装" Style="{StaticResource PrimaryButton}"
-                                                Padding="12,5" Margin="10,0,0,0"
-                                                Command="{Binding DataContext.InstallCommand,
-                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-            </DockPanel>
+                                    <Button Grid.Column="1" Content="安装" Style="{StaticResource PrimaryButton}"
+                                            Padding="12,5" Margin="10,0,0,0"
+                                            Command="{Binding DataContext.InstallCommand,
+                                                RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
         </Border>
 
         <!-- Installed -->
-        <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,12,0,0" MaxHeight="190">
+        <Border Grid.Row="4" Style="{StaticResource Card}" Margin="0,10,0,0" MaxHeight="150">
             <DockPanel>
                 <Grid DockPanel.Dock="Top">
                     <TextBlock Text="已安装（pkg）" Style="{StaticResource SectionTitle}" />
