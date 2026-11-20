@@ -21,9 +21,13 @@ public static class Verifier
         var resolver = new PathResolver(opts.Stable ?? manifest.Root.Stable, root);
 
         var results = new List<VerifyResult>();
+        var only = opts.Positional.Count == 0
+            ? null
+            : new HashSet<string>(opts.Positional, StringComparer.OrdinalIgnoreCase);
         foreach (var (id, tool) in manifest.Tools.OrderBy(t => t.Key, StringComparer.OrdinalIgnoreCase))
         {
             if (!tool.Tool.Enabled) continue;
+            if (only is not null && !only.Contains(id)) continue;
 
             var toolRoot = Path.Combine(root, PathResolver.ToolRelativeDir(tool).Replace('/', '\\'));
             foreach (var v in tool.Verify)
@@ -60,6 +64,12 @@ public static class Verifier
         }
 
         return results.All(r => r.Ok) ? 0 : 1;
+    }
+
+    private static string ReadPartial(Task<string> task)
+    {
+        try { return task.Wait(2_000) ? task.Result.Trim() : string.Empty; }
+        catch { return string.Empty; }
     }
 
     private static VerifyResult Execute(string toolId, string toolRoot, PortableDev.Core.Model.ToolManifest.VerifySpec spec)
@@ -129,8 +139,17 @@ public static class Verifier
             var stderr = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(60_000))
             {
-                try { p.Kill(); } catch { }
-                return new VerifyResult(toolId, spec.Run, false, "timeout", -1);
+                // Kill the whole tree: cmd.exe /c flutter.bat leaves a dart.exe behind, and
+                // an orphan holding Flutter's startup lock makes every later flutter
+                // command wait for it until it times out too (the next verify, an upgrade,
+                // the user's own shell).
+                try { p.Kill(entireProcessTree: true); } catch { }
+                // Keep whatever the tool printed before it hung: "timeout" alone hides
+                // whether it was waiting for a lock, a prompt or the network.
+                p.WaitForExit(5_000);
+                var partial = ReadPartial(stdout) + ReadPartial(stderr);
+                return new VerifyResult(toolId, spec.Run, false,
+                    partial.Length == 0 ? "timeout" : "timeout, output so far:\n" + partial, -1);
             }
 
             var output = (stdout.GetAwaiter().GetResult() + "\n" + stderr.GetAwaiter().GetResult()).Trim();
