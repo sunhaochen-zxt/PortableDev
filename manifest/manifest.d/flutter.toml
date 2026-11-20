@@ -36,6 +36,32 @@ value = '{{ROOT}}\cache\pub'
 name  = 'FLUTTER_SUPPRESS_ANALYTICS'
 value = 'true'
 
+# Git refuses to touch a repository whose owner is another account ("dubious ownership",
+# git >= 2.35). This checkout was prepared on a different machine, so on a new machine
+# every flutter command died at "Error: Unable to determine engine version..." before it
+# did anything: bin\internal\update_engine_version.ps1 asks git for the engine version and
+# an unreadable repository yields nothing.
+#
+# These three variables add exactly one safe.directory entry - this tool's directory - to
+# every git invocation on the machine. They live in the manifest instead of a per-machine
+# git config on purpose: apply rewrites them every time, so a drive-letter change or a
+# restored machine does not bring the error back, and nothing has to be edited by hand on
+# each new machine.
+#
+# Note: GIT_CONFIG_COUNT is machine-wide, so a second env-based git setting would have to
+# extend this block (COUNT=2, KEY_1, VALUE_1) rather than appear somewhere else.
+[[env]]
+name  = 'GIT_CONFIG_COUNT'
+value = '1'
+
+[[env]]
+name  = 'GIT_CONFIG_KEY_0'
+value = 'safe.directory'
+
+[[env]]
+name  = 'GIT_CONFIG_VALUE_0'
+value = '{{TOOL}}'
+
 [[verify]]
 run    = 'flutter --version'
 expect = 'Flutter 3.47.9'
