@@ -870,6 +870,10 @@ expect = 'PowerShell 7.6.8'
     Check("Scoop: a root-level bin gets '.'", GeneratedManifest.DirOf("rg.exe") == ".");
 
     var rendered = GeneratedManifest.Render(arch!, new[] { "bin" });
+    Check("Scoop: generated manifest points updates at the bucket",
+        rendered.Contains("kind   = 'scoop'", StringComparison.Ordinal)
+        && rendered.Contains("bucket = 'Main'", StringComparison.Ordinal)
+        && rendered.Contains("app    = 'ripgrep'", StringComparison.Ordinal), rendered);
     Check("Scoop: generated manifest names its source",
         rendered.Contains("source  = 'scoop:Main/ripgrep'", StringComparison.Ordinal), rendered);
     Check("Scoop: generated manifest puts bin on PATH",
@@ -908,6 +912,25 @@ expect = 'PowerShell 7.6.8'
     packages["Main/needy"] = Pkg("needy", "Main", "ghost");
     var (_, missing) = PackageGraph.ResolveAsync(packages["Main/needy"], Fetch).GetAwaiter().GetResult();
     Check("Deps: a missing dependency is reported", missing.Any(e => e.Contains("ghost")), string.Join(";", missing));
+}
+
+// ---- Bucket search ranks prefix matches first ----
+{
+    var entries = new[]
+    {
+        new ScoopIndex.Entry("Main", "fd"),
+        new ScoopIndex.Entry("Main", "fdm"),
+        new ScoopIndex.Entry("Extras", "gofd"),
+        new ScoopIndex.Entry("Main", "ripgrep"),
+    };
+
+    var hits = ScoopIndex.Search(entries, "fd", 10);
+    Check("Search: only matching names are returned", hits.Count == 3, hits.Count.ToString());
+    Check("Search: prefix matches come first",
+        hits[0].App == "fd" && hits[1].App == "fdm", string.Join(",", hits.Select(h => h.App)));
+    Check("Search: case-insensitive", ScoopIndex.Search(entries, "FD", 10).Count == 3);
+    Check("Search: empty term returns nothing", ScoopIndex.Search(entries, "  ", 10).Count == 0);
+    Check("Search: limit is honoured", ScoopIndex.Search(entries, "fd", 1).Count == 1);
 }
 
 Console.WriteLine();

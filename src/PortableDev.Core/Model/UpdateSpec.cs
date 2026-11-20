@@ -11,8 +11,14 @@ namespace PortableDev.Core.Model;
 /// </summary>
 public sealed class UpdateSpec
 {
-    /// <summary>github | node | vscode | sevenzip</summary>
+    /// <summary>github | node | vscode | sevenzip | scoop</summary>
     public string Kind { get; init; } = "github";
+
+    /// <summary>Bucket name for kind=scoop ("Main" when empty).</summary>
+    public string? Bucket { get; init; }
+
+    /// <summary>App name inside the bucket for kind=scoop (the tool id when empty).</summary>
+    public string? App { get; init; }
 
     /// <summary>owner/name for kind=github.</summary>
     public string? Repo { get; init; }
@@ -67,6 +73,12 @@ public sealed class UpdateInfo
     public string? Sha256Url { get; init; }
 
     public long? SizeBytes { get; init; }
+
+    /// <summary>For bucket packages: the subdirectory holding the payload.</summary>
+    public string? ExtractDir { get; init; }
+
+    /// <summary>For bucket packages: local file name when the url renames its download.</summary>
+    public string? RenameTo { get; init; }
 
     /// <summary>True when AvailableVersion sorts above CurrentVersion.</summary>
     public bool IsNewer => VersionOrder.Compare(AvailableVersion, CurrentVersion) > 0;

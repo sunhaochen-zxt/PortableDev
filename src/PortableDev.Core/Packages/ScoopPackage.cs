@@ -32,6 +32,9 @@ public sealed record ScoopPackage(
     /// <summary>The <c>bucket/app</c> resource this package was read from.</summary>
     public string Resource => Bucket + "/" + Id;
 
+    /// <summary>One-line description from the manifest, for search results.</summary>
+    public string? Description { get; init; }
+
     /// <summary>True when the package is a plain archive this tool can unpack.</summary>
     public bool IsPortable => !HasInstaller;
 }
@@ -109,7 +112,10 @@ public static class ScoopManifest
                 ReadStringList(root, "depends"),
                 installer,
                 ReadScripts(root),
-                root.TryGetProperty("env_set", out var es) && es.ValueKind == JsonValueKind.Object);
+                root.TryGetProperty("env_set", out var es) && es.ValueKind == JsonValueKind.Object)
+            {
+                Description = Str(root, "description"),
+            };
 
             return (package, null);
         }

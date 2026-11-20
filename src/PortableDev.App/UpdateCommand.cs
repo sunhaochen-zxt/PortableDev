@@ -42,7 +42,7 @@ public static class UpdateCommand
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
-        var checker = new UpdateChecker(http);
+        var checker = new UpdateChecker(http, root);
 
         var only = opts.Positional.FirstOrDefault();
         if (only is not null)
@@ -105,7 +105,7 @@ public static class UpdateCommand
 
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(60) };
         http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
-        var checker = new UpdateChecker(http);
+        var checker = new UpdateChecker(http, stickRoot);
 
         var failures = 0;
         foreach (var row in todo)
@@ -113,7 +113,7 @@ public static class UpdateCommand
             var info = infos[row.Id];
             manifest.Tools.TryGetValue(row.Id, out var tool);
 
-            var name = NameOf(info.DownloadUrl);
+            var name = string.IsNullOrWhiteSpace(info.RenameTo) ? NameOf(info.DownloadUrl) : info.RenameTo!;
             var dir = Path.Combine(stickRoot, "downloads", row.Id, info.AvailableVersion);
             var dest = Path.Combine(dir, name);
 
@@ -124,7 +124,7 @@ public static class UpdateCommand
             // Resolved only here: the read-only listing never pays for a checksum request.
             var expected = tool is null
                 ? null
-                : checker.ResolveSha256Async(tool, info, CancellationToken.None).GetAwaiter().GetResult();
+                : info.Sha256 ?? checker.ResolveSha256Async(tool, info, CancellationToken.None).GetAwaiter().GetResult();
 
             Console.WriteLine(expected is null
                 ? "  该源没有提供校验值；下载后记录实际 SHA256"

@@ -21,10 +21,16 @@ namespace PortableDev.Core.Update;
 public sealed class UpdateChecker
 {
     private readonly HttpClient _http;
+    private readonly string? _stickRoot;
 
-    public UpdateChecker(HttpClient? http = null)
+    /// <param name="stickRoot">
+    /// Where the bucket manifest cache may live. Null keeps it in %TEMP%, which is fine
+    /// for a one-off check but means the next run fetches again.
+    /// </param>
+    public UpdateChecker(HttpClient? http = null, string? stickRoot = null)
     {
         _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        _stickRoot = stickRoot;
         if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
             _http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
     }
@@ -43,6 +49,7 @@ public sealed class UpdateChecker
                 "node" => await CheckNodeAsync(tool, spec, currentVersion, ct),
                 "vscode" => await CheckVsCodeAsync(tool, spec, currentVersion, ct),
                 "sevenzip" => await CheckSevenZipAsync(tool, spec, currentVersion, ct),
+                "scoop" => await CheckScoopAsync(tool, spec, currentVersion, ct),
                 _ => null,
             };
         }
@@ -166,6 +173,10 @@ public sealed class UpdateChecker
     public async Task<string?> ResolveSha256Async(
         ToolManifest tool, UpdateInfo info, CancellationToken ct = default)
     {
+        // A bucket manifest carries the reviewed hash; never go looking for a sidecar that
+        // could disagree with it.
+        if (!string.IsNullOrWhiteSpace(info.Sha256)) return info.Sha256;
+
         var spec = tool.Update;
         var candidates = new List<string>();
 
@@ -193,6 +204,34 @@ public sealed class UpdateChecker
         }
 
         return null;
+    }
+
+    // ----------------------------------------------------------------- scoop ----
+    private async Task<UpdateInfo?> CheckScoopAsync(
+        ToolManifest tool, UpdateSpec spec, string currentVersion, CancellationToken ct)
+    {
+        var bucket = string.IsNullOrWhiteSpace(spec.Bucket) ? "Main" : spec.Bucket!.Trim();
+        var app = string.IsNullOrWhiteSpace(spec.App) ? tool.Tool.Id : spec.App!.Trim();
+
+        var source = new Packages.ScoopSource(_http, _stickRoot);
+        var (package, _) = await source.GetAsync(bucket + "/" + app, false, ct);
+        if (package is null) return null;
+
+        var version = package.Version;
+        if (!string.IsNullOrWhiteSpace(spec.StripPrefix)
+            && version.StartsWith(spec.StripPrefix!, StringComparison.OrdinalIgnoreCase))
+            version = version[spec.StripPrefix!.Length..];
+
+        return new UpdateInfo
+        {
+            ToolId = tool.Tool.Id,
+            CurrentVersion = currentVersion,
+            AvailableVersion = version,
+            DownloadUrl = package.Url,
+            Sha256 = package.Sha256,
+            ExtractDir = package.ExtractDir,
+            RenameTo = package.RenameTo,
+        };
     }
 
     // ------------------------------------------------------------------ node ----

@@ -55,6 +55,14 @@ public static class GeneratedManifest
             sb.AppendLine("target = " + Q(persist.Target));
         }
 
+        // Updates come from the same bucket entry, so `PortableDev update` and the GUI's
+        // "检查更新" can see these packages without any extra configuration.
+        sb.AppendLine();
+        sb.AppendLine("[update]");
+        sb.AppendLine("kind   = 'scoop'");
+        sb.AppendLine("bucket = " + Q(package.Bucket));
+        sb.AppendLine("app    = " + Q(package.Id));
+
         // One cheap self check: the first binary the manifest declares must exist after
         // the install. Anything deeper would duplicate the bucket's job.
         var firstBin = package.Bin.FirstOrDefault();

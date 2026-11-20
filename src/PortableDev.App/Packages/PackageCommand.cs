@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using PortableDev.Core;
@@ -36,6 +37,7 @@ public static class PackageCommand
         return sub switch
         {
             "add" or "install" => Add(opts, rest),
+            "search" or "find" => Search(opts, rest),
             "list" or "ls" => List(opts),
             "remove" or "rm" or "uninstall" => Remove(opts, rest),
             _ => Usage("unknown pkg command: " + sub),
@@ -49,7 +51,8 @@ public static class PackageCommand
         Console.Error.WriteLine("usage:");
         Console.Error.WriteLine("  PortableDev pkg add <app> [--bucket Main] [--dry-run] [--refresh]");
         Console.Error.WriteLine("                           [--allow-scripts] [--no-apply]");
-        Console.Error.WriteLine("  PortableDev pkg list");
+        Console.Error.WriteLine("  PortableDev pkg search <term> [--refresh] [--json]");
+        Console.Error.WriteLine("  PortableDev pkg list [--json]");
         Console.Error.WriteLine("  PortableDev pkg remove <app> [--purge] [--no-apply]");
         return 2;
     }
@@ -349,6 +352,88 @@ public static class PackageCommand
         return Directory.Exists(Path.Combine(root, "tools", package.Id, package.Version));
     }
 
+    // --------------------------------------------------------------- search ----
+
+    private static int Search(CommandOptions opts, List<string> args)
+    {
+        if (args.Count == 0) return Usage("pkg search needs a search term");
+
+        var resolved = Resolve(opts);
+        if (resolved is not { } target) return 4;
+        var (root, _, _) = target;
+
+        var term = string.Join(" ", args);
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
+
+        var index = new ScoopIndex(http, root);
+        var (entries, error) = index.LoadAsync(opts.Refresh).GetAwaiter().GetResult();
+        if (entries.Count == 0)
+        {
+            Console.Error.WriteLine(error ?? "bucket 索引为空");
+            return 1;
+        }
+
+        var hits = ScoopIndex.Search(entries, term, 40);
+        if (hits.Count == 0)
+        {
+            if (opts.Json) Console.WriteLine("[]");
+            else Console.WriteLine("没有匹配的包：" + term);
+            return 0;
+        }
+
+        // Descriptions and versions cost one request per result, so only the visible ones
+        // are resolved; four at a time keeps GitHub happy.
+        var source = new ScoopSource(http, root);
+        var top = hits.Take(15).ToList();
+        var details = new Dictionary<string, (string Version, string? Description)>(StringComparer.OrdinalIgnoreCase);
+        using var gate = new SemaphoreSlim(4);
+
+        var lookups = top.Select(async hit =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                var (package, _) = await source.GetAsync(hit.Bucket + "/" + hit.App, false, CancellationToken.None);
+                if (package is null) return;
+                lock (details) details[hit.App] = (package.Version, package.Description);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        Task.WhenAll(lookups).GetAwaiter().GetResult();
+
+        if (opts.Json)
+        {
+            var rows = top.Select(hit => new
+            {
+                app = hit.App,
+                bucket = hit.Bucket,
+                version = details.TryGetValue(hit.App, out var d) ? d.Version : null,
+                description = details.TryGetValue(hit.App, out var d2) ? d2.Description : null,
+            });
+            Console.WriteLine(JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+
+        Console.WriteLine($"{"app",-24}{"bucket",-8}{"version",-12}description");
+        foreach (var hit in top)
+        {
+            details.TryGetValue(hit.App, out var detail);
+            var version = string.IsNullOrEmpty(detail.Version) ? "?" : detail.Version;
+            var description = detail.Description ?? string.Empty;
+            if (description.Length > 70) description = description[..67] + "...";
+            Console.WriteLine($"{hit.App,-24}{hit.Bucket,-8}{version,-12}{description}");
+        }
+
+        if (hits.Count > top.Count)
+            Console.WriteLine($"\n还有 {hits.Count - top.Count} 个结果，换个更具体的关键词。");
+        Console.WriteLine("\n安装：PortableDev pkg add <bucket>/<app>");
+        return 0;
+    }
+
     // ----------------------------------------------------------------- list ----
 
     private static int List(CommandOptions opts)
@@ -368,13 +453,27 @@ public static class PackageCommand
             return 0;
         }
 
-        Console.WriteLine($"{"tool",-22}{"version",-16}{"source",-28}state");
-        foreach (var tool in tools)
+        var rows = tools.Select(tool =>
         {
             var directory = Path.Combine(root, "tools", tool.Tool.Id, tool.Tool.Version);
-            Console.WriteLine($"{tool.Tool.Id,-22}{tool.Tool.Version,-16}{tool.Tool.Source,-28}"
-                + (Directory.Exists(directory) ? "installed" : "missing"));
+            return new
+            {
+                tool = tool.Tool.Id,
+                version = tool.Tool.Version,
+                source = tool.Tool.Source,
+                state = Directory.Exists(directory) ? "installed" : "missing",
+            };
+        }).ToList();
+
+        if (opts.Json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
         }
+
+        Console.WriteLine($"{"tool",-22}{"version",-16}{"source",-28}state");
+        foreach (var row in rows)
+            Console.WriteLine($"{row.tool,-22}{row.version,-16}{row.source,-28}{row.state}");
         return 0;
     }
 

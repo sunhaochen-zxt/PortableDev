@@ -80,6 +80,7 @@ PortableDev shell     # open a terminal that already has the environment applied
 PortableDev shell --profile msvc     # ... plus a named profile's variables
 PortableDev update    # ask upstream for newer versions (read-only)
 PortableDev update --fetch jq   # download an update without installing it
+PortableDev pkg search jq       # find a package in the buckets
 PortableDev pkg add fd          # install a package from a Scoop bucket
 PortableDev pkg list            # what pkg add installed
 PortableDev pkg remove fd       # remove it (persist data survives)
@@ -277,16 +278,24 @@ grew an in-app data-directory setting, so the duplicate could only drift out of 
 ## GUI
 
 `PortableDev.cmd` with no arguments opens the window; any argument goes to the CLI.
-Six pages, no framework, no external dependency:
+Seven pages, no framework, no external dependency:
 
 | Page | What it does |
 |---|---|
 | 概览 / Dashboard | stick, junction target, PATH/env counts, per-check rows, one-click apply; an ambiguous or missing stick is shown with the candidate roots |
+| 软件包 / Packages | search the Scoop buckets by name, see the version and one-line description, and **安装** in one click; installed packages are listed with **移除**. Search reads the same Core parser as `pkg search`; install/remove shell out to the CLI, so the GUI keeps its single write path |
 | 工具 / Tools | every declared tool, version and location; **全部验证** runs the same checks as `verify` and shows *why* a check failed; **检查更新** queries upstream and offers **升级**, which then downloads, verifies the published SHA256, repoints version/dir in the manifest, runs `apply` and self-checks — no manual follow-up; per-row **安装 / 编辑 / 目录** and a **新增工具** form |
 | 变更预览 / Plan | the diff, grouped and colour-coded by add/update/remove, including **家目录联接 / home links**; degraded-mode toggle |
 | 体检 / Doctor | the same rules as `PortableDev doctor`, plus `clean` |
 | 进度与日志 / Progress | live apply/clean output, step tracker, final verdict |
 | 系统状态 / System | runs the stick's `fastfetch` and shows its report verbatim (mono, selectable, copy button) — no parsing, so upgrading the tool or its preset needs no GUI change |
+
+The window lives in the tray: closing it hides it instead of quitting, and the tray menu
+offers **显示主窗口 / 检查更新 / 下载可用更新 / 退出**. While hidden it checks for updates
+every four hours (`update --json`, read-only) and says so with a balloon; **下载可用更新**
+runs `update --fetch`, which downloads and verifies but installs nothing — applying an
+upgrade stays a deliberate action on the Tools page. A machine without network simply gets
+"检查更新失败" in the balloon and keeps working.
 
 ### Updating tools from the network
 
@@ -294,7 +303,7 @@ Each tool can declare where its newer versions live:
 
 ```toml
 [update]
-kind    = 'github'                     # github | node | vscode | sevenzip
+kind    = 'github'                     # github | node | vscode | sevenzip | scoop
 repo    = 'BurntSushi/ripgrep'
 pattern = 'ripgrep-(?<ver>d+.d+.d+)-x86_64-pc-windows-msvc.zip'
 ```
@@ -321,12 +330,18 @@ failed or corrupt download never damages a working tool.
 ordinary PortableDev tools:
 
 ```powershell
+PortableDev pkg search ripgrep            # names from both buckets, with version + summary
 PortableDev pkg add fd                    # Main bucket first, then Extras
 PortableDev pkg add extras/notepadplusplus
 PortableDev pkg add fd --dry-run          # dependencies, urls and scripts; changes nothing
-PortableDev pkg list
+PortableDev pkg list                      # --json for machine-readable output
 PortableDev pkg remove fd                 # persist data kept; --purge deletes it too
 ```
+
+The search list comes from each bucket's GitHub tree (one request per bucket, cached on the
+stick for 12 hours and readable offline for up to 30 days); descriptions are fetched only
+for the results that are shown. The same page exists in the GUI: **软件包** has the search
+box, one-click **安装**, and the installed list with **移除**.
 
 The bucket supplies **version, url, hash, extract_dir, persist and depends**. The `hash` in
 a bucket manifest is a value a human reviewed in a pull request, which makes it a stronger
@@ -351,6 +366,11 @@ Deliberately **not** implemented, because each one is Scoop's runtime rather tha
 A package may not reuse the id of a hand-written tool: two manifests with the same id make
 the whole manifest unreadable, so `pkg add 7zip` is refused while `manifest.d\7zip.toml`
 exists.
+
+Generated manifests carry `[update] kind = 'scoop'` pointing back at their bucket entry, so
+`PortableDev update` and the GUI's 检查更新 see these packages too; upgrading one downloads
+the new archive, verifies the bucket hash, honours `extract_dir` and the `#/name.ext` rename,
+and rewrites the manifest like any other tool.
 
 ### Download integrity
 

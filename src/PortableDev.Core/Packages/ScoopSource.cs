@@ -24,10 +24,16 @@ public sealed class ScoopSource
     private readonly HttpClient _http;
     private readonly string _cacheRoot;
 
-    public ScoopSource(HttpClient http, string stickRoot)
+    /// <param name="cacheRoot">
+    /// Stick root (the list is cached under cache\scoop) or null for a throwaway cache in
+    /// %TEMP%, which is what update checks from an unknown location fall back to.
+    /// </param>
+    public ScoopSource(HttpClient http, string? cacheRoot = null)
     {
         _http = http;
-        _cacheRoot = Path.Combine(stickRoot, "cache", "scoop");
+        _cacheRoot = string.IsNullOrWhiteSpace(cacheRoot)
+            ? Path.Combine(Path.GetTempPath(), "portabledev-scoop")
+            : Path.Combine(cacheRoot, "cache", "scoop");
     }
 
     public static IReadOnlyList<string> Buckets => DefaultBuckets;

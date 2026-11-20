@@ -202,6 +202,8 @@ public static class ManifestLoader
         return new UpdateSpec
         {
             Kind = GetString(t, "kind", "github"),
+            Bucket = GetStringOrNull(t, "bucket"),
+            App = GetStringOrNull(t, "app"),
             Repo = GetStringOrNull(t, "repo"),
             Index = GetStringOrNull(t, "index"),
             Pattern = GetString(t, "pattern", ""),
