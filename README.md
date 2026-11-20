@@ -138,28 +138,32 @@ set to an empty string. Like `apply`, every mutation is journalled and backed up
 
 ## Tools on the stick
 
-Nineteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
+Eighteen toolchains, each in its own versioned directory under `tools\<id>\<version>`:
 
-| Tool | Version | Notes |
-|---|---|---|
-| Python | 3.13.17 | python-build-standalone, with pip |
-| Node.js | 26.12.1 | npm 11.20.0 |
-| Git | 2.56.0.3 | PortableGit |
-| CMake | 4.4.4 | |
-| Ninja | 1.13.2 | |
-| ripgrep | 15.2.0 | |
-| jq | 1.8.2 | |
-| 7-Zip | 26.05 | standalone `7zr`; zip/tar.gz are unpacked in-process |
-| LLVM / clang | 23.1.3 | llvm-mingw (UCRT); add `-static` for standalone exes |
-| VSCode | 1.144.0 | portable `data\`, settings in `data\user-data\User` |
-| Sublime Text | 4215 | portable `Data\`, settings in `Data\Packages\User`, `subl` on PATH |
-| PowerShell | 7.6.8 | portable `pwsh`, self-contained .NET; the built-in 5.1 is untouched |
-| fastfetch | 2.70.0 | full package (presets + `lua55.dll`); feeds the GUI **系统状态** page, also on PATH |
-| Firefox | 159.0 | official zh-CN MSI unpacked; **launch via `Firefox.cmd`**, profile in `home\firefox\profile` (NSS, so logins travel with the stick); deliberately not on PATH |
-| Tabby | 1.0.238 | Electron terminal; portable because `data\` sits next to `Tabby.exe` (config, plugins, SSH profiles); **launch via `Tabby.cmd`**, not on PATH |
-| FlClash | 0.9.2 | proxy client; settings in `%APPDATA%\FlClash`, carried by a home link to `home\FlClash`; **launch via `FlClash.cmd`**, not on PATH |
-| Flutter | 3.47.9 | SDK + Dart 3.13.7 (DevTools 2.60.0); web (`flutter run -d chrome`) **and** Windows desktop builds — see [Building Windows desktop apps](#building-windows-desktop-apps); `PUB_CACHE` on the stick, analytics off |
-| MSVC + Windows SDK | 14.44.35207 / 10.0.22621.0 | real `cl.exe`, `link.exe` and the Windows SDK, installed by msvc-kit from Microsoft's own payloads — no Visual Studio installer, no admin, no registry writes; `cl`/`link` on PATH, `INCLUDE`/`LIB` in the environment |
+| Tool | Notes |
+|---|---|
+| Python | python-build-standalone, with pip |
+| Node.js | Node.js with npm |
+| Git | PortableGit |
+| CMake | |
+| Ninja | |
+| ripgrep | |
+| jq | |
+| 7-Zip | standalone `7zr`; zip/tar.gz are unpacked in-process |
+| LLVM / clang | llvm-mingw (UCRT); add `-static` for standalone exes |
+| VSCode | portable `data\`, settings in `data\user-data\User` |
+| Sublime Text | portable `Data\`, settings in `Data\Packages\User`, `subl` on PATH |
+| PowerShell | portable `pwsh`, self-contained .NET; the built-in 5.1 is untouched |
+| fastfetch | full package (presets + `lua55.dll`); feeds the GUI **系统状态** page, also on PATH |
+| Firefox | official zh-CN MSI unpacked; **launch via `Firefox.cmd`**, profile in `home\firefox\profile` (NSS, so logins travel with the stick); deliberately not on PATH |
+| Tabby | Electron terminal; portable because `data\` sits next to `Tabby.exe` (config, plugins, SSH profiles); **launch via `Tabby.cmd`**, not on PATH |
+| FlClash | proxy client; settings in `%APPDATA%\FlClash`, carried by a home link to `home\FlClash`; **launch via `FlClash.cmd`**, not on PATH |
+| Flutter | SDK + Dart (with DevTools); web (`flutter run -d chrome`) **and** Windows desktop builds — see [Building Windows desktop apps](#building-windows-desktop-apps); `PUB_CACHE` on the stick, analytics off |
+| MSVC + Windows SDK | real `cl.exe`, `link.exe` and the Windows SDK, installed by msvc-kit from Microsoft's own payloads — no Visual Studio installer, no admin, no registry writes; `cl`/`link` on PATH, `INCLUDE`/`LIB` in the environment |
+
+Versions are deliberately not listed here: the manifests under `manifest\manifest.d\` own
+them, `PortableDev plan` prints what is actually on the stick, and a version copied into
+this file only goes stale (it did, for five tools at once).
 
 Firefox is declared as a tool but has **no `[[path]]` entry**: starting `firefox.exe`
 directly would use `%APPDATA%` and stop being portable. `Firefox.cmd` in the stick root
@@ -235,7 +239,7 @@ What `scripts\msvc-activate.cmd` does, and why each part is needed:
 | `VSINSTALLDIR`, `VisualStudioVersion` | the fake instance root and its version |
 | `ProgramFiles(x86)=<stick>\tools\msvc\pf86` | Flutter's `_vswherePath` is hard coded to `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`; pointing the variable at the stick makes it find our shim there |
 | `UseEnv=true` | tells the C++ MSBuild targets to build `INCLUDE`/`LIB` from the environment instead of the registry (otherwise `kernel32.lib` and then `MSVCRTD.lib` go missing) |
-| `CheckMSVCComponents=false` | MSBuild 17.3 predates MSVC 14.44 and would reject the pair with `MSB8052`; the ABI is the same `v143` |
+| `CheckMSVCComponents=false` | the bundled MSBuild predates the MSVC toolchain in the manifest and would reject the pair with `MSB8052`; the ABI is the same `v143` |
 
 The pieces inside `tools\msvc` that Flutter needs and msvc-kit does not provide:
 

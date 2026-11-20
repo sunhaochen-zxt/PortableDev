@@ -2,10 +2,10 @@ schema = 1
 
 [tool]
 id       = 'flclash'
-version  = '0.9.2'
+version  = '0.9.4'
 title    = 'FlClash (portable)'
 kind     = 'prebuilt'
-dir      = 'tools/flclash/0.9.2'
+dir      = 'tools/flclash/0.9.4'
 provides = ['flclash']
 # data\ in this folder is NOT user data: it is the Flutter bundle (app.so, flutter_assets,
 # GEOIP/GEOSITE). That is why [tool].data is deliberately NOT set here - declaring it would
