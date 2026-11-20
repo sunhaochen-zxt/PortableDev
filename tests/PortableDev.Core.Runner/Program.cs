@@ -327,7 +327,7 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
     {
         var m = ManifestLoader.Load(stickRoot);
         Check("Manifest loads", true);
-        Check("Manifest tool count == 19", m.Tools.Count == 19, $"got {m.Tools.Count}");
+        Check("Manifest tool count == 18", m.Tools.Count == 18, $"got {m.Tools.Count}");
         Check("Manifest stable root", m.Root.Stable == @"C:\Dev", m.Root.Stable);
         Check("Manifest path order == 15", m.PathOrder.Count == 15, $"got {m.PathOrder.Count}");
         Check("Manifest env non-empty", m.Env.Count > 0);
@@ -337,8 +337,8 @@ MachineState State(string userPath = @"C:\Windows;C:\Users\admin\go\bin", string
         var plan = planner.Build(new MachineState { UserPathRaw = @"C:\Windows", StickRoot = Stick });
 
         var toolSteps = plan.Steps.Where(s => s.Kind == "tool").ToList();
-        Check("All 19 tools present", toolSteps.Count == 19, $"got {toolSteps.Count}");
-        Check("All 19 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
+        Check("All 18 tools present", toolSteps.Count == 18, $"got {toolSteps.Count}");
+        Check("All 18 tools found on disk", toolSteps.All(s => s.Change == ChangeKind.None),
             string.Join(",", toolSteps.Where(s => s.Change != ChangeKind.None).Select(s => s.Target)));
 
         // Derive the versions from the manifest instead of hard-coding them: this test is
@@ -754,6 +754,49 @@ expect = 'PowerShell 7.6.8'
     };
     Check("Duplicate env with the same value is not a conflict",
         !new Planner(same, resolver).Build(State()).Warnings.Any(w => w.Code == "env-conflict"));
+}
+
+// ---- Update downloads: resuming must prove the file is still the same object ----
+{
+    var probe = new ProbeInfo(1000, true, "\"v1\"", "2026-01-01T00:00:00.0000000+00:00");
+    var stored = PartSource.From("https://example.test/a.zip", probe, 2, 500);
+
+    Check("Resume accepts the same object",
+        stored.Matches("https://example.test/a.zip", probe, 2, 500));
+
+    var reuploaded = probe with { ETag = "\"v2\"" };
+    Check("Resume rejects a re-uploaded asset of the same length",
+        !stored.Matches("https://example.test/a.zip", reuploaded, 2, 500));
+
+    Check("Resume rejects a changed length",
+        !stored.Matches("https://example.test/a.zip", probe with { Total = 999 }, 2, 500));
+
+    Check("Resume rejects a different url",
+        !stored.Matches("https://mirror.test/a.zip", probe, 2, 500));
+
+    Check("Resume rejects a plan that no longer lines up",
+        !stored.Matches("https://example.test/a.zip", probe, 4, 250));
+
+    Check("Resume rejects unprovable identity (validator vanished)",
+        !stored.Matches("https://example.test/a.zip", new ProbeInfo(1000, true), 2, 500));
+
+    var bare = PartSource.From("https://example.test/a.zip", new ProbeInfo(1000, true), 2, 500);
+    Check("Resume without validators falls back to url and length",
+        bare.Matches("https://example.test/a.zip", new ProbeInfo(1000, true), 2, 500));
+
+    // ---- Chunk planning: the ranges must cover the file exactly once ----
+    const long tenMb = 10L * 1024 * 1024;
+    var plan = Downloader.BuildPlan(tenMb, 16);
+    Check("Chunk plan honours the connection count", plan.Count == 16, plan.Count.ToString());
+    Check("Chunk plan covers every byte exactly once",
+        plan[0].Start == 0
+        && plan[^1].End == tenMb - 1
+        && plan.Zip(plan.Skip(1)).All(p => p.Second.Start == p.First.End + 1)
+        && plan.Sum(r => r.Length) == tenMb,
+        string.Join(",", plan.Select(r => r.Length)));
+
+    var small = Downloader.BuildPlan(3L * 1024 * 1024, 16);
+    Check("Chunk plan never makes a chunk below the minimum", small.Count == 6, small.Count.ToString());
 }
 
 Console.WriteLine();

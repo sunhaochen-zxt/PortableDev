@@ -306,9 +306,11 @@ url = 'https://registry.npmmirror.com/-/binary/python-build-standalone/{build}/c
 ```
 
 Downloads are split across 16 connections with resume, because the GitHub release
-CDN throttles per connection (measured: ~43 KB/s single, ~1.25 MB/s at 16). The
-archive is unpacked into a **new** version directory and only then is the manifest
-version rewritten, so a failed or corrupt download never damages a working tool.
+CDN throttles per connection (measured: ~43 KB/s single, ~1.25 MB/s at 16). Range
+support is discovered with a one-byte ranged GET when HEAD is refused or silent, so a
+CDN that answers `405` to HEAD still gets the parallel path. The archive is unpacked
+into a **new** version directory and only then is the manifest version rewritten, so a
+failed or corrupt download never damages a working tool.
 
 ### Download integrity
 
@@ -324,6 +326,10 @@ Every download is verified before it can become a tool:
 - The chunked downloader refuses to join unless every part has exactly the length its
   byte range claims, and it assembles into `*.assembling` before an atomic rename, so the
   destination file is either absent or complete.
+- A resumed download only reuses parts that provably belong to the same object: the probe
+  records the URL, the length and the `ETag` / `Last-Modified` validators in
+  `*.parts\partmeta.json`, and a re-uploaded asset (same name, same length, different
+  bytes) makes the old parts be discarded instead of spliced into the new file.
 
 The read-only `update` listing pays for none of this: checksums are resolved only when
 something is actually downloaded (`update --fetch`, or a GUI upgrade).
