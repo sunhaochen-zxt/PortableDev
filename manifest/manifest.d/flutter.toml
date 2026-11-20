@@ -62,10 +62,19 @@ value = 'safe.directory'
 name  = 'GIT_CONFIG_VALUE_0'
 value = '{{TOOL}}'
 
+# These two checks deliberately avoid the `flutter` / `dart` batch wrappers. Both take
+# Flutter's startup lock: shared.bat opens bin\cache\flutter.bat.lock through handle 9 and
+# retries forever when that fails. A child process of an executable sitting directly under
+# the stick root is denied write access on this machine, so the lock is never taken, no
+# output appears, and the check waits for the 60 s timeout - while `flutter --version` in a
+# normal shell answers in two seconds.
+#
+# So start the Dart VM directly, and check that the flutter tool snapshot is in place.
+# `flutter --version` by hand is still the way to confirm the SDK itself.
 [[verify]]
-run    = 'flutter --version'
-expect = 'Flutter 3.47.9'
+run    = 'bin\cache\dart-sdk\bin\dart.exe --version'
+expect = 'Dart SDK version: 3.13.7'
 
 [[verify]]
-run    = 'dart --version'
-expect = 'Dart SDK version: 3.13.7'
+run    = 'cmd.exe /c dir /b bin\cache\flutter_tools.snapshot'
+expect = 'flutter_tools.snapshot'
