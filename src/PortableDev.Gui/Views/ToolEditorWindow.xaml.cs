@@ -121,7 +121,7 @@ public partial class ToolEditorWindow : Window
     {
         if (_editId is null || _stickRoot.Length == 0) return;
 
-        var answer = MessageBox.Show(
+        var answer = System.Windows.MessageBox.Show(
             "从清单里删除 “" + _editId + "” 吗？\n\n只删 manifest.d\\ 下的定义，工具目录本身不动。",
             "确认删除", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;

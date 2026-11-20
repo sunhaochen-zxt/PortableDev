@@ -7,8 +7,8 @@
         xmlns:views="clr-namespace:PortableDev.Gui.Views"
         mc:Ignorable="d"
         Title="PortableDev — 随身开发环境"
-        Height="720" Width="1080"
-        MinHeight="560" MinWidth="880"
+        Height="740" Width="1120"
+        MinHeight="580" MinWidth="920"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgBrush}"
         FontFamily="{StaticResource UiFont}"
@@ -17,7 +17,7 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="196" />
+            <ColumnDefinition Width="208" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -26,8 +26,8 @@
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <!-- Brand -->
-                <StackPanel DockPanel.Dock="Top" Margin="18,20,18,18">
-                    <TextBlock Text="PortableDev" FontSize="16" FontWeight="SemiBold"
+                <StackPanel DockPanel.Dock="Top" Margin="20,22,18,16">
+                    <TextBlock Text="PortableDev" FontSize="17" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" />
                     <TextBlock Text="随身开发环境" Style="{StaticResource Muted}" Margin="0,3,0,0" />
                 </StackPanel>
@@ -43,9 +43,9 @@
                                        Foreground="{StaticResource TextBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
-                    <Button Content="刷新" Style="{StaticResource FlatButton}"
+                    <Button Content="刷新全部" Style="{StaticResource FlatButton}"
                             Margin="0,8,0,0" HorizontalAlignment="Stretch"
-                            Command="{Binding Dashboard.RefreshCommand}" />
+                            Command="{Binding RefreshAllCommand}" />
                 </StackPanel>
 
                 <!-- Nav: SelectedIndex is the single source of truth for the page.
@@ -55,24 +55,35 @@
                          Style="{StaticResource PlainListBox}"
                          ItemContainerStyle="{StaticResource NavItem}"
                          SelectedIndex="{Binding Page, Mode=TwoWay}">
-                    <ListBoxItem Content="概览" />
-                    <ListBoxItem Content="工具" />
-                    <ListBoxItem Content="变更预览" />
-                    <ListBoxItem Content="体检" />
-                    <ListBoxItem Content="进度与日志" />
-                    <ListBoxItem Content="系统状态" />
+                    <ListBoxItem Content="▦   概览" />
+                    <ListBoxItem Content="⬇   软件包" />
+                    <ListBoxItem Content="⚙   工具" />
+                    <ListBoxItem Content="⇄   变更预览" />
+                    <ListBoxItem Content="✔   体检" />
+                    <ListBoxItem Content="▶   进度与日志" />
+                    <ListBoxItem Content="ℹ   系统状态" />
                 </ListBox>
             </DockPanel>
         </Border>
 
         <!-- ============================================ Content -->
         <DockPanel Grid.Column="1">
-            <!-- Header -->
-            <Border DockPanel.Dock="Top" Padding="26,20,26,14">
-                <StackPanel>
-                    <TextBlock Text="{Binding PageTitle}" Style="{StaticResource H1}" />
-                    <TextBlock Text="{Binding PageHint}" Style="{StaticResource Muted}" Margin="0,4,0,0" />
-                </StackPanel>
+            <!-- Header: title on the left, the three actions that matter on the right -->
+            <Border DockPanel.Dock="Top" Padding="26,20,26,12">
+                <Grid>
+                    <StackPanel>
+                        <TextBlock Text="{Binding PageTitle}" Style="{StaticResource H1}" />
+                        <TextBlock Text="{Binding PageHint}" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <Button Content="检查更新" Style="{StaticResource FlatButton}"
+                                Command="{Binding CheckUpdatesCommand}" ToolTip="联网查询每个工具的版本（只读）" />
+                        <Button Content="应用变更" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                                Command="{Binding ApplyCommand}" ToolTip="写入 PATH/环境变量；会弹一次 UAC" />
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <!-- Status bar -->
@@ -80,8 +91,12 @@
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
                     Padding="26,7">
                 <Grid>
-                    <TextBlock Text="{Binding Footer}" Style="{StaticResource Muted}"
-                               VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                 Fill="{Binding HasStick, Converter={StaticResource BoolToBrush}}" />
+                        <TextBlock Text="{Binding Footer}" Style="{StaticResource Muted}"
+                                   Margin="8,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock Text="C:\Dev 稳定根 · PATH 不写盘符" Style="{StaticResource Muted}"
                                HorizontalAlignment="Right" VerticalAlignment="Center" />
                 </Grid>
@@ -93,6 +108,10 @@
                                      Visibility="{Binding DataContext.IsDashboard,
                                          RelativeSource={RelativeSource AncestorType=Window},
                                          Converter={StaticResource BoolToVis}}" />
+                <views:PackagesView DataContext="{Binding Packages}"
+                                    Visibility="{Binding DataContext.IsPackages,
+                                        RelativeSource={RelativeSource AncestorType=Window},
+                                        Converter={StaticResource BoolToVis}}" />
                 <views:ToolsView DataContext="{Binding Tools}"
                                  Visibility="{Binding DataContext.IsTools,
                                      RelativeSource={RelativeSource AncestorType=Window},

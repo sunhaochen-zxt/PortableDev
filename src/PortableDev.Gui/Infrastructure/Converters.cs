@@ -27,7 +27,7 @@ public sealed class BoolToBrushConverter : IValueConverter
     {
         var ok = value is bool b && b;
         var key = ok ? "OkBrush" : (parameter as string == "warn" ? "WarnBrush" : "BadBrush");
-        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+        return System.Windows.Application.Current.TryFindResource(key) as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Gray;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
@@ -41,7 +41,7 @@ public sealed class BoolToSoftBrushConverter : IValueConverter
     {
         var ok = value is bool b && b;
         var key = ok ? "OkSoftBrush" : "BadSoftBrush";
-        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Transparent;
+        return System.Windows.Application.Current.TryFindResource(key) as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
@@ -61,7 +61,7 @@ public sealed class ChangeGlyphBrushConverter : IValueConverter
             "Remove" => "BadBrush",
             _ => "TextFaintBrush",
         };
-        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+        return System.Windows.Application.Current.TryFindResource(key) as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Gray;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>

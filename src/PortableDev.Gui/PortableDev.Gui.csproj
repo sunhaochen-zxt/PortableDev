@@ -7,10 +7,20 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>PortableDev.Gui</RootNamespace>
     <AssemblyName>PortableDev.Gui</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+
+  <!-- The WinForms SDK adds System.Windows.Forms and System.Drawing as implicit global
+       usings. This project is WPF; those two namespaces collide with UserControl, Timer,
+       KeyEventArgs, MessageBox and friends in every file, so they are removed again and
+       TrayHost.cs imports what it needs explicitly. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PortableDev.Core\PortableDev.Core.csproj" />

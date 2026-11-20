@@ -6,7 +6,7 @@ using System.Windows.Threading;
 
 namespace PortableDev.Gui;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -40,7 +40,7 @@ public partial class App : Application
                 "详细信息已记录到 state\\logs\\gui-*.log。";
 
             Dispatcher.BeginInvoke(new Action(() =>
-                MessageBox.Show(text, "PortableDev", MessageBoxButton.OK, MessageBoxImage.Warning)));
+                System.Windows.MessageBox.Show(text, "PortableDev", MessageBoxButton.OK, MessageBoxImage.Warning)));
         }
 
         e.Handled = true;

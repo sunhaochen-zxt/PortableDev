@@ -21,6 +21,7 @@ public sealed class AppViewModel : ObservableObject
     public AppViewModel()
     {
         Dashboard = new DashboardViewModel(this);
+        Packages = new PackagesViewModel(this);
         Plan = new PlanViewModel(this);
         Tools = new ToolsViewModel(this);
         Doctor = new DoctorViewModel(this);
@@ -32,12 +33,21 @@ public sealed class AppViewModel : ObservableObject
             if (int.TryParse(p, out var i)) Page = i;
         });
 
+        RefreshAllCommand = new RelayCommand(async () => await RefreshAllAsync());
+        CheckUpdatesCommand = new RelayCommand(() =>
+        {
+            Page = 2;
+            Tools.CheckUpdatesCommand.Execute(null);
+        });
+        ApplyCommand = new RelayCommand(() => Dashboard.ApplyCommand.Execute(null));
+
         // A command that throws used to disappear into "async void" and leave the window
         // silent. The footer is the one place always visible, so errors land there.
         RelayCommand.UnhandledError += ex => UiThread.Post(() => Footer = "出错：" + ex.Message);
     }
 
     public DashboardViewModel Dashboard { get; }
+    public PackagesViewModel Packages { get; }
     public PlanViewModel Plan { get; }
     public ToolsViewModel Tools { get; }
     public DoctorViewModel Doctor { get; }
@@ -45,8 +55,11 @@ public sealed class AppViewModel : ObservableObject
     public SystemViewModel System { get; }
 
     public RelayCommand<string> NavCommand { get; }
+    public RelayCommand RefreshAllCommand { get; }
+    public RelayCommand CheckUpdatesCommand { get; }
+    public RelayCommand ApplyCommand { get; }
 
-    /// <summary>0 dashboard · 1 tools · 2 plan · 3 doctor · 4 progress · 5 system</summary>
+    /// <summary>0 dashboard · 1 packages · 2 tools · 3 plan · 4 doctor · 5 progress · 6 system</summary>
     public int Page
     {
         get => _page;
@@ -55,6 +68,7 @@ public sealed class AppViewModel : ObservableObject
             if (Set(ref _page, value))
             {
                 OnPropertyChanged(nameof(IsDashboard));
+                OnPropertyChanged(nameof(IsPackages));
                 OnPropertyChanged(nameof(IsTools));
                 OnPropertyChanged(nameof(IsPlan));
                 OnPropertyChanged(nameof(IsDoctor));
@@ -68,31 +82,34 @@ public sealed class AppViewModel : ObservableObject
     }
 
     public bool IsDashboard => Page == 0;
-    public bool IsTools => Page == 1;
-    public bool IsPlan => Page == 2;
-    public bool IsDoctor => Page == 3;
-    public bool IsProgress => Page == 4;
-    public bool IsSystem => Page == 5;
+    public bool IsPackages => Page == 1;
+    public bool IsTools => Page == 2;
+    public bool IsPlan => Page == 3;
+    public bool IsDoctor => Page == 4;
+    public bool IsProgress => Page == 5;
+    public bool IsSystem => Page == 6;
 
     public string PageTitle => Page switch
     {
         0 => "概览",
-        1 => "工具",
-        2 => "变更预览",
-        3 => "体检",
-        4 => "进度与日志",
-        5 => "系统状态",
+        1 => "软件包",
+        2 => "工具",
+        3 => "变更预览",
+        4 => "体检",
+        5 => "进度与日志",
+        6 => "系统状态",
         _ => string.Empty,
     };
 
     public string PageHint => Page switch
     {
         0 => "U 盘与本机环境是否一致，一眼看完。",
-        1 => "清单里声明的每个工具、版本与可用性。",
-        2 => "写盘之前先看清每一处差异。plan 本身零副作用。",
-        3 => "按 CLI doctor 的同一套规则逐项检查。",
-        4 => "apply / clean 的实时输出。",
-        5 => "本机硬件与系统信息，由盘上的 fastfetch 实时读取。",
+        1 => "搜索 Scoop bucket 并装进盘里；不是手改清单。",
+        2 => "清单里声明的每个工具、版本与可用性。",
+        3 => "写盘之前先看清每一处差异。plan 本身零副作用。",
+        4 => "按 CLI doctor 的同一套规则逐项检查。",
+        5 => "apply / clean 的实时输出。",
+        6 => "本机硬件与系统信息，由盘上的 fastfetch 实时读取。",
         _ => string.Empty,
     };
 
@@ -122,10 +139,11 @@ public sealed class AppViewModel : ObservableObject
                     switch (Page)
                     {
                         case 0: Dashboard.Refresh(); break;
-                        case 1: Tools.Refresh(); break;
-                        case 2: Plan.Refresh(); break;
-                        case 3: Doctor.Refresh(); break;
-                        case 5: System.Refresh(); break;
+                        case 1: Packages.Refresh(); break;
+                        case 2: Tools.Refresh(); break;
+                        case 3: Plan.Refresh(); break;
+                        case 4: Doctor.Refresh(); break;
+                        case 6: System.Refresh(); break;
                     }
 
                     SyncStickLabel();
@@ -170,6 +188,7 @@ public sealed class AppViewModel : ObservableObject
         try
         {
             Dashboard.Refresh();
+            Packages.Refresh();
             Plan.Refresh();
             Tools.Refresh();
             Doctor.Refresh();
@@ -184,7 +203,7 @@ public sealed class AppViewModel : ObservableObject
 
     public Task GoVerifyAsync()
     {
-        Page = 1;
+        Page = 2;
         Tools.VerifyAllCommand.Execute(null);
         return Task.CompletedTask;
     }
@@ -198,7 +217,7 @@ public sealed class AppViewModel : ObservableObject
             Progress.Reset("无法应用", 0);
             Progress.Append("没有找到 U 盘。");
             Progress.Finish(new CliResult { ExitCode = 4 });
-            Page = 4;
+            Page = 5;
             return;
         }
 
@@ -216,7 +235,7 @@ public sealed class AppViewModel : ObservableObject
 
     private async Task RunCliAsync(string title, int steps, IEnumerable<string> args, string? stickRoot)
     {
-        Page = 4;
+        Page = 5;
         Progress.Reset(title, steps);
         Footer = "运行中…";
 

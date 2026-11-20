@@ -38,7 +38,11 @@ public static class Upgrader
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
         http.DefaultRequestHeaders.Add("User-Agent", "PortableDev/1.0");
 
-        var archiveName = FileNameOf(info.DownloadUrl);
+        // A bucket url may rename its download ("...#/dl.7z"); the local name is what
+        // decides how the archive is unpacked later.
+        var archiveName = string.IsNullOrWhiteSpace(info.RenameTo)
+            ? FileNameOf(info.DownloadUrl)
+            : info.RenameTo!;
         if (archiveName.Length == 0)
             return Fail(log, "下载地址里没有文件名：" + info.DownloadUrl);
 
@@ -66,7 +70,7 @@ public static class Upgrader
         // going to be used. Without this the value was always null and the "corrupt
         // download cannot damage a working tool" promise never held above the unpack step.
         var expectedSha = string.IsNullOrWhiteSpace(info.Sha256)
-            ? await new UpdateChecker(http).ResolveSha256Async(tool, info, ct)
+            ? await new UpdateChecker(http, stickRoot).ResolveSha256Async(tool, info, ct)
             : info.Sha256;
 
         // ---- 1. download ----
@@ -137,9 +141,12 @@ public static class Upgrader
             // Extraction is blocking file I/O over tens of thousands of small files and
             // is slow on exFAT. Running it on the UI thread freezes the window, which
             // Windows then paints as "not responding".
-            var strip = tool.Tool.Strip != 0;
+            // extract_dir names the payload directory explicitly, so stripping a single
+            // top-level directory would be wrong when both are present.
+            var strip = tool.Tool.Strip != 0 && string.IsNullOrWhiteSpace(info.ExtractDir);
             var install = await Task.Run(
-                () => ToolInstaller.Install(stickRoot, toolId, info.AvailableVersion, archivePath, strip), ct);
+                () => ToolInstaller.Install(stickRoot, toolId, info.AvailableVersion, archivePath, strip,
+                    info.ExtractDir), ct);
 
             foreach (var line in install.Log) log(line);
             if (!install.Ok) return install;

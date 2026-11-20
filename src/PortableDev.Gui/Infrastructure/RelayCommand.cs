@@ -69,17 +69,22 @@ public sealed class RelayCommand : ICommand
     }
 }
 
-/// <summary>Command taking a string parameter (navigation).</summary>
+/// <summary>Command taking a typed parameter (navigation, per-row buttons).</summary>
 public sealed class RelayCommand<T> : ICommand
 {
-    private readonly Action<T> _execute;
+    private readonly Func<T, Task> _execute;
     private readonly Func<T, bool>? _canExecute;
     private bool _busy;
 
-    public RelayCommand(Action<T> execute, Func<T, bool>? canExecute = null)
+    public RelayCommand(Func<T, Task> execute, Func<T, bool>? canExecute = null)
     {
         _execute = execute;
         _canExecute = canExecute;
+    }
+
+    public RelayCommand(Action<T> execute, Func<T, bool>? canExecute = null)
+        : this(t => { execute(t); return Task.CompletedTask; }, canExecute)
+    {
     }
 
     public event EventHandler? CanExecuteChanged;
@@ -87,13 +92,13 @@ public sealed class RelayCommand<T> : ICommand
     public bool CanExecute(object? parameter) =>
         !_busy && parameter is T t && (_canExecute?.Invoke(t) ?? true);
 
-    public void Execute(object? parameter)
+    public async void Execute(object? parameter)
     {
         if (parameter is not T t || _busy) return;
         _busy = true;
         try
         {
-            _execute(t);
+            await _execute(t);
         }
         catch (Exception ex)
         {

@@ -17,7 +17,7 @@ public static class UiThread
     /// <summary>Run an action on the UI thread and wait for it.</summary>
     public static Task InvokeAsync(Action action)
     {
-        var dispatcher = Application.Current?.Dispatcher;
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher is null || dispatcher.CheckAccess())
         {
             action();
@@ -33,7 +33,7 @@ public static class UiThread
     /// </summary>
     public static void Post(Action action)
     {
-        var dispatcher = Application.Current?.Dispatcher;
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
         if (dispatcher is null || dispatcher.CheckAccess())
         {
             action();
