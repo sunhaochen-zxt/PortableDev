@@ -182,16 +182,15 @@ env   = { MOZ_CRASHREPORTER_DISABLE = '1' }
 `apply` writes the file, `plan` shows it as its own group, and a file whose content drifted
 (repointed version, missing `-no-remote`) is reported as an update instead of being trusted.
 Everything is expressed relative to `%~dp0`, so the launcher keeps working after a
-drive-letter change and does not need the `C:\Dev` junction. `DSH.cmd` stays hand-written:
-it has a conditional fallback (an empty `home\.dsh` makes it start from the machine profile
-and print a hint), which is logic, not data.
+drive-letter change and does not need the `C:\Dev` junction. DSH NEXT is not one of these:
+it is a normal install under `<stick>\DSH\` and is started by `<stick>\DSH\启动DSH.cmd`.
 
 - **Tabby** needs no machine-side help at all. Its main process redirects `userData` to
   `<exe dir>\data` as soon as that directory exists, so `tools\tabby\<version>\data` *is*
   the portable mode: config, plugins, hotkeys and SSH profiles live there and the GUI
   upgrade moves the folder into the next version directory. Deleting it silently makes
   the app non-portable again (it would fall back to `%APPDATA%\tabby`).
-- **FlClash 0.9.2** has no portable mode of its own: it resolves its data directory from
+- **FlClash** has no portable mode of its own: it resolves its data directory from
   the Win32 known-folder API, so `HOME` cannot reach it and profiles always go to
   `%APPDATA%\FlClash`. A `[[home_dir]]` junction carries them instead, which means
   `apply` has to have run once on the machine. Its TUN mode additionally installs a
@@ -254,43 +253,19 @@ The pieces inside `tools\msvc` that Flutter needs and msvc-kit does not provide:
 `HKLM\SOFTWARE\Microsoft\Microsoft SDKs\Windows\v10.0`, which nothing wrote. Builds do not
 use that path and succeed regardless.
 
-### Moving DSH NEXT itself onto the stick
+### DSH NEXT is not managed by the stick
 
-The desktop app this stick is assembled with can live on the stick like any other tool.
-`Migrate-DSH.cmd` (a wrapper for `scripts\migrate-dsh.ps1`) does it in one go, and it has
-to run **with DSH NEXT closed**: the app and its session database are locked while it runs,
-so the script refuses instead of moving files under a live process.
+DSH NEXT is an ordinary install under `<stick>\DSH\`, updated by its own updater instead of
+by `apply`. Its data directory is chosen inside the app, which stores that choice as an
+absolute path in `%APPDATA%\DSH NEXT\home\desktop-next-location.json`.
 
-1. finds the unpacked install (`DSH-*-Portable` on any drive) or takes `-Source <folder>`
-2. moves it to `tools\dsh\<version>` — a rename when the stick and the install share a
-   volume, otherwise a copy that is verified by file count and then leaves the original
-   parked as `<install>.migrated-<stamp>` (never deleted: a recursive delete of a
-   half-locked install is how a test run once ate 53 files of a live app)
-3. copies `%USERPROFILE%\.dsh` — the conversations in `sessions\`, the profiles, the
-   storages and `.credentials.yaml` — to `home\.dsh`, checks every file for presence and
-   length, and parks the old folder as `.dsh.portabledev-old-<stamp>`
-4. records `home\.dsh` as the app's last data directory, so the first start is not
-   reported as a data-directory change
-5. writes `manifest\manifest.d\dsh.toml`, and takes back out any `[[home_dir]]` for
-   `~\.dsh` that an older run of the script added
-6. writes `DSH.cmd`, which sets `DSH_DESKTOP_NEXT_HOME` and `DSH_HOME` to
-   `<stick>\home\.dsh`, then runs `apply`
+`<stick>\DSH\启动DSH.cmd` is the entry point: it rewrites that file and
+`desktop-next-last-home.json` to the drive it was started from, then launches the app, so
+the drive letter can change freely. The data itself lives in `<stick>\DSH数据\`.
 
-**Why an environment variable and not a home link.** DSH's main process validates its data
-directory with `lstat()` and throws `Expected a real directory` for *any* reparse point, so
-a junction at `~\.dsh` kills the app at startup before a window appears — the first version
-of this script did exactly that. `DSH_DESKTOP_NEXT_HOME` is the app's own documented
-override (its settings page shows which source the directory came from), it is read before
-the `~/.dsh` default, and the launcher resolves `%~dp0` at launch time, so a new drive
-letter does not matter.
-
-The launcher also refuses to open an empty stick home while the machine profile still has
-conversations: it starts with the profile and tells you to run the migration, instead of
-showing an empty app.
-
-`-DryRun` prints the whole plan without touching anything; `-NoApply` stops before the
-registry; `-KeepOldData` leaves the real `.dsh` in place (the launcher keeps using it until
-the stick home has conversations).
+Earlier revisions carried a second copy of the app in `tools\dsh` plus a `Migrate-DSH.cmd`
+script that moved the install and `%USERPROFILE%\.dsh` there. Both were removed: the app
+grew an in-app data-directory setting, so the duplicate could only drift out of date.
 
 ## GUI
 
