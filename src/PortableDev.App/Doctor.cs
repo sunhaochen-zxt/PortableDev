@@ -115,6 +115,23 @@ public static class Doctor
             findings.Add(new Finding("home-links", wrong.Count == 0, detail));
         }
 
+        // Integrity level. Windows starts a process at the lower of the parent token's
+        // level and the executable image's own label, so an app folder that carries a
+        // "Low" label yields a Low process whose children cannot write to state\ or
+        // tools\ (Medium, no-write-up). That failure looks like a permission bug in
+        // apply/verify, so name the real cause here instead.
+        var integrityRid = Integrity.CurrentRid();
+        var integrityName = integrityRid is null ? null : Integrity.NameOf(integrityRid.Value);
+        var canWrite = integrityRid is null || Integrity.CanWriteToMedium(integrityRid.Value);
+        findings.Add(new Finding("integrity", canWrite,
+            integrityRid is null
+                ? "unknown (could not read the process token)"
+                : canWrite
+                    ? integrityName!
+                    : $"{integrityName} (the app folder carries a Low integrity label, so this process " +
+                      $"and every tool it starts cannot write to {root}\\state or {root}\\tools). Fix: " +
+                      $"icacls \"{AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar)}\" /setintegritylevel (OI)(CI)M /T"));
+
         // Elevation (informational)
         findings.Add(new Finding("elevated", true,
             RegistryEnvironment.IsElevated() ? "yes" : "no (junction creation may need one UAC prompt)"));

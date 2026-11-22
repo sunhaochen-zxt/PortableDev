@@ -95,11 +95,27 @@ public sealed class DoctorViewModel : ObservableObject
             (stick.FileSystem ?? "?") + (string.Equals(stick.FileSystem, "exFAT", StringComparison.OrdinalIgnoreCase)
                 ? "（不支持符号链接；PATH 每次会话重建，属预期）" : string.Empty));
 
+        // Windows starts a process at the lower of the parent token's level and the
+        // executable image's own label, so an app folder carrying a "Low" label yields a
+        // process that cannot write to state\ or tools\. That surfaced as apply failing
+        // with "Access to the path ... is denied"; name the cause instead of the symptom.
+        var integrityRid = PortableDev.Win.Integrity.CurrentRid();
+        var integrityName = integrityRid is null ? "未知" : PortableDev.Win.Integrity.NameOf(integrityRid.Value);
+        var canWrite = integrityRid is null || PortableDev.Win.Integrity.CanWriteToMedium(integrityRid.Value);
+
         var missing = manifest.Tools.Values
             .Where(t => t.Tool.Enabled)
             .Where(t => !Directory.Exists(Path.Combine(stick.Root!, PathResolver.ToolRelativeDir(t).Replace('/', '\\'))))
             .Select(t => t.Tool.Id).ToList();
         Add("tools", "工具目录", missing.Count == 0, missing.Count == 0 ? "全部存在" : "缺失：" + string.Join("、", missing));
+
+        Add("integrity", "完整性级别", canWrite,
+            canWrite
+                ? integrityName + "（可以正常写入盘上的 state\\ 和 tools\\）"
+                : integrityName + "（app 目录带了「低完整性」标记：本程序和它启动的所有工具都写不了 state\\ / tools\\，" +
+                  "apply 会报 Access is denied）。修复：icacls \"" +
+                  System.IO.Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory) +
+                  "\" /setintegritylevel (OI)(CI)M /T");
 
         Add("elevated", "管理员权限", true,
             state.IsElevated ? "当前已提权" : "未提权（建联接时会弹一次 UAC）");

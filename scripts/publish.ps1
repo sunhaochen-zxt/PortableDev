@@ -153,6 +153,43 @@ New-Item -ItemType Directory -Path $appTarget -Force | Out-Null
 Copy-Item -Path (Join-Path $stage '*') -Destination $appTarget -Recurse -Force
 Write-Host "copy     : $($files.Count) files -> $appTarget"
 
+# ------------------------------------------------------ integrity label guard ----
+# Windows runs an executable that carries a "Low" mandatory-integrity label at Low
+# integrity, and every process it starts inherits that. A Low process cannot write
+# anywhere on the stick that is Medium with no-write-up (state\, tools\, manifest\),
+# so `apply` and `verify` fail with "Access is denied" even though the same command
+# typed into a normal shell succeeds. New files inherit the label of the folder they
+# are created in, so a stick root carrying a Low label poisons every publish: the
+# freshly copied PortableDev.exe becomes Low and the app stops being able to apply.
+# Raising the published folder to Medium makes publication self-healing; on a normal
+# stick, where the folder is already Medium, this is a no-op.
+$appLabel = (& icacls.exe $appTarget 2>&1 | Select-String -Pattern 'Mandatory Label') -join ' '
+if ($appLabel -match 'Low') {
+    Write-Host "label    : $appTarget carries a Low integrity label - raising it to Medium"
+    & icacls.exe $appTarget '/setintegritylevel' '(OI)(CI)M' | Out-Null
+    $exeLabel = (& icacls.exe (Join-Path $appTarget 'PortableDev.exe') 2>&1 |
+        Select-String -Pattern 'Mandatory Label') -join ' '
+    if ($exeLabel -match 'Low') {
+        # Inheritance did not reach everything; force the whole folder.
+        & icacls.exe $appTarget '/setintegritylevel' 'M' '/T' '/C' '/Q' | Out-Null
+        $exeLabel = (& icacls.exe (Join-Path $appTarget 'PortableDev.exe') 2>&1 |
+            Select-String -Pattern 'Mandatory Label') -join ' '
+        if ($exeLabel -match 'Low') {
+            throw ("could not raise the integrity label of $appTarget. " +
+                "Run: icacls `"$appTarget`" /setintegritylevel (OI)(CI)M /T")
+        }
+    }
+    Write-Host "label    : now Medium - the app will run at full user integrity again"
+}
+
+$rootLabel = (& icacls.exe $StickRoot 2>&1 | Select-String -Pattern 'Mandatory Label') -join ' '
+if ($rootLabel -match 'Low') {
+    Write-Host "label    : WARNING the stick root still carries a Low integrity label:"
+    Write-Host "           $rootLabel"
+    Write-Host "           New folders under it inherit it. Fix it once with:"
+    Write-Host "           icacls `"$StickRoot`" /setintegritylevel (OI)(CI)M"
+}
+
 # Convenience launcher so the app can be started from the drive root.
 # No arguments -> open the window; anything else -> the command line.
 $launcher = Join-Path $StickRoot 'PortableDev.cmd'

@@ -9,6 +9,11 @@
          only touches Core types, so it is compiled here too and covered by regression tests:
          a stale "dir" line is exactly what broke verify after an upgrade. -->
     <Compile Include="..\..\src\PortableDev.Gui\Engine\ManifestEditor.cs" Link="ManifestEditor.cs" />
+
+    <!-- Mapping of Windows integrity RIDs to names, plus the "can write to Medium"
+         rule. Same reason: the source file is self-contained, so linking it keeps the
+         mapping under test without dragging the whole Windows-only project in. -->
+    <Compile Include="..\..\src\PortableDev.Win\Integrity.cs" Link="Integrity.cs" />
   </ItemGroup>
 
   <PropertyGroup>

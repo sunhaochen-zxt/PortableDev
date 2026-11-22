@@ -3,6 +3,7 @@ using PortableDev.Core;
 using PortableDev.Core.Model;
 using PortableDev.Core.Packages;
 using PortableDev.Core.Update;
+using PortableDev.Win;
 
 var failures = 0;
 var passed = 0;
@@ -961,6 +962,21 @@ expect = 'PowerShell 7.6.8'
     Check("Category: every result lands in a known shelf",
         new[] { "python", "vim", "ffmpeg", "7zip", "firefox", "unknownthing" }
             .All(a => ScoopCategories.Order.Contains(ScoopCategories.Classify(a))));
+}
+
+// ---- Integrity levels: the rule that made a Low-labelled app folder break apply ----
+{
+    Check("Integrity: rid 0x1000 reads as Low", Integrity.NameOf(0x1000) == "Low", Integrity.NameOf(0x1000));
+    Check("Integrity: rid 0x2000 reads as Medium", Integrity.NameOf(0x2000) == "Medium");
+    Check("Integrity: rid 0x3000 reads as High", Integrity.NameOf(0x3000) == "High");
+    Check("Integrity: rid 0x4000 reads as System", Integrity.NameOf(0x4000) == "System");
+    Check("Integrity: an unknown rid is still shown", Integrity.NameOf(0x5000) == "0x5000");
+    Check("Integrity: Low may not write to a Medium no-write-up folder", !Integrity.CanWriteToMedium(0x1000));
+    Check("Integrity: Untrusted may not either", !Integrity.CanWriteToMedium(0));
+    Check("Integrity: Medium may", Integrity.CanWriteToMedium(0x2000));
+    Check("Integrity: High may", Integrity.CanWriteToMedium(0x3000));
+    Check("Integrity: the current process level is readable", Integrity.CurrentName() is not null,
+        Integrity.CurrentName() ?? "null");
 }
 
 Console.WriteLine();
