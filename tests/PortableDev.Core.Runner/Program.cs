@@ -722,6 +722,27 @@ expect = 'PowerShell 7.6.8'
         onStable.All(e => e.StartsWith(@"C:\Dev\tools\", StringComparison.OrdinalIgnoreCase)),
         string.Join(" | ", onStable));
 
+    // A path entry may point outside the tool directory: npm's global prefix lives under
+    // home\. The token is expanded before the join, and a degraded-mode build rebases it
+    // onto the stick root like every other entry.
+    var npmTool = new ToolManifest
+    {
+        Tool = new ToolManifest.ToolSection { Id = "npmish", Version = "1.0" },
+        Path = new[] { new ToolManifest.PathEntry { Dir = @"{{HOME}}\npm-global" } },
+    };
+    var npmOnly = new RootManifest
+    {
+        Root = m.Root,
+        PathOrder = new[] { "npmish" },
+        Tools = new Dictionary<string, ToolManifest>(StringComparer.OrdinalIgnoreCase) { ["npmish"] = npmTool },
+    };
+    var tokened = resolver.BuildPathEntries(npmOnly).Single().Entry;
+    Check("Path entry expands a token outside the tool dir",
+        tokened == @"C:\Dev\home\npm-global", tokened);
+    var tokenedStick = resolver.BuildPathEntries(npmOnly, Stick).Single().Entry;
+    Check("Path entry rebases onto the stick root",
+        tokenedStick == @"E:\PortableDev\home\npm-global", tokenedStick);
+
     // Two declarations of one name used to flip silently with file order.
     var conflict = new RootManifest
     {

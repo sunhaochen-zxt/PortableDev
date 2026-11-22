@@ -12,6 +12,13 @@ strip   = 1
 [[path]]
 dir = '.'
 
+# The npm global prefix is redirected onto the stick by NPM_CONFIG_PREFIX
+# ({{ROOT}}\home\npm-global), so `npm i -g` writes its shims there instead of
+# %APPDATA%\npm. Without this entry those shims exist but are unreachable: PATH
+# only carried the node directory itself.
+[[path]]
+dir = '{{ROOT}}\home\npm-global'
+
 [[verify]]
 run    = 'node --version'
 expect = 'v26.12.1'

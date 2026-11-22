@@ -93,10 +93,31 @@ public sealed class PathResolver
     /// </summary>
     public string PathEntryFor(ToolManifest tool, ToolManifest.PathEntry entry)
     {
-        var root = ToolRoot(tool);
-        var rel = (entry.Dir ?? ".").Replace('/', '\\').Trim();
+        // Tokens are expanded before the join, so an entry can leave the tool directory:
+        // the npm global prefix lives under home\, not under tools\nodejs\<version>.
+        // An absolute result is used as it stands.
+        return CombineEntry(ToolRoot(tool), Expand(entry.Dir ?? ".", tool));
+    }
+
+    /// <summary>Join a tool root with a manifest-supplied directory.</summary>
+    private static string CombineEntry(string root, string dir)
+    {
+        var rel = (dir ?? ".").Trim();
         if (rel.Length == 0 || rel == ".") return root;
+        if (System.IO.Path.IsPathRooted(rel)) return rel.TrimEnd('\\');
         return $@"{root}\{rel.TrimStart('\\').TrimEnd('\\')}";
+    }
+
+    /// <summary>
+    /// Move a stable-root entry onto another root; an entry outside the stick stays put.
+    /// </summary>
+    private string RebaseOnto(string entry, string baseRoot)
+    {
+        var target = NormalizeRoot(baseRoot);
+        if (PathEditor.PathsEqual(entry, _stableRoot)) return target;
+        if (entry.StartsWith(_stableRoot + "\\", StringComparison.OrdinalIgnoreCase))
+            return $@"{target}\{entry[(_stableRoot.Length + 1)..]}";
+        return entry;
     }
 
     /// <summary>
@@ -124,14 +145,13 @@ public sealed class PathResolver
             if (!manifest.Tools.TryGetValue(id, out var tool)) continue;
             if (!tool.Tool.Enabled) continue;
 
-            var root = baseRootOverride is null ? ToolRoot(tool) : ToolRootOn(baseRootOverride, tool);
-
             foreach (var pe in tool.Path)
             {
-                var rel = (pe.Dir ?? ".").Replace('/', '\\').Trim();
-                var full = rel.Length == 0 || rel == "."
-                    ? root
-                    : $@"{root}\{rel.TrimStart('\\').TrimEnd('\\')}";
+                // Built on the stable root first so a {{TOOL}} token expands uniformly, then
+                // rebased: a textual replace of the PATH string would also rewrite a folder
+                // that merely starts with the root (C:\Dev vs C:\DevX).
+                var full = PathEntryFor(tool, pe);
+                if (baseRootOverride is not null) full = RebaseOnto(full, baseRootOverride);
 
                 if (seen.Add(full))
                     result.Add((id, full));

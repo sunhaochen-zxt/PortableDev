@@ -147,7 +147,7 @@ Eighteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 | Tool | Notes |
 |---|---|
 | Python | python-build-standalone, with pip |
-| Node.js | Node.js with npm |
+| Node.js | Node.js with npm; global packages and their shims land in `home\npm-global` (on PATH), the cache in `cache\npm` |
 | Git | PortableGit |
 | CMake | |
 | Ninja | |
@@ -168,6 +168,12 @@ Eighteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 Versions are deliberately not listed here: the manifests under `manifest\manifest.d\` own
 them, `PortableDev plan` prints what is actually on the stick, and a version copied into
 this file only goes stale (it did, for five tools at once).
+
+When a `[[path]]` entry has to point outside its tool directory, `dir` accepts the same
+tokens — `{{ROOT}}`, `{{TOOLS}}`, `{{HOME}}` — and an absolute result is used as it stands.
+Node.js uses this for the npm global prefix: `npm i -g` writes its package tree and the
+`foo.cmd` shims into `home\npm-global`, which `NPM_CONFIG_PREFIX` redirects there and this
+entry puts on PATH (`cache\npm` holds the download and `npx` caches).
 
 Firefox is declared as a tool but has **no `[[path]]` entry**: starting `firefox.exe`
 directly would use `%APPDATA%` and stop being portable. `Firefox.cmd` in the stick root
