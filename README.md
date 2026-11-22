@@ -520,3 +520,8 @@ Three deliberate constraints:
 | 7 | junction failed |
 | 8 | elevation declined or unavailable |
 | 9 | home link failed |
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+See [LICENSE](LICENSE) for the full text.
