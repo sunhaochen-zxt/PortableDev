@@ -58,6 +58,12 @@ public static class Applier
             return Exit.Blocked;
         }
 
+        // The stick's own label comes first: a root left at Low by a confined (sandboxed)
+        // session makes every folder created afterwards Low, and a Low program cannot write
+        // the Medium folders next to it. Idempotent, and harmless when the label is already
+        // Medium - so it also runs for an otherwise no-op apply.
+        RaiseStickIntegrity(plan.StickRoot);
+
         if (!plan.HasChanges)
         {
             Console.WriteLine("nothing to do; machine already matches the manifest.");
@@ -744,6 +750,27 @@ public static class Applier
         Console.WriteLine(message + " [y/N] ");
         var answer = Console.ReadLine();
         return answer is not null && answer.Trim().ToLowerInvariant() is "y" or "yes";
+    }
+
+    /// <summary>
+    /// Raise a Low (or Untrusted) label on the stick root to Medium.
+    ///
+    /// A stick first written through a confined session carries that session's label, and
+    /// Windows starts a program at the lower of the token level and the image label - so the
+    /// tools on the stick used to run at Low and fail to write the Medium folders beside them
+    /// with "Access is denied". apply already has the machine's cooperation, so this is where
+    /// the label is corrected. It is deliberately not journalled for rollback: writing Low back
+    /// would only break the machine again.
+    /// </summary>
+    private static void RaiseStickIntegrity(string root)
+    {
+        var rid = Integrity.RidOf(root);
+        if (rid is null || Integrity.CanWriteToMedium(rid.Value)) return;
+
+        var (ok, err) = Integrity.EnsureMedium(root);
+        Console.WriteLine(ok
+            ? $"integrity -> {root} was {Integrity.NameOf(rid.Value)}, raised to Medium (folders inherit)"
+            : $"integrity -> could not raise the label on {root}: {err}");
     }
 }
 

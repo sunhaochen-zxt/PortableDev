@@ -998,6 +998,24 @@ expect = 'PowerShell 7.6.8'
     Check("Integrity: High may", Integrity.CanWriteToMedium(0x3000));
     Check("Integrity: the current process level is readable", Integrity.CurrentName() is not null,
         Integrity.CurrentName() ?? "null");
+    // A folder with no label is treated as Medium, so "null" is not a failure here: only an
+    // explicit Low (or Untrusted) label is a problem.
+    Check("Integrity: an unlabelled folder is not Low",
+        Integrity.RidOf(System.IO.Path.GetTempPath()) is null or >= 0x2000);
+
+    var pdLabelDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pd-il-" + Guid.NewGuid().ToString("N")[..8]);
+    System.IO.Directory.CreateDirectory(pdLabelDir);
+    try
+    {
+        var (labelOk, labelErr) = Integrity.EnsureMedium(pdLabelDir);
+        Check("Integrity: EnsureMedium succeeds on an ordinary folder", labelOk, labelErr ?? string.Empty);
+        Check("Integrity: the label reads Medium afterwards", Integrity.RidOf(pdLabelDir) == 0x2000,
+            (Integrity.RidOf(pdLabelDir) ?? 0).ToString("X"));
+    }
+    finally
+    {
+        try { System.IO.Directory.Delete(pdLabelDir, recursive: true); } catch { }
+    }
 }
 
 Console.WriteLine();

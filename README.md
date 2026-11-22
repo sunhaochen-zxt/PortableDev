@@ -120,6 +120,13 @@ is deliberately not rolled back — it is idempotent and undoing it would need a
 prompt. `--no-rollback` opts out and keeps the partial state, which is occasionally what
 you want when debugging a failure.
 
+`apply` also normalises the stick's integrity label. A stick first written through a confined
+session carries that session's label, and Windows starts a program at the lower of the token
+level and the executable's own label, so the tools on a Low stick used to run at Low and fail to
+write the Medium folders beside them. When `apply` finds the stick root at Low it raises it to
+Medium and the folders created later inherit that. The label is not rolled back: writing Low
+back would only break the machine again.
+
 ### `clean` undoes `apply`
 
 `clean` is meant to leave the machine the way `apply` found it, so it reverts all four

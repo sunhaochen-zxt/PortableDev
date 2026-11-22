@@ -76,6 +76,16 @@ public static class Doctor
         findings.Add(new Finding("path-duplicates", duplicates.Count == 0,
             duplicates.Count == 0 ? "none" : string.Join(" | ", duplicates)));
 
+        // The stick root's own label: every folder created under a Low root inherits it.
+        var rootRid = Integrity.RidOf(root);
+        var rootLevelOk = rootRid is null || Integrity.CanWriteToMedium(rootRid.Value);
+        findings.Add(new Finding("integrity-label", rootLevelOk,
+            rootRid is null
+                ? "no label (Medium by default)"
+                : Integrity.NameOf(rootRid.Value) + (rootLevelOk
+                    ? " (folders created here inherit it)"
+                    : " (apply raises the stick root to Medium)")));
+
         // Filesystem
         findings.Add(new Finding("filesystem-ntfs",
             string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase),

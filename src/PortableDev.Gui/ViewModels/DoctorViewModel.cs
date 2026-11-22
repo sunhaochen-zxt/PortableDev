@@ -103,6 +103,17 @@ public sealed class DoctorViewModel : ObservableObject
         var integrityName = integrityRid is null ? "未知" : PortableDev.Win.Integrity.NameOf(integrityRid.Value);
         var canWrite = integrityRid is null || PortableDev.Win.Integrity.CanWriteToMedium(integrityRid.Value);
 
+        // The stick root's own label matters even when this process is fine: every folder
+        // created under a Low root inherits it, so the next tool install would be Low again.
+        var rootRid = PortableDev.Win.Integrity.RidOf(stick.Root ?? string.Empty);
+        var rootOk = rootRid is null || PortableDev.Win.Integrity.CanWriteToMedium(rootRid.Value);
+        Add("stick-integrity", "盘根完整性", rootOk,
+            rootRid is null
+                ? "未设置（默认按「中」处理）"
+                : PortableDev.Win.Integrity.NameOf(rootRid.Value) + (rootOk
+                    ? "（新建目录会继承这个级别）"
+                    : "（apply 会把盘根改回「中」，新目录才不会继续继承「低」）"));
+
         var missing = manifest.Tools.Values
             .Where(t => t.Tool.Enabled)
             .Where(t => !Directory.Exists(Path.Combine(stick.Root!, PathResolver.ToolRelativeDir(t).Replace('/', '\\'))))

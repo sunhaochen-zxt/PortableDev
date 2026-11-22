@@ -119,4 +119,110 @@ public static class Integrity
         var rid = CurrentRid();
         return rid is null ? null : NameOf(rid.Value);
     }
+
+    // ---- An object's own label (a folder on the stick), not the process's ---------------
+
+    private const int SeFileObject = 1;
+    private const uint LabelSecurityInformation = 0x00000010;
+    private const byte SystemMandatoryLabelAceType = 0x11;
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern uint GetNamedSecurityInfoW(
+        string objectName, int objectType, uint securityInfo,
+        IntPtr owner, IntPtr group, IntPtr dacl, out IntPtr sacl, out IntPtr securityDescriptor);
+
+    [DllImport("advapi32.dll")]
+    private static extern bool GetAce(IntPtr acl, uint aceIndex, out IntPtr ace);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
+    /// <summary>
+    /// The integrity level stored on a file or folder, or null when it has none or cannot be
+    /// read. A folder's label is inherited by the folders created inside it later, which is
+    /// why one Low root is enough to make a whole stick Low.
+    /// </summary>
+    public static uint? RidOf(string path)
+    {
+        var sacl = IntPtr.Zero;
+        var descriptor = IntPtr.Zero;
+        try
+        {
+            var rc = GetNamedSecurityInfoW(path, SeFileObject, LabelSecurityInformation,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out sacl, out descriptor);
+            if (rc != 0 || sacl == IntPtr.Zero) return null;
+
+            var aceCount = Marshal.ReadInt16(sacl, 4);
+            for (var i = 0; i < aceCount; i++)
+            {
+                if (!GetAce(sacl, (uint)i, out var ace) || ace == IntPtr.Zero) continue;
+                if (Marshal.ReadByte(ace) != SystemMandatoryLabelAceType) continue;
+
+                // SYSTEM_MANDATORY_LABEL_ACE: ACE_HEADER (4 bytes), ACCESS_MASK (4), then the SID.
+                var sid = IntPtr.Add(ace, 8);
+                if (Marshal.ReadByte(sid, 1) == 0) return null;
+                // S-1-16-<rid>: the level is the first (and only) sub-authority.
+                return (uint)Marshal.ReadInt32(IntPtr.Add(sid, 8));
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or SEHException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (descriptor != IntPtr.Zero) LocalFree(descriptor);
+        }
+    }
+
+    /// <summary>
+    /// Raise the label on a folder (and through inheritance on everything created under it
+    /// later) to Medium. The write goes through icacls, the reference implementation: building
+    /// the label ACE by hand is the same trap as hand-built junction buffers. Only the label
+    /// changes; permissions, owner and contents are left alone.
+    /// </summary>
+    public static (bool Ok, string? Error) EnsureMedium(string path)
+    {
+        if (!System.IO.Directory.Exists(path))
+            return (false, "not a directory: " + path);
+
+        var psi = new System.Diagnostics.ProcessStartInfo("icacls.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(path);
+        psi.ArgumentList.Add("/setintegritylevel");
+        psi.ArgumentList.Add("(OI)(CI)M");
+        psi.ArgumentList.Add("/C");
+        psi.ArgumentList.Add("/Q");
+
+        string output;
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null) return (false, "could not start icacls");
+            output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(120_000))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                return (false, "icacls timed out");
+            }
+            if (process.ExitCode != 0)
+                return (false, $"icacls exited {process.ExitCode}: {output.Trim()}");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+
+        // The exit code is not proof; read the label back.
+        var rid = RidOf(path);
+        if (rid is null) return (false, "label unreadable after the write");
+        if (!CanWriteToMedium(rid.Value)) return (false, "label is still " + NameOf(rid.Value));
+        return (true, null);
+    }
 }
