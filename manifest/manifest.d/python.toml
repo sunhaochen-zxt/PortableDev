@@ -2,11 +2,11 @@ schema = 1
 
 [tool]
 id      = 'python'
-version = '3.13.17'
+version = "3.13.18"
 title   = 'CPython (python-build-standalone)'
 kind    = 'tar.gz'
-archive = 'downloads/python/3.13.17/cpython-3.13.17+20261021-x86_64-pc-windows-msvc-install_only.tar.gz'
-sha256  = 'e10b46d9b03a3a494297f336770f55f86474d683061137b1cf595e12e47bcef5'
+archive = "downloads/python/3.13.18/cpython-3.13.18+20261026-x86_64-pc-windows-msvc-install_only.tar.gz"
+sha256  = "ebe90cc1dce2dd2d7afa1f0aa9b6c269c7c0174aeabdc6a801381602b7283424"
 strip   = 1
 
 [[path]]
@@ -17,7 +17,7 @@ dir = 'Scripts'
 
 [[verify]]
 run    = 'python --version'
-expect = 'Python 3.13.17'
+expect = 'Python 3.13.18'
 
 [[verify]]
 run    = 'python -c "import ssl,sqlite3,ctypes,zlib,lzma;print(1)"'

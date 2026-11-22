@@ -2,11 +2,11 @@ schema = 1
 
 [tool]
 id      = 'git'
-version = '2.56.0.3'
+version = "2.56.0.4"
 title   = 'Git for Windows (PortableGit)'
 kind    = '7z-sfx'
-archive = 'downloads/git/2.56.0.3/PortableGit-2.56.0.3-64-bit.7z.exe'
-sha256  = '4fc27b779829a36df77911e3f4dea09c66c790dd6c5f7dfa3b6a5479f1fe354f'
+archive = "downloads/git/2.56.0.4/PortableGit-2.56.0.4-64-bit.7z.exe"
+sha256  = "b1f3e52216e2ed6882d1bebfd4d3fdf319bec40d2edbbf9fd26ec4fd3fce7ed1"
 strip   = 0
 
 # Only cmd\ is exposed. usr\bin is deliberately NOT on PATH: it would shadow
@@ -16,7 +16,10 @@ dir = 'cmd'
 
 [[verify]]
 run    = 'git --version'
-expect = 'git version 2.56.0.windows.3'
+# Git for Windows spells its build as 2.56.0.windows.4 while the tool version is
+# 2.56.0.4; a version-token rewrite during an upgrade cannot match the "windows"
+# form, so this string has to be corrected by hand after such an upgrade.
+expect = 'git version 2.56.0.windows.4'
 
 [update]
 kind    = 'github'
