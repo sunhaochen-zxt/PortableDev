@@ -225,4 +225,56 @@ public static class Integrity
         if (!CanWriteToMedium(rid.Value)) return (false, "label is still " + NameOf(rid.Value));
         return (true, null);
     }
+
+    /// <summary>
+    /// Same repair, but through the elevation broker (ShellExecute + runas).
+    ///
+    /// A process that is itself Low cannot change a label whichever API it calls: the
+    /// integrity check applies to the caller. Launching icacls.exe works because its image
+    /// is Medium, so the child's effective level is the lower of the (elevated) token and
+    /// that image - Medium. An already-elevated parent needs no consent prompt; otherwise
+    /// UAC asks once, which is the same prompt the junction already produces.
+    /// </summary>
+    public static (bool Ok, string? Error) EnsureMediumViaBroker(string path)
+    {
+        if (!System.IO.Directory.Exists(path))
+            return (false, "not a directory: " + path);
+
+        // Absolute path on purpose: resolving "icacls.exe" through PATH would let a folder
+        // on the stick answer the call instead of the system binary.
+        var icacls = System.IO.Path.Combine(Environment.SystemDirectory, "icacls.exe");
+        if (!System.IO.File.Exists(icacls))
+            return (false, "icacls.exe not found in " + Environment.SystemDirectory);
+
+        var psi = new System.Diagnostics.ProcessStartInfo(icacls,
+            "\"" + path + "\" /setintegritylevel (OI)(CI)M /C /Q")
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+        };
+
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process is null) return (false, "could not start icacls");
+            if (!process.WaitForExit(300_000))
+            {
+                try { process.Kill(); } catch { }
+                return (false, "icacls timed out");
+            }
+            if (process.ExitCode != 0)
+                return (false, $"icacls exited {process.ExitCode}" + (process.ExitCode == 1223
+                    ? " (the UAC prompt was declined)"
+                    : string.Empty));
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+
+        var rid = RidOf(path);
+        if (rid is not null && CanWriteToMedium(rid.Value)) return (true, null);
+        return (false, "label is still " + NameOf(rid ?? 0));
+    }
 }

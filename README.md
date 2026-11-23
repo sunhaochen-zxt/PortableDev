@@ -127,6 +127,12 @@ write the Medium folders beside them. When `apply` finds the stick root at Low i
 Medium and the folders created later inherit that. The label is not rolled back: writing Low
 back would only break the machine again.
 
+If `apply` itself starts at Low (the executable lives on a Low folder), it cannot write its own
+label - the integrity check applies to the caller - so it hands the repair to `icacls.exe`
+through the same UAC broker the junction uses and then restarts once at Medium. When even that
+is refused, it names the one manual command that always works:
+`scripts\set-integrity-medium.ps1`.
+
 ### `clean` undoes `apply`
 
 `clean` is meant to leave the machine the way `apply` found it, so it reverts all four

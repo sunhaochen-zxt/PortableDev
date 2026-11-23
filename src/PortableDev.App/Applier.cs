@@ -44,6 +44,10 @@ public static class Applier
             return Exit.StickNotFound;
         }
 
+        // A Low process cannot change a label or write the Medium state folder; repair the
+        // labels through the broker and restart once at Medium before doing any work.
+        if (TryEscapeLowIntegrity(root, out var restartedAt)) return restartedAt;
+
         var manifest = ManifestLoader.Load(root);
         var resolver = new PathResolver(opts.Stable ?? manifest.Root.Stable, root);
         var state = MachineStateReader.Read(root, resolver.StableRoot, opts.TestRegistry,
@@ -751,6 +755,83 @@ public static class Applier
         var answer = Console.ReadLine();
         return answer is not null && answer.Trim().ToLowerInvariant() is "y" or "yes";
     }
+
+    private const string IntegrityRetryFlag = "PORTABLEDEV_INTEGRITY_RETRY";
+
+    /// <summary>
+    /// Leave a Low process behind when apply starts at Low integrity.
+    ///
+    /// Windows starts a process at the lower of its token and its executable label, so a
+    /// stick whose folders are Low yields an apply that cannot write state\ or tools\ and
+    /// cannot repair its own label either - the integrity check applies to the caller. The
+    /// repair is therefore brokered: icacls.exe has a Medium image, so an elevated icacls
+    /// child runs at Medium and may write the label. The program then restarts itself once,
+    /// which is the only way the rest of the run can execute at Medium.
+    ///
+    /// Returns true when the caller must return <paramref name="exitCode"/> instead of
+    /// continuing; the retry flag stops a restart loop if the repair did not take.
+    /// </summary>
+    private static bool TryEscapeLowIntegrity(string root, out int exitCode)
+    {
+        exitCode = 0;
+        var self = Integrity.CurrentRid();
+        if (self is null || Integrity.CanWriteToMedium(self.Value)) return false;
+
+        if (Environment.GetEnvironmentVariable(IntegrityRetryFlag) is not null)
+        {
+            Console.Error.WriteLine("integrity: this process is still Low after the repair; run " +
+                "scripts\\set-integrity-medium.ps1 from an administrator shell");
+            exitCode = Exit.Failed;
+            return true;
+        }
+
+        Console.WriteLine($"integrity -> this process runs at {Integrity.NameOf(self.Value)}; repairing the labels with icacls");
+
+        var appDir = AppContext.BaseDirectory.TrimEnd('\\');
+        var targets = new[] { root, appDir }.Distinct(StringComparer.OrdinalIgnoreCase);
+        var allOk = true;
+        foreach (var target in targets)
+        {
+            var (ok, err) = Integrity.EnsureMediumViaBroker(target);
+            Console.WriteLine(ok
+                ? $"integrity -> {target} raised to Medium"
+                : $"integrity -> {target}: {err}");
+            allOk &= ok;
+        }
+
+        var exe = Environment.ProcessPath;
+        if (!allOk || string.IsNullOrEmpty(exe))
+        {
+            Console.Error.WriteLine("integrity: the label could not be written from this process. A process that");
+            Console.Error.WriteLine("           already runs at Low cannot raise its own token, so run once from an");
+            Console.Error.WriteLine("           administrator shell:  scripts\\set-integrity-medium.ps1 -Path " + root);
+            exitCode = Exit.Failed;
+            return true;
+        }
+
+        // The labels are Medium now, so the new process starts at Medium; the flag makes a
+        // second failure a message instead of another restart.
+        Environment.SetEnvironmentVariable(IntegrityRetryFlag, "1");
+        try
+        {
+            var args = string.Join(" ", Environment.GetCommandLineArgs().Skip(1).Select(QuoteArg));
+            var psi = new System.Diagnostics.ProcessStartInfo(exe, args) { UseShellExecute = false };
+            using var child = System.Diagnostics.Process.Start(psi);
+            if (child is null) { exitCode = Exit.Failed; return true; }
+            child.WaitForExit();
+            exitCode = child.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("integrity: could not restart at Medium: " + ex.Message);
+            exitCode = Exit.Failed;
+        }
+
+        return true;
+    }
+
+    private static string QuoteArg(string arg) =>
+        arg.Length > 0 && arg.Contains(' ') ? "\"" + arg + "\"" : arg;
 
     /// <summary>
     /// Raise a Low (or Untrusted) label on the stick root to Medium.
