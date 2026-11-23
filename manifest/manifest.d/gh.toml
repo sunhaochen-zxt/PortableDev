@@ -1,0 +1,27 @@
+schema = 1
+
+[tool]
+id       = 'gh'
+version  = '2.105.0'
+title    = 'GitHub CLI'
+kind     = 'zip'
+archive  = 'downloads/gh/2.105.0/gh_2.105.0_windows_amd64.zip'
+sha256   = '8813a72c899900afaa10e3fec8fbc64b908c89dbfe837e95ed2fa500fc140627'
+dir      = 'tools/gh/2.105.0'
+provides = ['gh']
+# gh keeps its own state in %APPDATA%\GitHub CLI (hosts.yml holds the OAuth token), which
+# manifest.toml redirects onto the stick with a [[home_dir]]. Without that link 'gh auth
+# login' would store a machine-local token and every other machine would ask again.
+notes    = 'official GitHub CLI; the auth token travels via the APPDATA\GitHub CLI home link'
+
+[[path]]
+dir = 'bin'
+
+[[verify]]
+run    = 'gh --version'
+expect = 'gh version 2.105.0'
+
+[update]
+kind    = 'github'
+repo    = 'cli/cli'
+pattern = '^gh_(?<ver>\d+\.\d+\.\d+)_windows_amd64\.zip$'

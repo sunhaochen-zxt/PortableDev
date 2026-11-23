@@ -16,6 +16,7 @@ path_order = [
     'python',
     'nodejs',
     'git',
+    'gh',
     'cmake',
     'ninja',
     'ripgrep',
@@ -81,6 +82,14 @@ path = '.portable'
 for  = 'FlClash proxy profiles and settings'
 root = 'APPDATA'
 path = 'FlClash'
+
+# gh stores hosts.yml (the OAuth token from 'gh auth login') under %APPDATA%\GitHub CLI.
+# The junction carries it, so a token entered once keeps working on any machine the stick
+# is plugged into.
+[[home_dir]]
+for  = 'gh auth token and settings'
+root = 'APPDATA'
+path = 'GitHub CLI'
 
 # DSH NEXT is deliberately NOT declared here. Its main process validates the data
 # directory with lstat and refuses any reparse point ("Expected a real directory:

@@ -156,6 +156,7 @@ Eighteen toolchains, each in its own versioned directory under `tools\<id>\<vers
 | Python | python-build-standalone, with pip |
 | Node.js | Node.js with npm; global packages and their shims land in `home\npm-global` (on PATH), the cache in `cache\npm` |
 | Git | PortableGit |
+| gh | official GitHub CLI, on PATH; `gh auth login` stores its token in `home\GitHub CLI`, carried by a home link |
 | CMake | |
 | Ninja | |
 | ripgrep | |
