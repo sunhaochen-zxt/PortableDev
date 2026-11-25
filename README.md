@@ -57,6 +57,7 @@ python -u tools/manage-e2e.py .run-manage                                       
 python -u tools/registry-e2e.py .run-registry                                        # 12（HKCU 走 pd-elevate）
 dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
 python -u tools/proc-e2e.py                                                          # 20（proc 扩展 + pkgmgr 接入）
+python -u tools/run-e2e.py                                                           # 9（pd run + exec 通道）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

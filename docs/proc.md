@@ -2,7 +2,8 @@
 
 > 状态：**部分实现（2026-11-25）**。已落地：进程原语（Job/spawn/kill/detach）、`proc` 扩展协议、
 > `proc.spawn/snapshot/kill`、stdio 代理、`pd proc list|info|kill`、主题事件（`proc.started/exited`），
-> 并有 e2e 覆盖（`tools/proc-e2e.py`）。未开始：系统级枚举/结束（期 3）、`pd run`（期 2）。
+> 并有 e2e 覆盖（`tools/proc-e2e.py`）。期 2 的 `pd run` 已落地 MVP（exec 通道，见 spec 4.10；
+> 按 `launch` 声明自动解析可执行文件未做）。未开始：系统级枚举/结束（期 3）。
 > 相关文档：[architecture.md](architecture.md) 3.9 / 18、[spec.md](spec.md) 4.6 / 6.2、
 > [commands.md](commands.md) 4.10 / 5.18、[impl-pkgmgr.md](impl-pkgmgr.md)。
 

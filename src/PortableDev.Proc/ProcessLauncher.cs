@@ -52,6 +52,9 @@ public sealed class SpawnedProcess : IDisposable
 
     public bool HasExited => NativeMethods.WaitForSingleObject(_process, 0) == NativeMethods.WaitObject0;
 
+    /// <summary>Waits until the process exits (no timeout).</summary>
+    public void WaitForExit() => NativeMethods.WaitForSingleObject(_process, uint.MaxValue);
+
     /// <summary>Waits for exit; true when the process ended inside the timeout.</summary>
     public bool WaitForExit(TimeSpan timeout)
     {

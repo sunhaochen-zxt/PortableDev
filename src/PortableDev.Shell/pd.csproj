@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PortableDev.Core\PortableDev.Core.csproj" />
+    <ProjectReference Include="..\PortableDev.Proc\PortableDev.Proc.csproj" />
   </ItemGroup>
 
 </Project>

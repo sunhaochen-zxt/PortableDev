@@ -631,6 +631,29 @@
 
 ---
 
+### 4.10 exec 通道（客户端执行）
+
+有些命令的进程必须由**客户端**拉起（`pd run`：stdio 属于终端，内核没有 TTY）。协议给一条
+“扩展请求客户端执行”的通道：
+
+```json
+// 扩展 → 内核（任务是该扩展的）
+{ "v": 1, "kind": "evt", "id": "<扩展任务键>", "seq": 1,
+  "data": { "type": "exec", "execId": "e1", "command": "cmd.exe", "args": ["/c", "..."],
+            "cwd": "Z:\\...", "env": {}, "detach": false } }
+// 内核 → 客户端（id 翻译回客户端 id）；客户端执行完后回执：
+{ "v": 1, "kind": "ctl", "id": "<客户端任务 id>",
+  "data": { "action": "exec.reply", "execId": "e1", "exitCode": 3 } }
+// 内核按任务把回执转回发起扩展（ctl 的 id 是扩展任务键）
+```
+
+- 请求走 `evt.type=exec`，回执走 `ctl.action=exec.reply`；内核**只转发**，不执行、不等待；
+- 客户端负责：继承自己的 stdio、可选 Job（`detach` 时用 breakaway）、回真实退出码；
+- 扩展收到回执后自己决定 `done` 与退出码（`pd run` 把子进程退出码放 `done.metrics.childExitCode`）；
+- 状态：已实现（`pkgmgr` 的 `run` + `pd.exe`）。
+
+---
+
 ## 5. 内核 ↔ 扩展
 
 形状与客户端一致，区别在 `kind` 和先开口的一方。

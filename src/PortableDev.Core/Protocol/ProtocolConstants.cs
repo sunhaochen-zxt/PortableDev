@@ -85,6 +85,7 @@ public static class CtlActions
     public const string Subscribe = "subscribe";
     public const string Unsubscribe = "unsubscribe";
     public const string PromptReply = "prompt_reply";
+    public const string ExecReply = "exec.reply";
     public const string GrantRequest = "grant.request";
     public const string GrantReply = "grant.reply";
     public const string LogWrite = "log.write";

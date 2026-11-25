@@ -77,6 +77,13 @@
       "usage": "pd fetch <包>[@版本] [--source <源>] [--offline] [--refresh]"
     },
     {
+      "name": "run",
+      "mutates": false,
+      "parallel": true,
+      "summary": "run an installed package program in the caller terminal",
+      "usage": "pd run <包> --exe <store 内相对路径> [--cwd <目录>] [--detach] [-- args...]"
+    },
+    {
       "name": "search",
       "mutates": false,
       "parallel": true,

@@ -462,6 +462,15 @@ public sealed class ClientConnection : IMessageSink
 
                 break;
 
+            case CtlActions.ExecReply:
+                var execTaskId = ctl.Id;
+                if (execTaskId is not null && !_kernel.Supervisor.DeliverPromptReply(execTaskId, ctl.Data, SessionId))
+                {
+                    _kernel.Logger.Debug("exec.reply", "exec reply had no owner", new JsonObject { ["task"] = execTaskId });
+                }
+
+                break;
+
             default:
                 _kernel.Logger.Debug("ctl.ignored", "unknown ctl action", new JsonObject { ["action"] = action });
                 break;

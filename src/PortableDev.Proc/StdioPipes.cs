@@ -74,12 +74,58 @@ public sealed class StdioPipes : IDisposable
         return handle;
     }
 
+    /// <summary>Duplicates this process's stdin/stdout/stderr so a child can inherit them.</summary>
+    public static StdioPipes FromCurrentProcess()
+    {
+        var process = GetCurrentProcess();
+        return new StdioPipes(
+            Duplicate(process, GetStdHandle(StandardInput)),
+            Duplicate(process, GetStdHandle(StandardOutput)),
+            Duplicate(process, GetStdHandle(StandardError)));
+    }
+
+    private static IntPtr Duplicate(IntPtr process, IntPtr handle)
+    {
+        if (handle == IntPtr.Zero || handle == new IntPtr(-1))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "this process has no standard handle to duplicate");
+        }
+
+        if (!DuplicateHandle(process, handle, process, out var duplicate, 0, 1, DuplicateSameAccess))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "cannot duplicate a standard handle");
+        }
+
+        return duplicate;
+    }
+
     public void Dispose()
     {
         if (Stdin != IntPtr.Zero) CloseHandle(Stdin);
         if (Stdout != IntPtr.Zero) CloseHandle(Stdout);
         if (Stderr != IntPtr.Zero) CloseHandle(Stderr);
     }
+
+    private const int StandardInput = -10;
+    private const int StandardOutput = -11;
+    private const int StandardError = -12;
+    private const uint DuplicateSameAccess = 0x00000002;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(int which);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DuplicateHandle(
+        IntPtr sourceProcess,
+        IntPtr sourceHandle,
+        IntPtr targetProcess,
+        out IntPtr targetHandle,
+        uint desiredAccess,
+        int inheritHandle,
+        uint options);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SecurityAttributes

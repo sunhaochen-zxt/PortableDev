@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using PortableDev.Core.Protocol;
 using PortableDev.Core.Util;
 
+using PortableDev.Proc;
+
 namespace PortableDev.Shell;
 
 /// <summary>
@@ -313,6 +315,14 @@ public sealed class PdShell : IDisposable
                         continue;
                     }
 
+                    if (type == "exec")
+                    {
+                        // The kernel relays a client-side launch request (spec 4.7 exec channel):
+                        // the shell owns the terminal, so it spawns and reports the exit code back.
+                        await HandleExecAsync(envelope.Id, envelope.Data).ConfigureAwait(false);
+                        continue;
+                    }
+
                     _renderer.Render(envelope.Data);
                     if (type == "done")
                     {
@@ -336,6 +346,102 @@ public sealed class PdShell : IDisposable
         }
 
         return FinalExitCode();
+    }
+
+    private async Task HandleExecAsync(string? taskId, JsonObject request)
+    {
+        var execId = JsonUtil.String(request, "execId") ?? string.Empty;
+        var exitCode = ExitCodes.Internal;
+        JsonObject? error = null;
+
+        try
+        {
+            if (_options.Json)
+            {
+                throw new InvalidOperationException("pd run is not supported with --json yet (the child would share the event stream)");
+            }
+
+            var command = JsonUtil.String(request, "command");
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                throw new InvalidOperationException("exec request has no command");
+            }
+
+            var arguments = JsonUtil.Strings(JsonUtil.Array(request, "args") ?? new JsonArray()).ToArray();
+            var workingDirectory = JsonUtil.String(request, "cwd");
+            var detached = JsonUtil.Bool(request, "detach") == true;
+            var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (JsonUtil.Object(request, "env") is { } env)
+            {
+                foreach (var (key, value) in env)
+                {
+                    var text = JsonUtil.StringValue(value);
+                    if (text is not null)
+                    {
+                        environment[key] = text;
+                    }
+                }
+            }
+
+            using var stdio = StdioPipes.FromCurrentProcess();
+            var spec = new ProcessStartSpec
+            {
+                FileName = command,
+                Arguments = arguments,
+                WorkingDirectory = workingDirectory,
+                Environment = environment.Count == 0 ? null : environment,
+                StandardInput = stdio.Stdin,
+                StandardOutput = stdio.Stdout,
+                StandardError = stdio.Stderr,
+                Detached = detached,
+            };
+
+            var (process, job) = ProcessSpawner.Spawn(spec, detached ? null : new JobLimits());
+            using (process)
+            using (job)
+            {
+                if (detached)
+                {
+                    exitCode = ExitCodes.Ok;
+                }
+                else
+                {
+                    process.WaitForExit();
+                    process.TryGetExitCode(out exitCode);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException or ArgumentException)
+        {
+            exitCode = ExitCodes.Internal;
+            error = new JsonObject { ["code"] = ErrorCodes.Io, ["message"] = ex.Message };
+        }
+
+        var replyData = new JsonObject
+        {
+            ["action"] = CtlActions.ExecReply,
+            ["execId"] = execId,
+            ["exitCode"] = exitCode,
+        };
+        if (error is not null)
+        {
+            replyData["error"] = error;
+        }
+
+        try
+        {
+            await _client!.SendAsync(new Envelope
+            {
+                Kind = Kinds.Ctl,
+                Id = taskId,
+                Ts = TimeUtil.NowIso(),
+                Data = replyData,
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            // Kernel gone; nothing to report.
+        }
     }
 
     private void ReadDone(JsonObject data)

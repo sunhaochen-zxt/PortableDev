@@ -78,6 +78,24 @@ function callCapability(capability, op, args, timeoutMs) {
   });
 }
 
+// Client-side execution (spec 4.7 exec channel): the shell owns the terminal, so pkgmgr asks it
+// through the kernel to spawn a program with inherited stdio and report the exit code.
+const pendingExecs = new Map();
+let execCounter = 0;
+
+function execOnClient(taskId, payload, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    execCounter += 1;
+    const key = String(taskId);
+    const timer = setTimeout(() => {
+      pendingExecs.delete(key);
+      reject(new PkgError("ERR_TIMEOUT", "the client did not answer the exec request", 25));
+    }, timeoutMs || 86400000);
+    pendingExecs.set(key, { resolve, reject, timer });
+    send({ v: 1, kind: "evt", id: taskId, seq: 1, data: Object.assign({ type: "exec", execId: "e" + execCounter }, payload) });
+  });
+}
+
 const cancelledTasks = new Set();
 
 function isCancelled(id) {
@@ -1375,6 +1393,85 @@ async function listCommand(message) {
   }
 }
 
+// `pd run` executes an installed package program *in the client terminal*: pkgmgr resolves the
+// record, the shell spawns the process with inherited stdio and reports the exit code back.
+async function runPackage(message) {
+  const io = commandIo(message);
+  try {
+    const argv = (message.data && message.data.argv) || [];
+    const separator = argv.indexOf("--");
+    const ownArgs = separator >= 0 ? argv.slice(0, separator) : argv;
+    const parsed = parseFlags(ownArgs);
+    const flags = parsed.flags;
+    const target = parsed.positional[0];
+    // After the package: explicit `--` separator, or just the remaining positionals.
+    const childArgs = separator >= 0 ? argv.slice(separator + 1) : parsed.positional.slice(1);
+    if (!target) {
+      throw new PkgError("ERR_BAD_ARGS", "usage: pd run <包> --exe <store 内相对路径> [--cwd <目录>] [--detach] [-- args...]", 2);
+    }
+
+    const record = await callCapability("storage.record", "get", { pkg: String(target) });
+    if (!record || !record.storePath) {
+      throw new PkgError("ERR_PKG_INVALID", "record has no store path: " + target, 3);
+    }
+    const base = path.resolve(String(record.storePath));
+    const relativeExe = String(flags.exe || "");
+    if (!relativeExe) {
+      throw new PkgError("ERR_BAD_ARGS", "pd run needs --exe (a path inside the package store); resolving from the package launch declaration is not implemented yet", 2);
+    }
+    let command = path.resolve(base, relativeExe);
+    if (command !== base && !command.startsWith(base + path.sep)) {
+      throw new PkgError("ERR_UNSUPPORTED", "run --exe must stay inside the package store path", 11);
+    }
+    if (!fs.existsSync(command)) {
+      throw new PkgError("ERR_PKG_INVALID", "run target does not exist: " + command, 3);
+    }
+    const cwd = flags.cwd ? path.resolve(base, String(flags.cwd)) : base;
+
+    // Launchers are usually .cmd/.bat; CreateProcess needs an executable, so wrap them in the shell.
+    let commandArgs = childArgs;
+    if (/\.(cmd|bat)$/i.test(command)) {
+      commandArgs = ["/c", command].concat(childArgs);
+      command = process.env.ComSpec || "cmd.exe";
+    }
+
+    const environment = {};
+    for (const [name, value] of Object.entries(process.env)) {
+      if (name === "PD_PIPE" || name === "PD_INVOCATION_ID" || name === "PD_EXTENSION" || name === "PD_DOTNET") {
+        continue;
+      }
+      if (value !== undefined) {
+        environment[name] = value;
+      }
+    }
+    const settings = readSettings();
+    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\Dev");
+    environment.PATH = path.join(stableRoot, "current", String(target)) + ";" + (environment.PATH || "");
+
+    io.event("step", { stepId: "run", title: "run", state: "running" });
+    const reply = await execOnClient(message.id, {
+      command: command,
+      args: commandArgs,
+      cwd: cwd,
+      env: environment,
+      detach: flags.detach === true,
+    });
+    if (reply && reply.error) {
+      throw new PkgError(reply.error.code || "ERR_IO", reply.error.message || "the client could not start the program", 1);
+    }
+    const childExitCode = Number(reply && reply.exitCode !== undefined ? reply.exitCode : 1);
+    io.event("step", { stepId: "run", title: "run", state: "done" });
+    io.done({
+      ok: childExitCode === 0,
+      exitCode: childExitCode === 0 ? 0 : 1,
+      summary: target + " exited with " + childExitCode,
+      metrics: { childExitCode: childExitCode, package: target },
+    });
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
 function sendCommandFailure(message, error) {
   const code = (error && error.code) || "ERR_INTERNAL";
   send({
@@ -1411,6 +1508,15 @@ connect({
       const action = message.data && message.data.action;
       if (action === "cancel") {
         cancelledTasks.add(String(message.id));
+        return;
+      }
+      if (action === "exec.reply") {
+        const entry = pendingExecs.get(String(message.id));
+        if (entry) {
+          clearTimeout(entry.timer);
+          pendingExecs.delete(String(message.id));
+          entry.resolve(message.data || {});
+        }
         return;
       }
       if (action === "grant.reply") {
@@ -1463,6 +1569,8 @@ connect({
         runCommand(message, searchCommand);
       } else if (command === "fetch") {
         runCommand(message, fetchCommand);
+      } else if (command === "run") {
+        runCommand(message, runPackage);
       } else {
         send({ v: 1, kind: "evt", id: message.id, seq: 1, data: { type: "done", ok: false, exitCode: 2, error: { code: "ERR_UNKNOWN_COMMAND", message: "pkgmgr has no command " + command } } });
       }
