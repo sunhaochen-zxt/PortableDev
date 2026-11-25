@@ -46,7 +46,7 @@ public sealed class MainForm : Form
     {
         try
         {
-            _link = await KernelLink.ConnectAsync(_options.Root).ConfigureAwait(true);
+            _link = await KernelLink.ConnectAsync(_options.Root, _options.KernelDll).ConfigureAwait(true);
             var pages = await _link.RequestPagesAsync().ConfigureAwait(true);
             foreach (var node in pages)
             {

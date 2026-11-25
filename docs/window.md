@@ -258,7 +258,9 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 - 事件按任务转发（`evt` / `evt:<id>`），prompt 带 `promptId`，页面用 `pd.reply` 回；
 - 内置 `ui` 扩展：概览 / 软件包 / 日志三个页面，只通过 `window.pd` 调命令；
 - 测试：`tools/window-e2e.py`（8 项）——无头 self-test 验证内核链路与页面清单；
-  `--smoke <文件>` 启动真实 WebView2、加载首页并断言 `window.pd` 注入成功。
+  `--smoke <文件>` 启动真实 WebView2、加载首页并断言 `window.pd` 注入成功；
+- 部署：`tools/deploy-dev.py` 生成 `.run-app/`（app 二进制 + 扩展 + 已初始化的盘根 + 启动器），
+  窗口壳在管道不存在时会用 `DOTNET_ROOT/dotnet.exe` 自动拉起内核，双击启动器即可用。
 
 差异 / 未做：
 

@@ -41,6 +41,13 @@ dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Deb
 
 > 这块盘上 mtime 粒度不可靠，必须加 `--no-incremental`，否则增量构建可能跳过编译。
 
+本地试玩（生成一个可双击的测试盘）：
+
+```bash
+python tools/deploy-dev.py            # 生成 .run-app/
+# 双击 .run-app/启动 PortableDev.cmd 打开窗口壳（自动拉起内核）；命令行用 .run-app/pd.cmd
+```
+
 ## 测试
 
 套件会自己拉起/停止内核，必须串行跑（先删 `.run/state/lock.json`）：

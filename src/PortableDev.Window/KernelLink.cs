@@ -29,11 +29,12 @@ public sealed class KernelLink : IAsyncDisposable
 
     public string StableRoot { get; private set; } = string.Empty;
 
-    public static async Task<KernelLink> ConnectAsync(string root, int timeoutMs = 20000)
+    public static async Task<KernelLink> ConnectAsync(string root, string? kernelDll = null, int timeoutMs = 20000)
     {
         var (stickId, prefix) = ReadIdentity(root);
         var pipeName = prefix + "-" + stickId;
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        var started = false;
         Exception? last = null;
         while (DateTime.UtcNow < deadline)
         {
@@ -46,6 +47,12 @@ public sealed class KernelLink : IAsyncDisposable
             {
                 last = ex;
                 stream.Dispose();
+                if (!started && kernelDll is not null && File.Exists(kernelDll))
+                {
+                    started = true;
+                    StartKernel(root, kernelDll);
+                }
+
                 await Task.Delay(200).ConfigureAwait(false);
                 continue;
             }
@@ -250,6 +257,32 @@ public sealed class KernelLink : IAsyncDisposable
     {
         var frame = await FrameCodec.ReadFrameAsync(_stream, ProtocolConstants.MaxFrameBytes, _lifetime.Token).ConfigureAwait(false);
         return frame is null ? null : Envelope.Parse(frame);
+    }
+
+    private static void StartKernel(string root, string kernelDll)
+    {
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        var host = !string.IsNullOrWhiteSpace(dotnetRoot) && File.Exists(Path.Combine(dotnetRoot, "dotnet.exe"))
+            ? Path.Combine(dotnetRoot, "dotnet.exe")
+            : "dotnet";
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = host,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = root,
+        };
+        startInfo.ArgumentList.Add(kernelDll);
+        startInfo.ArgumentList.Add("--root");
+        startInfo.ArgumentList.Add(root);
+        try
+        {
+            System.Diagnostics.Process.Start(startInfo)?.Dispose();
+        }
+        catch (Exception)
+        {
+            // The retry loop reports the real failure if this does not come up.
+        }
     }
 
     private static (string StickId, string Prefix) ReadIdentity(string root)

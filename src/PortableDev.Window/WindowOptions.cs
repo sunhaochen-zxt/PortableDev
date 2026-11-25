@@ -42,6 +42,7 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
         }
 
         extensions ??= LocateExtensions(root);
+        kernelDll ??= LocateKernelDll(root, kernelDll);
         return new WindowOptions(root, extensions, selfTest, smoke, kernelDll);
     }
 
@@ -56,6 +57,33 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
             }
 
             directory = directory.Parent;
+        }
+
+        return null;
+    }
+
+    private static string? LocateKernelDll(string root, string? explicitPath)
+    {
+        if (explicitPath is not null)
+        {
+            return explicitPath;
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "pd-kernel.dll"),
+            Path.Combine(AppContext.BaseDirectory, "app", "pd-kernel.dll"),
+            Path.Combine(root, "app", "pd-kernel.dll"),
+            Path.Combine(root, "pd-kernel.dll"),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var full = Path.GetFullPath(candidate);
+            if (File.Exists(full))
+            {
+                return full;
+            }
         }
 
         return null;
@@ -92,7 +120,7 @@ public static class SelfTest
         var report = new JsonObject { ["ok"] = false };
         try
         {
-            await using var link = await KernelLink.ConnectAsync(options.Root).ConfigureAwait(false);
+            await using var link = await KernelLink.ConnectAsync(options.Root, options.KernelDll).ConfigureAwait(false);
             report["kernelVersion"] = link.KernelVersion;
             report["stickId"] = link.StickId;
 
