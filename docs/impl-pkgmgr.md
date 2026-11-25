@@ -88,13 +88,13 @@ pd install <目标>
 - 一律拒：未知命令、`script.network=false` 时的 fetch、路径逃出内容根、`elevated:true`（见下）；
 - 脚本任何请求失败后仍继续并 exit 0 → 安装失败（不静默忽略）；脚本 exit≠0 / 超时（默认 10m）→ 失败；
 - 脚本拿不到内核管道（环境里没有 `PD_PIPE`），只能通过 pkgmgr 请求副作用；
-- **Job Object 已实现**（`src/PortableDev.Job` / `pd-job`）：脚本进程放进 Job Object，
-  限额 1024 MiB 进程内存、最多 64 个活跃进程、`KILL_ON_JOB_CLOSE`（脚本退出/被超时杀掉后
-  它派生、还没退出的子孙进程一起结束）；stdin/stdout/stderr 由助手字节转发，脚本的请求协议不变；
-  超时由 pkgmgr 定时器 + 助手双保险，都能杀掉整棵树；
-- 部署：把构建出的 `pd-job.dll` + `.deps.json` + `.runtimeconfig.json`（或自包含 exe）放到
-  `<盘>\app\tools\`，并保证 `dotnet` 在扩展 PATH 上；找不到助手时回退旧行为
-  （`taskkill /T /F`），功能不变、隔离变弱（测试套件会分别覆盖两条路径）。
+- **Job Object 由 `proc` 扩展提供**（`proc.spawn`）：脚本进程放进 Job Object，
+  限额来自 settings（`proc.processMemoryMB` 默认 1024、`proc.activeProcesses` 默认 64），
+  `KILL_ON_JOB_CLOSE`（脚本退出/被超时杀掉后它派生、还没退出的子孙进程一起结束）；
+  stdin/stdout/stderr 用命名管道直连（pkgmgr 建管道、proc 把可继承句柄交给子进程），
+  请求协议不变、数据不经过内核；
+- 超时由 proc 负责（到点 `TerminateJobObject`）；**没有回退路径**：proc 扩展不可用时装包直接报
+  `ERR_EXT_MISSING`（20）。旧的 `pd-job` helper 已归档到 `archive/pd-job/`，不再构建/部署/维护。
 
 ## 5. 家目录、data 与提权
 
@@ -137,7 +137,7 @@ pd install <目标>
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 | `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
-| `tools/job-e2e.py` | 12 | pd-job 正常脚本、脚本退出后子孙进程被杀（KILL_ON_JOB_CLOSE）、超时杀整棵树且不留记录、请求协议经代理仍可用 |
+| `tools/proc-e2e.py` | 20 | proc 协议、`proc.spawn` + stdio 代理、list/info/kill、主题事件、真实安装脚本 |
 
 运行：
 
@@ -148,7 +148,7 @@ python -u tools/pkg-e2e.py .run
 python -u tools/source-e2e.py .run
 python -u tools/script-e2e.py .run
 python -u tools/manage-e2e.py .run-manage
-python -u tools/job-e2e.py .run-job
+python -u tools/proc-e2e.py
 ```
 
 ## 9. 还没做的
@@ -158,6 +158,6 @@ python -u tools/job-e2e.py .run-job
 | scoop 源 | `kind: scoop` 仍是 `ERR_UNSUPPORTED`，需要清单转换 |
 | 依赖求解 | `requires`/虚拟包/冲突只做版本条目的平台过滤，未做递归安装 |
 | 更多解包 | `7z` / `msi` |
-| 包脚本 Job Object | 现在只有超时 + 进程树杀，没有内存/CPU/子进程数配额 |
+| 脚本资源配额 | proc 提供内存/进程数上限，CPU 配额未做 |
 | 提权脚本 | `script.elevated:true` 未实现（需要提权子进程 + 回执 IPC） |
 | 批量事务 | 升级/卸载是逐包任务（失败只回滚该包），没有“整批全成功才生效”的事务语义 |

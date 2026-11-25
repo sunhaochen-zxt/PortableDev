@@ -219,7 +219,7 @@ proc.exe --admin <请求文件>      # ShellExecuteEx runas，一次 UAC
 ## 13. 测试计划（`tools/proc-e2e.py`）
 
 - spawn 成功后拿到 pid/startTime，退出码正确；
-- stdio 代理：脚本请求/回执走通（复用 job-e2e 的脚本夹具）；
+- stdio 代理：脚本请求/回执走通（复用 script-e2e 的脚本夹具）；
 - 超时 → 整树终止，退出码 25，无残留；
 - 脱离：detached 子进程在 job 关闭后仍存活；随后的普通子进程被收尸；
 - 限额：进程数 / 内存触顶；
@@ -236,7 +236,7 @@ proc.exe --admin <请求文件>      # ShellExecuteEx runas，一次 UAC
 ## 14. 分期
 
 1. **期 1（已完成）**：`PortableDev.Proc` 库（job / spawn / kill / detach + 测试）→ `proc` 扩展（先通协议）→
-   `proc.spawn` + stdio 代理 → pkgmgr 接入、`pd-job` 退役 → 主题事件通道（spec 4.9 / 5.8）+
+   `proc.spawn` + stdio 代理 → pkgmgr 接入、`pd-job` 归档 → 主题事件通道（spec 4.9 / 5.8）+
    `proc.started/exited` → 三个 `proc.*` 设置键 → `pd proc list`/`kill`（受管）。
 2. **期 2**：`pd run` / `pd shell`（壳拉起、可选 job、detach）+ `pd proc system`（未提权）。
 3. **期 3**：一次性提权实例（完整枚举 + 系统级结束 + level 1/2 流程 + `--force-critical`）。

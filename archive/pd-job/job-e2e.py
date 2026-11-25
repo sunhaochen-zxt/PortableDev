@@ -12,7 +12,7 @@ DOTNET = r"Z:\PortableDev\tools\dotnet-sdk\8.0.426\dotnet.exe"
 DOTNET_DIR = os.path.dirname(DOTNET)
 KERNEL_DLL = os.path.abspath(os.path.join("src", "PortableDev.Kernel", "bin", "Debug", "net8.0", "win-x64", "pd-kernel.dll"))
 PD_DLL = os.path.abspath(os.path.join("src", "PortableDev.Shell", "bin", "Debug", "net8.0", "win-x64", "pd.dll"))
-JOB_DIR = os.path.abspath(os.path.join("src", "PortableDev.Job", "bin", "Debug", "net8.0", "win-x64"))
+JOB_DIR = os.path.abspath(os.path.join("archive", "pd-job", "bin", "Debug", "net8.0", "win-x64"))
 
 PASS = 0
 FAIL = 0

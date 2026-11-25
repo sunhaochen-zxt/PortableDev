@@ -108,7 +108,7 @@ def make_zip_pkg(root, name, pid, version, script=None, script_meta=None, files=
 
 
 def prepare(root):
-    for name in ["storage", "rollback", "download", "unpack", "pkgmgr"]:
+    for name in ["storage", "rollback", "download", "unpack", "pkgmgr", "proc"]:
         target = os.path.join(root, "extensions", name)
         shutil.rmtree(target, ignore_errors=True)
         shutil.copytree(os.path.join("app", "extensions", name), target)

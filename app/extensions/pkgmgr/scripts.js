@@ -3,30 +3,10 @@
 // whitelisted ones through capabilities and answers on stdin.
 const fs = require("fs");
 const path = require("path");
-const { spawn, execFileSync } = require("child_process");
 
 const REQUEST_TIMEOUT_MS = 30000;
 const JOB_MEMORY_LIMIT_MB = 1024;
 const JOB_ACTIVE_PROCESS_LIMIT = 64;
-
-function jobHelperCommand(root) {
-  const explicit = process.env.PD_JOB_HELPER;
-  if (explicit && fs.existsSync(explicit)) {
-    return explicit.toLowerCase().endsWith(".dll")
-      ? [process.env.PD_DOTNET || "dotnet", explicit]
-      : [explicit];
-  }
-  const tools = path.join(root, "app", "tools");
-  const exe = path.join(tools, "pd-job.exe");
-  if (fs.existsSync(exe)) {
-    return [exe];
-  }
-  const dll = path.join(tools, "pd-job.dll");
-  if (fs.existsSync(dll)) {
-    return [process.env.PD_DOTNET || "dotnet", dll];
-  }
-  return null;
-}
 
 // Creates the three named pipes the proc extension will hand to the child. The facade mimics the
 // parts of a ChildProcess the request loop uses (stdin/stdout/stderr streams and an "exit" event).
@@ -287,90 +267,46 @@ async function runScript(options) {
   environment.PD_KERNEL_ABI = process.env.PD_KERNEL_ABI || "1";
   // No PD_PIPE on purpose: scripts must not connect to the kernel (architecture 8.2).
 
-  // Backend: the proc extension (Job Object + stdio proxy) when available, else the pd-job helper,
-  // else a plain spawn. The request/reply protocol below is identical for all of them.
-  let procReady = false;
+  // Package scripts always run through the proc extension: it owns the Job Object, the limits,
+  // the timeout and the tree kill. This process only owns the request/reply protocol over pipes.
   try {
     await call("proc.snapshot", "snapshot", {});
-    procReady = true;
   } catch (error) {
-    if (!error || String(error.code || "").indexOf("ERR_EXT_MISSING") !== 0) {
-      throw error;
-    }
+    throw new ScriptError("ERR_EXT_MISSING", "process manager extension is unavailable; package scripts need proc", 20);
   }
 
   event("step", { stepId: "script", title: "script", state: "running" });
 
-  let child = null;
-  let helperConfigPath = null;
-  let helperResultPath = null;
-  let procPipes = null;
-  let procCall = null;
+  const procPipes = createProcPipeSet();
+  try {
+    await procPipes.ready();
+  } catch (error) {
+    procPipes.close();
+    throw new ScriptError("ERR_IO", "cannot create the script pipes: " + (error.message || String(error)), 1);
+  }
+
+  const child = procPipes.child;
   let procResult = null;
-
-  if (procReady) {
-    try {
-      procPipes = createProcPipeSet();
-      await procPipes.ready();
-    } catch (error) {
-      procPipes = null;
-      procReady = false;
-    }
-  }
-
-  if (!procReady) {
-    const jobHelper = jobHelperCommand(root);
-    let spawnCommand = command;
-    let spawnArgs = args;
-    if (jobHelper) {
-      const tmp = path.join(root, "state", "tmp");
-      fs.mkdirSync(tmp, { recursive: true });
-      helperConfigPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".json");
-      helperResultPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".result.json");
-      fs.writeFileSync(helperConfigPath, JSON.stringify({
-        schema: 1,
-        command: command,
-        args: args,
-        cwd: contentRoot,
-        env: environment,
-        timeoutMs: timeoutMs + 2000,
-        memoryLimitMB: JOB_MEMORY_LIMIT_MB,
-        activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
-        resultPath: helperResultPath,
-      }));
-      spawnCommand = jobHelper[0];
-      spawnArgs = jobHelper.slice(1).concat([helperConfigPath]);
-    }
-
-    child = spawn(spawnCommand, spawnArgs, {
-      cwd: contentRoot,
-      env: environment,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-  } else {
-    child = procPipes.child;
-    procCall = call("proc.spawn", "spawn", {
-      command: command,
-      args: args,
-      cwd: contentRoot,
-      env: environment,
-      timeoutMs: timeoutMs,
-      memoryLimitMB: JOB_MEMORY_LIMIT_MB,
-      activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
-      stdinPipe: procPipes.names.stdin,
-      stdoutPipe: procPipes.names.stdout,
-      stderrPipe: procPipes.names.stderr,
-    }).then((result) => {
-      procResult = result || {};
-      child.emit("exit", procResult.exitCode === undefined ? null : procResult.exitCode);
-      return procResult;
-    }, (error) => {
-      child.emit("error", error);
-      throw error;
-    });
-    procCall.catch(() => {});
-  }
+  const procCall = call("proc.spawn", "spawn", {
+    command: command,
+    args: args,
+    cwd: contentRoot,
+    env: environment,
+    timeoutMs: timeoutMs,
+    memoryLimitMB: JOB_MEMORY_LIMIT_MB,
+    activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
+    stdinPipe: procPipes.names.stdin,
+    stdoutPipe: procPipes.names.stdout,
+    stderrPipe: procPipes.names.stderr,
+  }).then((result) => {
+    procResult = result || {};
+    child.emit("exit", procResult.exitCode === undefined ? null : procResult.exitCode);
+    return procResult;
+  }, (error) => {
+    child.emit("error", error);
+    throw error;
+  });
+  procCall.catch(() => {});
 
   let finished = false;
   let timedOut = false;
@@ -381,19 +317,6 @@ async function runScript(options) {
   let failedRequests = 0;
   const pendingLinks = [];
 
-  const killTree = () => {
-    try {
-      execFileSync("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore" });
-    } catch (error) {
-      try { child.kill(); } catch (inner) { /* already gone */ }
-    }
-  };
-
-  const timer = procReady ? null : setTimeout(() => {
-    timedOut = true;
-    killTree();
-  }, timeoutMs);
-
   const reply = (id, payload) => {
     if (finished || !child.stdin.writable) {
       return;
@@ -402,7 +325,7 @@ async function runScript(options) {
       child.stdin.write(JSON.stringify(Object.assign({ id: id }, payload)) + "\n");
     } catch (error) {
       failure = new ScriptError("ERR_IO", "cannot write the script reply: " + (error.message || String(error)), 1);
-      killTree();
+      try { child.stdin.destroy(); } catch (inner) { /* pipes already gone */ }
     }
   };
 
@@ -543,56 +466,26 @@ async function runScript(options) {
     });
     child.on("exit", (code) => resolve(code));
   });
-  if (timer) {
-    clearTimeout(timer);
-  }
   await chain;
 
-  if (procCall) {
-    try {
-      await procCall;
-    } catch (error) {
-      if (procPipes) {
-        procPipes.close();
-      }
-      if (error && error.code) {
-        throw new ScriptError(error.code, "package script could not be started: " + (error.message || String(error)), error.exitCode || 1);
-      }
-      throw new ScriptError("ERR_SCRIPT", "package script could not be started: " + String(error), 1);
-    }
-    if (procResult) {
-      if (procResult.timedOut === true) {
-        timedOut = true;
-      }
-      if (typeof procResult.exitCode === "number") {
-        exit = procResult.exitCode;
-      }
-    }
-  }
-  if (procPipes) {
+  try {
+    await procCall;
+  } catch (error) {
     procPipes.close();
-  }
-
-  if (helperResultPath) {
-    let jobResult = null;
-    try {
-      jobResult = JSON.parse(fs.readFileSync(helperResultPath, "utf8"));
-    } catch (error) {
-      jobResult = null;
+    if (error && error.code) {
+      throw new ScriptError(error.code, "package script could not be started: " + (error.message || String(error)), error.exitCode || 1);
     }
-    fs.rmSync(helperConfigPath, { force: true });
-    fs.rmSync(helperResultPath, { force: true });
-    if (jobResult) {
-      if (jobResult.ok !== true) {
-        failure = new ScriptError("ERR_SCRIPT", "package script job failed: " +
-          ((jobResult.error && jobResult.error.message) || "unknown error"), 1);
-      } else if (jobResult.timedOut === true) {
-        timedOut = true;
-      } else if (typeof jobResult.exitCode === "number") {
-        exit = jobResult.exitCode;
-      }
+    throw new ScriptError("ERR_SCRIPT", "package script could not be started: " + String(error), 1);
+  }
+  if (procResult) {
+    if (procResult.timedOut === true) {
+      timedOut = true;
+    }
+    if (typeof procResult.exitCode === "number") {
+      exit = procResult.exitCode;
     }
   }
+  procPipes.close();
 
   if (failure) {
     event("step", { stepId: "script", title: "script", state: "failed" });
