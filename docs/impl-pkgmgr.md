@@ -54,8 +54,13 @@ pd install <目标>
   部分失败；成功后补 `ledger commit`，metrics 里给每个包带审计任务号 `task`。
 - `pd list`：读记录 + 检查 current 指针；`--outdated` 只读本地索引缓存解析最新版，不联网刷新；
   解析失败与“已最新”用 `latestError` 区分。
-- 批量语义：一个包失败不影响其他包；最后汇总，退出码取第一个失败的错误映射。
-  `--dry-run` 解析失败按 20 退出；一个包都没装时按名 upgrade → 20；remove 的 `--dry-run` 全部不存在 → 20。
+- 批量语义：一个包失败或名字没装都不影响其他包；最后汇总，有 missing 时退出码 20
+  （存在的那部分仍然执行）。`--dry-run` 解析失败按 20；一个包都没装时按名 upgrade → 20；
+  remove 的 `--dry-run` 有 missing → 20。
+- `--pin`：install 成功后给记录写 `pinned:true`；`upgrade --all` 跳过 pinned，显式点名升级会透传
+  `--pin` 保持锁定；`pd list` metrics 里带 `pinned`。
+- 缺值的取值开关（`--to`/`--source`/`--as` 等）由 parseFlags 直接报 2，命令层的异常由兜底包装
+  转成 done(2)，不会让扩展崩掉。
 - `install(message, options)` 支持注入 `taskId` / `io`（默认 `commandIo(message)`），
   这样升级能在同一审计任务里跑完整安装流程并转发事件。
 
@@ -125,13 +130,13 @@ pd install <目标>
 | `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
-| `tools/manage-e2e.py` | 79 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
+| `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
 
 运行：
 
 ```bash
 DN="Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
-"$DN" build src/PortableDev.Kernel/PortableDev.Kernel.csproj
+"$DN" build src/PortableDev.Kernel/PortableDev.Kernel.csproj --no-incremental
 python -u tools/pkg-e2e.py .run
 python -u tools/source-e2e.py .run
 python -u tools/script-e2e.py .run

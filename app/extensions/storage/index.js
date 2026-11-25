@@ -432,7 +432,7 @@ function recordList() {
     }
     try {
       const record = readJson(path.join(RECORDS, name));
-      items.push({ id: record.id, version: record.version, storePath: record.storePath });
+      items.push({ id: record.id, version: record.version, storePath: record.storePath, pinned: record.pinned === true });
     } catch (error) {
       // A corrupt record is reported by doctor, not here.
     }
@@ -464,7 +464,7 @@ async function currentSet(args) {
     throw new StorageError("ERR_UNSUPPORTED", "current needs a store path inside store/");
   }
   if (!fs.existsSync(target)) {
-    throw new StorageError("ERR_IO", "store path does not exist: " + target);
+    throw new StorageError("ERR_PKG_NOT_FOUND", "store path no longer exists (removed by gc?): " + target);
   }
 
   await ensureBegin(task, pkg);
@@ -1264,6 +1264,14 @@ async function wireCopyRemove(args) {
     return { changed: true, target: target, undo: copySource !== null };
   }
   if (!allowedLinkTarget(target)) {
+    // The elevated helper cannot hand back the copied content, so this removal is not undoable.
+    await ledgerEntry(args.task, {
+      op: "copy.remove",
+      target: target,
+      after: null,
+      undo: null,
+      irreversible: true,
+    });
     runElevated([{ op: "copy.remove", target: target }]);
     return { changed: true, target: target, elevated: true };
   }

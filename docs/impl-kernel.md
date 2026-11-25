@@ -33,10 +33,10 @@ v2/
 DOTNET="Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
 
 # 构建
-"$DOTNET" build src/PortableDev.Kernel/PortableDev.Kernel.csproj
-"$DOTNET" build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj
+"$DOTNET" build src/PortableDev.Kernel/PortableDev.Kernel.csproj --no-incremental
+"$DOTNET" build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj --no-incremental
 
-# 单元测试（13 项）
+# 单元测试（21 项）
 "$DOTNET" tests/PortableDev.Core.Runner/bin/Debug/net8.0/PortableDev.Core.Runner.dll
 
 # 端到端（51 项无 provider / 61 项带 provider）：自己拉起内核、执行命令、断言、停止
@@ -144,6 +144,8 @@ python -u tools/e2e.py .run
   `done(exitCode 10, ERR_BUSY)`，不再无限堆在内存里。
 - 关停顺序：先停止接收并取消客户端连接（留 150ms 让 `kernel stop` 自己的 done 发出）→ Flush 日志 →
 StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关停期间的新请求立即回 130。
+- **客户端断线 ≠ cancel**：客户端进程退出后任务会继续跑到 done（结果落盘），重连后用 `pd list`/`pd log`
+  查询；显式取消走 `ctl cancel`（扩展在 await 边界检查并回滚，见 impl-pkgmgr §2.1）。
 - 日志提供者冲突：同一 priority 的两个 `log.ingest` 提供者都被拒绝（记 `log.provider` 错误，记录走兜底文件），
   低 priority 者优先接管。
 - 内置命令先入命令表：扩展与内置重名时拒绝的是扩展，内置命令不会被静默顶掉。

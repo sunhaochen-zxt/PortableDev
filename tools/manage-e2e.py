@@ -413,6 +413,41 @@ def main():
         result = pd(root, "--json", "upgrade", "demo")
         check("upgrade of a missing package on an empty set exits 20", result.returncode == 20, (result.returncode, result.stdout[-300:]))
 
+
+        print("partial batches, pinning and missing argument values")
+        result = pd(root, "--json", "install", "demo@1.0.0", "--source", "fixtures")
+        check("install demo for partial upgrade", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "upgrade", "demo", "nosuchpkg")
+        check("partial upgrade exits 20", result.returncode == 20, (result.returncode, result.stdout[-400:]))
+        check("partial upgrade still updates the existing package", record(root, "demo").get("version") == "2.0.0",
+              record(root, "demo"))
+        result = pd(root, "--json", "install", "demo@2.0.0", "--source", "fixtures", "--pin")
+        check("install --pin exit 0", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+        check("record is pinned", record(root, "demo").get("pinned") is True, record(root, "demo"))
+        result = pd(root, "--json", "upgrade", "--all")
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("upgrade --all skips pinned packages", result.returncode == 0 and metrics.get("upgraded") == 0 and metrics.get("skipped", 0) >= 1,
+              (result.returncode, metrics))
+        result = pd(root, "--json", "upgrade", "demo", "--to", "1.0.0")
+        check("explicit upgrade of a pinned package still works",
+              result.returncode == 0 and record(root, "demo").get("version") == "1.0.0",
+              (result.returncode, record(root, "demo"), result.stdout[-300:]))
+        check("explicit upgrade keeps the pin", record(root, "demo").get("pinned") is True, record(root, "demo"))
+        result = pd(root, "--json", "list")
+        done = done_of(result.stdout)
+        packages = (done or {}).get("metrics", {}).get("packages") or []
+        check("list reports pinned", packages and packages[0].get("pinned") is True, packages)
+        result = pd(root, "--json", "upgrade", "demo", "--to")
+        check("missing flag value exits 2", result.returncode == 2, (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "install", "other@1.0.0", "--source", "fixtures")
+        check("install other for partial remove", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "remove", "other", "nosuchpkg")
+        check("partial remove exits 20", result.returncode == 20, (result.returncode, result.stdout[-400:]))
+        check("partial remove still removed the existing package", record(root, "other") is None, record(root, "other"))
+        result = pd(root, "--json", "remove", "demo", "--purge")
+        check("cleanup demo after partial tests", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
         print("partial settings must not collapse generation retention")
         with open(os.path.join(root, "config", "settings.json"), "w", encoding="utf-8") as handle:
             json.dump({"install": {"maxConcurrent": 2}}, handle)

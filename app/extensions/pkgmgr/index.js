@@ -150,6 +150,8 @@ function sources() {
   return sourceManager;
 }
 
+const VALUE_FLAGS = new Set(["as", "from-dir", "sha256", "source", "to", "channel", "ttl", "kind", "priority", "name", "out", "limit", "profile"]);
+
 function parseFlags(argv) {
   const flags = {};
   const positional = [];
@@ -170,6 +172,9 @@ function parseFlags(argv) {
         flags[arg.slice(2)] = next;
         i += 1;
       } else {
+        if (VALUE_FLAGS.has(arg.slice(2))) {
+          throw new PkgError("ERR_BAD_ARGS", "--" + arg.slice(2) + " needs a value", 2);
+        }
         flags[arg.slice(2)] = true;
       }
     } else {
@@ -520,6 +525,13 @@ async function install(message, options) {
       wiring,
     });
     event("step", { stepId: "adopt", title: "adopt", state: "done" });
+
+    if (flags.pin === true) {
+      // Pinned packages are skipped by "pd upgrade --all"; an explicit upgrade still works.
+      const pinned = await callCapability("storage.record", "get", { pkg: pkgId });
+      pinned.pinned = true;
+      await callCapability("storage.record", "write", { record: pinned });
+    }
 
     for (const pending of scriptResult.pendingLinks || []) {
       await callCapability("storage.wire", "link.create", {
@@ -971,18 +983,25 @@ async function upgradeCommand(message) {
       return;
     }
 
+    const missing = [];
     let selected;
     if (flags.all === true) {
       selected = installed;
     } else if (positional.length > 0) {
-      selected = [...new Set(positional)].map((name) => {
+      selected = [];
+      for (const name of [...new Set(positional)]) {
         const pkg = validPackageId(name);
         const found = installed.find((record) => record.id === pkg);
         if (!found) {
-          throw new PkgError("ERR_PKG_NOT_FOUND", pkg + " is not installed", 20);
+          missing.push(pkg);
+          continue;
         }
-        return found;
-      });
+        selected.push(found);
+      }
+      if (selected.length === 0) {
+        io.fail(new PkgError("ERR_PKG_NOT_FOUND", "not installed: " + missing.join(","), 20));
+        return;
+      }
     } else {
       io.fail(new PkgError("ERR_BAD_ARGS", "upgrade needs package names or --all", 2));
       return;
@@ -996,6 +1015,10 @@ async function upgradeCommand(message) {
 
     const plan = [];
     for (const record of selected) {
+      if (flags.all === true && record.pinned === true && to === null) {
+        plan.push({ record: record, resolved: null, action: "pinned" });
+        continue;
+      }
       const targetRef = to === null ? record.id : record.id + "@" + to;
       try {
         const resolved = await manager.resolve(targetRef, flags);
@@ -1037,8 +1060,13 @@ async function upgradeCommand(message) {
           exitForCode(head.code)));
         return;
       }
+      if (missing.length > 0) {
+        io.fail(new PkgError("ERR_PKG_NOT_FOUND", "not installed: " + missing.join(","), 20));
+        return;
+      }
       io.done({
         summary: "dry-run: " + plan.filter((item) => item.action === "upgrade").length + " upgrade(s), " +
+          plan.filter((item) => item.action === "pinned").length + " pinned, " +
           plan.filter((item) => item.action === "skip").length + " up to date, " +
           plan.filter((item) => item.action === "fail").length + " error(s)",
         metrics: {
@@ -1069,6 +1097,11 @@ async function upgradeCommand(message) {
         failed.push({ package: item.record.id, code: (item.error && item.error.code) || "ERR_INTERNAL", message: (item.error && item.error.message) || String(item.error) });
         continue;
       }
+      if (item.action === "pinned") {
+        skipped.push(item.record.id);
+        io.event("log", { level: "info", msg: item.record.id + " is pinned; skipped by --all" });
+        continue;
+      }
       if (item.action === "skip") {
         skipped.push(item.record.id);
         io.event("log", { level: "info", msg: item.record.id + " " + item.record.version + " is up to date" });
@@ -1092,6 +1125,9 @@ async function upgradeCommand(message) {
           } else if (typeof value === "string" && value.length > 0) {
             argv.push("--" + name, value);
           }
+        }
+        if (item.record.pinned === true) {
+          argv.push("--pin");
         }
         throwIfCancelled(message.id);
         const metrics = await runInstall(
@@ -1127,10 +1163,15 @@ async function upgradeCommand(message) {
       return;
     }
 
-    const summary = upgraded.length + " upgraded, " + skipped.length + " up to date, " + failed.length + " failed";
+    const summary = upgraded.length + " upgraded, " + skipped.length + " skipped, " + failed.length + " failed" +
+      (missing.length > 0 ? ", not installed: " + missing.join(",") : "");
     if (failed.length > 0) {
       const head = failed[0];
       io.fail(new PkgError(head.code, summary + ": " + failed.map((item) => item.package + " (" + item.message + ")").join("; "), exitForCode(head.code)));
+      return;
+    }
+    if (missing.length > 0) {
+      io.fail(new PkgError("ERR_PKG_NOT_FOUND", summary, 20));
       return;
     }
     io.done({
@@ -1191,6 +1232,11 @@ async function removeCommand(message) {
         });
       } catch (error) {
         // table rendering is best effort
+      }
+      if (missing.length > 0) {
+        io.fail(new PkgError("ERR_PKG_NOT_FOUND", "not installed: " + missing.join(",") +
+          (targets.length ? " (existing packages are only reported in dry-run)" : ""), 20));
+        return;
       }
       io.done({
         summary: "dry-run: would remove " + targets.length + " package(s)" + (missing.length ? ", missing: " + missing.join(",") : "") +
@@ -1255,7 +1301,7 @@ async function removeCommand(message) {
       io.fail(new PkgError(failed[0].code, parts.join("; "), exitForCode(failed[0].code)));
       return;
     }
-    if (removed.length === 0 && missing.length > 0) {
+    if (missing.length > 0) {
       io.fail(new PkgError("ERR_PKG_NOT_FOUND", parts.join("; "), 20));
       return;
     }
@@ -1302,7 +1348,7 @@ async function listCommand(message) {
       rows.push([record.id, record.version, newer === undefined ? "-" : (newer === null ? "?" : newer), current ? "yes" : "missing"]);
       packages.push({ package: record.id, version: record.version, latest: newer === undefined ? null : newer,
         latestError: Object.prototype.hasOwnProperty.call(latestError, record.id) ? latestError[record.id] : null,
-        current: current, storePath: record.storePath });
+        pinned: record.pinned === true, current: current, storePath: record.storePath });
     }
 
     const outdatedCount = packages.filter((item) => item.latest !== null).length;
@@ -1326,6 +1372,30 @@ async function listCommand(message) {
     });
   } catch (error) {
     io.fail(error);
+  }
+}
+
+function sendCommandFailure(message, error) {
+  const code = (error && error.code) || "ERR_INTERNAL";
+  send({
+    v: 1, kind: "evt", id: message.id, seq: 1,
+    data: {
+      type: "done", ok: false,
+      exitCode: (error && error.exitCode) || exitForCode(code),
+      error: { code: code, message: (error && error.message) || String(error) },
+    },
+  });
+}
+
+// Parameter errors are thrown by parseFlags/commandContext before a command installs its own catch.
+function runCommand(message, handler) {
+  try {
+    const pending = handler(message);
+    if (pending && typeof pending.then === "function") {
+      pending.catch((error) => sendCommandFailure(message, error));
+    }
+  } catch (error) {
+    sendCommandFailure(message, error);
   }
 }
 
@@ -1378,21 +1448,21 @@ connect({
       const argv = (message.data && message.data.argv) || [];
       const command = (message.data && message.data.cmd) || argv[0] || "";
       if (command === "install") {
-        install(message);
+        runCommand(message, install);
       } else if (command === "remove") {
-        removeCommand(message);
+        runCommand(message, removeCommand);
       } else if (command === "upgrade") {
-        upgradeCommand(message);
+        runCommand(message, upgradeCommand);
       } else if (command === "list" || command === "ls") {
-        listCommand(message);
+        runCommand(message, listCommand);
       } else if (command === "source") {
-        sourceCommand(message);
+        runCommand(message, sourceCommand);
       } else if (command === "index") {
-        indexCommand(message);
+        runCommand(message, indexCommand);
       } else if (command === "search") {
-        searchCommand(message);
+        runCommand(message, searchCommand);
       } else if (command === "fetch") {
-        fetchCommand(message);
+        runCommand(message, fetchCommand);
       } else {
         send({ v: 1, kind: "evt", id: message.id, seq: 1, data: { type: "done", ok: false, exitCode: 2, error: { code: "ERR_UNKNOWN_COMMAND", message: "pkgmgr has no command " + command } } });
       }

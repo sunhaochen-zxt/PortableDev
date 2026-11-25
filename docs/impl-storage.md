@@ -120,6 +120,10 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
   只删本机可见的接线，**不把安装机捕获的原值写回本机**（写 warn 日志）；没有 `machine` 字段的
   老记录保持旧行为；
 - 所有改动**先写账本、带 `undo`**；rollback 部分失败会按失败上报，不再静默成功；
+- **uninstall 不是崩溃事务**：没有 intent，进程中断后不会自动裁决；但每一步都幂等，
+  重跑 `pd remove` 可以继续收敛，审计里会留下未完成的 begin 供排查；
+- 提权目标上的 `data.copy` 删除没有 undo（helper 不回传内容），账本条目标 `irreversible`，
+  rollback 会跳过它；
 - `store` 目录不在这里删，留给 `gc` 按引用判断。
 
 ## 8. gc
@@ -216,7 +220,7 @@ apply 时记录机器原值（`wiring.before`），clean / 回滚 / 存档点恢
 
 ```bash
 DN="Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
-"$DN" build src/PortableDev.Kernel/PortableDev.Kernel.csproj
+"$DN" build src/PortableDev.Kernel/PortableDev.Kernel.csproj --no-incremental
 python -u tools/storage-e2e.py .run
 ```
 

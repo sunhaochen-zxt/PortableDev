@@ -47,7 +47,7 @@ python -u tools/wire-e2e.py .run                                                
 python -u tools/generation-e2e.py .run                                              # 29
 python -u tools/source-e2e.py .run                                                   # 34
 python -u tools/script-e2e.py .run                                                   # 22
-python -u tools/manage-e2e.py .run-manage                                            # 79
+python -u tools/manage-e2e.py .run-manage                                            # 93
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

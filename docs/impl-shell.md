@@ -130,7 +130,7 @@ v2/src/PortableDev.Shell/
 
 ```bash
 DN="Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
-"$DN" build src/PortableDev.Shell/pd.csproj
+"$DN" build src/PortableDev.Shell/pd.csproj --no-incremental
 python -u tools/pd-e2e.py .run
 ```
 
