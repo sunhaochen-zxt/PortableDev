@@ -83,8 +83,7 @@ public sealed class MainForm : Form
                 return;
             }
 
-            var dataFolder = Path.Combine(Path.GetTempPath(), "pd-window-data");
-            var environment = await CoreWebView2Environment.CreateAsync(null, dataFolder).ConfigureAwait(true);
+            var environment = await CreateWebViewEnvironmentAsync().ConfigureAwait(true);
             await _webView.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
             var core = _webView.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
@@ -111,6 +110,25 @@ public sealed class MainForm : Form
                 WriteSmoke(new JsonObject { ["ok"] = false, ["status"] = _status.Text, ["error"] = ex.Message });
                 BeginInvoke(Close);
             }
+        }
+    }
+
+    /// <summary>
+    /// WebView2 refuses two processes sharing one user-data folder (ERROR_BUSY); give every window
+    /// its own folder and retry with a fresh one if a stale process still holds it.
+    /// </summary>
+    private static async Task<CoreWebView2Environment> CreateWebViewEnvironmentAsync()
+    {
+        var local = Path.Combine(Path.GetTempPath(), "pd-window");
+        var folder = Path.Combine(local, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        try
+        {
+            return await CoreWebView2Environment.CreateAsync(null, folder).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex.HResult == unchecked((int)0x800700AA))
+        {
+            var fallback = Path.Combine(local, Guid.NewGuid().ToString("N"));
+            return await CoreWebView2Environment.CreateAsync(null, fallback).ConfigureAwait(true);
         }
     }
 

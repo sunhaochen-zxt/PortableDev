@@ -50,6 +50,9 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
 
         extensions ??= LocateExtensions(root);
         kernelDll ??= LocateKernelDll(root, kernelDll);
+
+        // WebView2's virtual host mapping needs an absolute folder.
+        extensions = Path.GetFullPath(extensions);
         return new WindowOptions(root, extensions, selfTest, smoke, kernelDll);
     }
 
