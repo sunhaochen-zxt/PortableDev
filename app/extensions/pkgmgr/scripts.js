@@ -6,6 +6,27 @@ const path = require("path");
 const { spawn, execFileSync } = require("child_process");
 
 const REQUEST_TIMEOUT_MS = 30000;
+const JOB_MEMORY_LIMIT_MB = 1024;
+const JOB_ACTIVE_PROCESS_LIMIT = 64;
+
+function jobHelperCommand(root) {
+  const explicit = process.env.PD_JOB_HELPER;
+  if (explicit && fs.existsSync(explicit)) {
+    return explicit.toLowerCase().endsWith(".dll")
+      ? [process.env.PD_DOTNET || "dotnet", explicit]
+      : [explicit];
+  }
+  const tools = path.join(root, "app", "tools");
+  const exe = path.join(tools, "pd-job.exe");
+  if (fs.existsSync(exe)) {
+    return [exe];
+  }
+  const dll = path.join(tools, "pd-job.dll");
+  if (fs.existsSync(dll)) {
+    return [process.env.PD_DOTNET || "dotnet", dll];
+  }
+  return null;
+}
 
 function ScriptError(code, message, exitCode) {
   this.code = code;
@@ -206,8 +227,35 @@ async function runScript(options) {
   environment.PD_KERNEL_ABI = process.env.PD_KERNEL_ABI || "1";
   // No PD_PIPE on purpose: scripts must not connect to the kernel (architecture 8.2).
 
+  // Prefer pd-job: the script runs inside a Job Object (kill-on-close, process/memory limits),
+  // while its stdin/stdout are proxied so the request protocol is unchanged.
+  const jobHelper = jobHelperCommand(root);
+  let spawnCommand = command;
+  let spawnArgs = args;
+  let helperConfigPath = null;
+  let helperResultPath = null;
+  if (jobHelper) {
+    const tmp = path.join(root, "state", "tmp");
+    fs.mkdirSync(tmp, { recursive: true });
+    helperConfigPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".json");
+    helperResultPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".result.json");
+    fs.writeFileSync(helperConfigPath, JSON.stringify({
+      schema: 1,
+      command: command,
+      args: args,
+      cwd: contentRoot,
+      env: environment,
+      timeoutMs: timeoutMs + 2000,
+      memoryLimitMB: JOB_MEMORY_LIMIT_MB,
+      activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
+      resultPath: helperResultPath,
+    }));
+    spawnCommand = jobHelper[0];
+    spawnArgs = jobHelper.slice(1).concat([helperConfigPath]);
+  }
+
   event("step", { stepId: "script", title: "script", state: "running" });
-  const child = spawn(command, args, {
+  const child = spawn(spawnCommand, spawnArgs, {
     cwd: contentRoot,
     env: environment,
     windowsHide: true,
@@ -378,7 +426,7 @@ async function runScript(options) {
     }
   });
 
-  const exit = await new Promise((resolve) => {
+  let exit = await new Promise((resolve) => {
     child.on("error", (error) => {
       failure = new ScriptError("ERR_SCRIPT", "cannot start the package script: " + error.message, 1);
       resolve(null);
@@ -387,6 +435,27 @@ async function runScript(options) {
   });
   clearTimeout(timer);
   await chain;
+
+  if (helperResultPath) {
+    let jobResult = null;
+    try {
+      jobResult = JSON.parse(fs.readFileSync(helperResultPath, "utf8"));
+    } catch (error) {
+      jobResult = null;
+    }
+    fs.rmSync(helperConfigPath, { force: true });
+    fs.rmSync(helperResultPath, { force: true });
+    if (jobResult) {
+      if (jobResult.ok !== true) {
+        failure = new ScriptError("ERR_SCRIPT", "package script job failed: " +
+          ((jobResult.error && jobResult.error.message) || "unknown error"), 1);
+      } else if (jobResult.timedOut === true) {
+        timedOut = true;
+      } else if (typeof jobResult.exitCode === "number") {
+        exit = jobResult.exitCode;
+      }
+    }
+  }
 
   if (failure) {
     event("step", { stepId: "script", title: "script", state: "failed" });

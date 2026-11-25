@@ -88,7 +88,13 @@ pd install <目标>
 - 一律拒：未知命令、`script.network=false` 时的 fetch、路径逃出内容根、`elevated:true`（见下）；
 - 脚本任何请求失败后仍继续并 exit 0 → 安装失败（不静默忽略）；脚本 exit≠0 / 超时（默认 10m）→ 失败；
 - 脚本拿不到内核管道（环境里没有 `PD_PIPE`），只能通过 pkgmgr 请求副作用；
-- **Job Object 尚未实现**：超时用 `taskkill /T /F` 杀进程树，隔离靠最小环境 + windowsHide。
+- **Job Object 已实现**（`src/PortableDev.Job` / `pd-job`）：脚本进程放进 Job Object，
+  限额 1024 MiB 进程内存、最多 64 个活跃进程、`KILL_ON_JOB_CLOSE`（脚本退出/被超时杀掉后
+  它派生、还没退出的子孙进程一起结束）；stdin/stdout/stderr 由助手字节转发，脚本的请求协议不变；
+  超时由 pkgmgr 定时器 + 助手双保险，都能杀掉整棵树；
+- 部署：把构建出的 `pd-job.dll` + `.deps.json` + `.runtimeconfig.json`（或自包含 exe）放到
+  `<盘>\app\tools\`，并保证 `dotnet` 在扩展 PATH 上；找不到助手时回退旧行为
+  （`taskkill /T /F`），功能不变、隔离变弱（测试套件会分别覆盖两条路径）。
 
 ## 5. 家目录、data 与提权
 
@@ -131,6 +137,7 @@ pd install <目标>
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 | `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
+| `tools/job-e2e.py` | 12 | pd-job 正常脚本、脚本退出后子孙进程被杀（KILL_ON_JOB_CLOSE）、超时杀整棵树且不留记录、请求协议经代理仍可用 |
 
 运行：
 
@@ -141,6 +148,7 @@ python -u tools/pkg-e2e.py .run
 python -u tools/source-e2e.py .run
 python -u tools/script-e2e.py .run
 python -u tools/manage-e2e.py .run-manage
+python -u tools/job-e2e.py .run-job
 ```
 
 ## 9. 还没做的
