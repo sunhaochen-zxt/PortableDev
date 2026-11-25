@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Text.Json.Nodes;
 using PortableDev.Core.Logging;
 using PortableDev.Core.Protocol;
 
@@ -7,7 +8,8 @@ namespace PortableDev.Kernel.Transport;
 /// <summary>Accepts pipe connections for this stick; one kernel instance, many client connections (spec 3.1).</summary>
 public sealed class PipeServer
 {
-    private const int MaxInstances = 16;
+    private const int MaxInstances = 64;
+    private const int AcceptLoops = 16;
 
     private readonly string _pipeName;
     private readonly KernelLogger _logger;
@@ -26,11 +28,30 @@ public sealed class PipeServer
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        _logger.Info("pipe.listen", "listening for connections", new System.Text.Json.Nodes.JsonObject
+        _logger.Info("pipe.listen", "listening for connections", new JsonObject
         {
             ["pipe"] = FullPipeName,
+            ["instances"] = MaxInstances,
+            ["acceptLoops"] = AcceptLoops,
         });
 
+        // Pre-create the whole pool: a single accept loop leaves a window without a listening
+        // instance in which a client sees "all pipe instances are busy".
+        var loops = Enumerable.Range(0, AcceptLoops).Select(_ => AcceptLoopAsync(cancellationToken)).ToArray();
+        try
+        {
+            await Task.WhenAll(loops).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown.
+        }
+
+        _logger.Info("pipe.stop", "stopped listening", null);
+    }
+
+    private async Task AcceptLoopAsync(CancellationToken cancellationToken)
+    {
         while (!cancellationToken.IsCancellationRequested)
         {
             NamedPipeServerStream server;
@@ -45,8 +66,17 @@ public sealed class PipeServer
             }
             catch (IOException ex)
             {
-                _logger.Error("pipe.create", "cannot create the pipe instance", ex);
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                // Capacity is full or the name is briefly unavailable; wait for a slot.
+                _logger.Debug("pipe.create", "cannot create a pipe instance yet", new JsonObject { ["error"] = ex.Message });
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
                 continue;
             }
 
@@ -57,11 +87,11 @@ public sealed class PipeServer
             catch (OperationCanceledException)
             {
                 server.Dispose();
-                break;
+                return;
             }
             catch (IOException ex)
             {
-                _logger.Warn("pipe.accept", "connection attempt failed", new System.Text.Json.Nodes.JsonObject { ["error"] = ex.Message });
+                _logger.Warn("pipe.accept", "connection attempt failed", new JsonObject { ["error"] = ex.Message });
                 server.Dispose();
                 continue;
             }
@@ -76,14 +106,25 @@ public sealed class PipeServer
                 }
                 catch (ProtocolException ex)
                 {
-                    _logger.Warn("pipe.protocol", "connection closed: " + ex.Message, new System.Text.Json.Nodes.JsonObject
+                    _logger.Warn("pipe.protocol", "connection closed: " + ex.Message, new JsonObject
                     {
                         ["connection"] = connectionId,
                     });
                 }
+                catch (OperationCanceledException)
+                {
+                    // Shutdown.
+                }
                 catch (IOException)
                 {
                     // Peer disappeared.
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("pipe.connection", "connection handler threw", ex, new JsonObject
+                    {
+                        ["connection"] = connectionId,
+                    });
                 }
                 finally
                 {
@@ -91,7 +132,5 @@ public sealed class PipeServer
                 }
             }, CancellationToken.None);
         }
-
-        _logger.Info("pipe.stop", "stopped listening", null);
     }
 }

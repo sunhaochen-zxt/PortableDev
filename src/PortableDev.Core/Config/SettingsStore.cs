@@ -11,6 +11,7 @@ namespace PortableDev.Core.Config;
 public sealed class SettingsStore
 {
     private readonly JsonObject _root;
+    private readonly object _gate = new();
 
     private SettingsStore(string path, JsonObject root, bool wasReset, string? backupPath)
     {
@@ -137,28 +138,34 @@ public sealed class SettingsStore
     /// <summary>Validates and stores one dotted key. Unknown keys are accepted but reported.</summary>
     public (bool Ok, string? Error, bool UnknownKey) Set(string dottedPath, string rawValue)
     {
-        var definition = SettingCatalog.Find(dottedPath);
-        if (definition is null)
+        lock (_gate)
         {
-            SettingCatalog.SetPath(_root, dottedPath, rawValue);
+            var definition = SettingCatalog.Find(dottedPath);
+            if (definition is null)
+            {
+                SettingCatalog.SetPath(_root, dottedPath, rawValue);
+                Save();
+                return (true, null, true);
+            }
+
+            if (!SettingCatalog.TryCoerce(definition, rawValue, out var value, out var error))
+            {
+                return (false, error, false);
+            }
+
+            SettingCatalog.SetPath(_root, dottedPath, value);
             Save();
-            return (true, null, true);
+            return (true, null, false);
         }
-
-        if (!SettingCatalog.TryCoerce(definition, rawValue, out var value, out var error))
-        {
-            return (false, error, false);
-        }
-
-        SettingCatalog.SetPath(_root, dottedPath, value);
-        Save();
-        return (true, null, false);
     }
 
     public void Save()
     {
-        AtomicFile.WriteAllText(Path, _root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        FileWriteTimeUtc = File.Exists(Path) ? File.GetLastWriteTimeUtc(Path) : null;
+        lock (_gate)
+        {
+            AtomicFile.WriteAllText(Path, _root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            FileWriteTimeUtc = File.Exists(Path) ? File.GetLastWriteTimeUtc(Path) : null;
+        }
     }
 
     private static void Merge(JsonObject target, JsonObject source)

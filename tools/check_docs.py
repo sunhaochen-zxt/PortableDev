@@ -4,6 +4,7 @@
 用法：python check_docs.py <docs目录>
 不修改任何文件，只报告问题。
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -109,6 +110,23 @@ if catalog.exists():
         problems.append(f"[设置] kernel.md 2.1: 代码里的设置键 {key} 未写入文档")
     for key in sorted(doc_keys - code_keys):
         problems.append(f"[设置] kernel.md 2.1: 文档里的设置键 {key} 在代码里不存在")
+
+# 10. 扩展命令：ext.json 注册的命令必须出现在 commands.md（pd <name>）
+ext_root = DOCS.parent / "app" / "extensions"
+if ext_root.exists():
+    extension_commands = set()
+    for manifest_path in ext_root.glob("*/ext.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for command in manifest.get("commands") or []:
+            name = command.get("name") if isinstance(command, dict) else None
+            if name:
+                extension_commands.add(name)
+    for name in sorted(extension_commands):
+        if f"`pd {name}" not in commands_body:
+            problems.append(f"[命令] commands.md: 扩展命令 pd {name} 未写入命令表")
 
 # 输出
 print(f"检查 {len(files)} 份文档，共 {sum(len(t.splitlines()) for t in text.values())} 行")

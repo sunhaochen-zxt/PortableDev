@@ -25,7 +25,18 @@ public static class AtomicFile
                 stream.Flush(flushToDisk: true);
             }
 
-            File.Move(temp, path, overwrite: true);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.Move(temp, path, overwrite: true);
+                    break;
+                }
+                catch (Exception ex) when (attempt < 4 && ex is IOException or UnauthorizedAccessException)
+                {
+                    Thread.Sleep(25 * (attempt + 1));
+                }
+            }
         }
         finally
         {

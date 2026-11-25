@@ -320,6 +320,27 @@ def main():
         metrics = (done or {}).get("metrics") or {}
         check("second rollback is a no-op", result.returncode == 0 and metrics.get("rolledBack", -1) == 0, metrics)
 
+        print("audit expiry")
+        providers_dir = os.path.join(root, "state", "logs", "providers")
+        audit_files = []
+        if os.path.isdir(providers_dir):
+            for name in os.listdir(providers_dir):
+                candidate = os.path.join(providers_dir, name)
+                if os.path.isdir(os.path.join(candidate, "audit")):
+                    for audit_name in os.listdir(os.path.join(candidate, "audit")):
+                        if audit_name.endswith(".jsonl"):
+                            audit_files.append(os.path.join(candidate, "audit", audit_name))
+                flat = os.path.join(candidate, "audit.jsonl")
+                if os.path.isfile(flat):
+                    audit_files.append(flat)
+        for path_to_remove in audit_files:
+            os.remove(path_to_remove)
+        result = pd(root, "--json", "rollback", "--task", task2)
+        done = done_metrics(result.stdout)
+        check("rollback after audit vacuum exits 20", result.returncode == 20, (result.returncode, result.stdout[-300:]))
+        check("rollback after audit vacuum code",
+              (done or {}).get("error", {}).get("code") == "ERR_AUDIT_EXPIRED", done)
+
         print("log integration")
         result = pd(root, "log", "--grep", "storage.adopt", "--tail", "20")
         check("storage logged through provider", result.returncode == 0 and "adopted" in result.stdout, result.stdout[-300:])

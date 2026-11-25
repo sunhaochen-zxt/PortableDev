@@ -26,9 +26,9 @@ public sealed class ExtensionRegistry
     public ExtensionManifest? Find(string name) => _byName.GetValueOrDefault(name);
 
     /// <summary>Scan order is deterministic: priority ascending, then name.</summary>
-    public static ExtensionRegistry Scan(string stickRoot, string appRoot, int kernelAbi)
+    public static ExtensionRegistry Scan(string stickRoot, string appRoot, int kernelAbi, CommandTable? table = null)
     {
-        var table = new CommandTable();
+        table ??= new CommandTable();
         var registry = new ExtensionRegistry(table);
         var candidates = new List<ExtensionManifest>();
         var builtinDir = Path.Combine(appRoot, "extensions");

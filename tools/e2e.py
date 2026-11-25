@@ -362,8 +362,9 @@ def main():
             check("missing provider -> 20", done and done["exitCode"] == 20, done)
             check("missing provider code", done and done["error"]["code"] == "ERR_LOG_PROVIDER_MISSING", done)
 
-        print("shutdown")
-        done, _ = call(stream, ["kernel", "stop"])
+        print("shutdown" + (" (force)" if provider else ""))
+        shutdown = ["kernel", "stop", "--force"] if provider else ["kernel", "stop"]
+        done, _ = call(stream, shutdown)
         check("stop exit 0", done and done["exitCode"] == 0, done)
         try:
             stream.close()

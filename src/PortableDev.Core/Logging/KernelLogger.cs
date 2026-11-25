@@ -186,6 +186,7 @@ public sealed class KernelLogger : ILogSink, IDisposable
         }
 
         _disposed = true;
+        Flush();
         _provider.Dispose();
         _file.Dispose();
     }

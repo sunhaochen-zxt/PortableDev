@@ -28,6 +28,9 @@ var tests = new List<(string Name, Func<Task> Body)>
     ("logging.extension-sanitize", LogExtensionSanitize),
     ("logging.record-truncation", LogRecordTruncation),
     ("settings.log-keys", LogSettingsKeys),
+    ("protocol.envelope-version", EnvelopeVersionRejected),
+    ("settings.concurrent-set", SettingsConcurrentSet),
+    ("logging.provider-conflict", LogProviderConflict),
 };
 
 var failures = 0;
@@ -338,6 +341,69 @@ static string TempDir()
     var dir = Path.Combine(Path.GetTempPath(), "pd-test-" + Guid.NewGuid().ToString("N")[..8]);
     Directory.CreateDirectory(dir);
     return dir;
+}
+
+static Task EnvelopeVersionRejected()
+{
+    try
+    {
+        Envelope.Parse(Encoding.UTF8.GetBytes("{\"v\":2,\"kind\":\"evt\"}"));
+        throw new InvalidOperationException("v=2 must be rejected");
+    }
+    catch (ProtocolException)
+    {
+    }
+
+    var ok = Envelope.Parse(Encoding.UTF8.GetBytes("{\"kind\":\"evt\"}"));
+    Assert(ok.V == 1, "missing v defaults to 1");
+    return Task.CompletedTask;
+}
+
+static Task SettingsConcurrentSet()
+{
+    var dir = TempDir();
+    var path = Path.Combine(dir, "settings.json");
+    var store = SettingsStore.Load(path);
+    var failures = 0;
+    Parallel.For(0, 8, index =>
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            var result = store.Set("install.maxConcurrent", index % 2 == 0 ? "2" : "3");
+            if (!result.Ok)
+            {
+                Interlocked.Increment(ref failures);
+            }
+        }
+    });
+
+    Assert(failures == 0, failures + " concurrent sets failed");
+    var final = SettingsStore.Load(path);
+    Assert(final.GetInt("install.maxConcurrent", -1) is 2 or 3, "value stayed valid");
+    return Task.CompletedTask;
+}
+
+static Task LogProviderConflict()
+{
+    var dir = TempDir();
+    using (var logger = new KernelLogger(new LogOptions(dir, "kernel"), "b-test", "pd-test", "m-test"))
+    {
+        logger.Provider.Attach("log-a", 10);
+        Assert(logger.Provider.ProviderName == "log-a", "first provider attaches");
+        logger.Provider.Attach("log-b", 10);
+        Assert(logger.Provider.Conflicted, "same priority must conflict");
+        Assert(logger.Provider.ProviderName is null, "both providers refused");
+        logger.Info("test.conflict", "fallback still works");
+    }
+
+    using (var lower = new KernelLogger(new LogOptions(Path.Combine(dir, "lower"), "kernel"), "b-test", "pd-test", "m-test"))
+    {
+        lower.Provider.Attach("log-a", 10);
+        lower.Provider.Attach("log-b", 5);
+        Assert(lower.Provider.ProviderName == "log-b", "lower priority wins");
+    }
+
+    return Task.CompletedTask;
 }
 
 static void Assert(bool condition, string message)

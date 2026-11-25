@@ -47,7 +47,7 @@ public sealed class ExtensionSupervisor
         runtime.Ready.TrySetResult(true);
         if (runtime.Capabilities.Any(c => c.Name == "log.ingest" && c.Version == 1))
         {
-            _kernel.Logger.Provider.Attach(name);
+            _kernel.Logger.Provider.Attach(name, runtime.Manifest.Priority);
         }
 
         _kernel.Logger.Info("ext.ready", "extension is ready", new JsonObject
@@ -190,8 +190,9 @@ public sealed class ExtensionSupervisor
             return;
         }
 
-        var providerManifest = _kernel.Registry.Find(provider);
-        _ = ExpireCallAsync(id, providerManifest?.Lifecycle.HeartbeatTimeout ?? TimeSpan.FromSeconds(120));
+        // Capability calls can legitimately take minutes (install/unpack); provider death is detected
+        // by its own watchdog/connection, so this is only a last-resort leak guard.
+        _ = ExpireCallAsync(id, TimeSpan.FromMinutes(30));
 
         var forward = new Envelope
         {
@@ -220,7 +221,7 @@ public sealed class ExtensionSupervisor
                 await SendCallErrorAsync(pending.From, id, ErrorCodes.Timeout, "capability call timed out after " + TimeUtil.FormatDuration(timeout)).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
+        catch (Exception)
         {
             // Shutting down.
         }
@@ -393,9 +394,9 @@ public sealed class ExtensionSupervisor
         {
             await connection.SendAsync(envelope).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception)
         {
-            // Peer gone; the connection loop cleans up.
+            // Peer gone or shutting down; the connection loop cleans up.
         }
     }
 
@@ -650,13 +651,20 @@ public sealed class ExtensionSupervisor
     /// <summary>Stops accepting new work and prevents crash restarts from racing the shutdown.</summary>
     public void BeginShutdown() => _stopping = true;
 
-    public async Task StopAllAsync()
+    public async Task StopAllAsync(bool force = false)
     {
         _stopping = true;
         foreach (var runtime in _runtime.Values)
         {
             if (runtime.Process is not { HasExited: false })
             {
+                continue;
+            }
+
+            if (force)
+            {
+                runtime.IdleCts?.Cancel();
+                KillProcessTree(runtime);
                 continue;
             }
 
@@ -759,6 +767,19 @@ public sealed class ExtensionSupervisor
         }
 
         startInfo.Environment.Clear();
+        if (manifest.InheritEnv)
+        {
+            // Explicit opt-in: the extension asked to inherit the kernel's environment.
+            foreach (System.Collections.DictionaryEntry environmentEntry in Environment.GetEnvironmentVariables())
+            {
+                var key = Convert.ToString(environmentEntry.Key, System.Globalization.CultureInfo.InvariantCulture);
+                if (!string.IsNullOrEmpty(key))
+                {
+                    startInfo.Environment[key] = Convert.ToString(environmentEntry.Value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+                }
+            }
+        }
+
         foreach (var name in new[] { "SystemRoot", "windir", "TEMP", "TMP", "PATH" })
         {
             var value = Environment.GetEnvironmentVariable(name);
@@ -805,7 +826,7 @@ public sealed class ExtensionSupervisor
                 _kernel.Logger.Warn("ext.stderr", e.Data, new JsonObject { ["extension"] = manifest.Name });
             }
         };
-        process.Exited += (_, _) => OnProcessExited(runtime);
+        process.Exited += (_, _) => OnProcessExited(runtime, process);
 
         try
         {
@@ -846,8 +867,15 @@ public sealed class ExtensionSupervisor
         }
     }
 
-    private void OnProcessExited(ExtensionRuntime runtime)
+    private void OnProcessExited(ExtensionRuntime runtime, Process process)
     {
+        if (!ReferenceEquals(runtime.Process, process))
+        {
+            // Stale event from a process we already stopped or replaced; do not clobber the new one.
+            process.Dispose();
+            return;
+        }
+
         var exitCode = runtime.Process?.ExitCode;
         runtime.Connection = null;
         _kernel.Logger.Provider.Detach(runtime.Manifest.Name);

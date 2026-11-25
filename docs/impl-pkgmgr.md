@@ -89,7 +89,7 @@ python -u tools/pkg-e2e.py .run
 | 包脚本 | `script` 段、stdout/stdin 受限协议、Job Object 隔离；目前一律不跑 |
 | 更多解包 | `7z` / `msi`（盘上有 7z，接上即可） |
 | 激活类断言 | 需要接线完成后才能跑命令类断言 |
-| 接线 | PATH / 环境变量 / 注册表 / 启动器 —— 这是下一块（`storage.wire.*` + `apply`/`clean`） |
+| （已完成）接线 | PATH / 环境变量 / 注册表 / 启动器已由 `storage.wire.*` + `apply`/`clean` 实现，见 impl-wire.md |
 | 升级 / 卸载 | `pd upgrade`、`pd remove` 还没有；store 不可变，二者主要是挪指针 + 删记录 |
 ## 补充修复（2026-11-25 第二轮）
 

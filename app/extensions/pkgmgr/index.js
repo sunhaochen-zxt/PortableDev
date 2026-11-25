@@ -64,7 +64,7 @@ function callCapability(capability, op, args, timeoutMs) {
     const timer = setTimeout(() => {
       pendingCalls.delete(id);
       reject(new PkgError("ERR_TIMEOUT", "call timeout: " + capability + "/" + op, 25));
-    }, timeoutMs || 120000);
+    }, timeoutMs || 1800000);
     pendingCalls.set(id, { resolve, reject, timer });
     send({ v: 1, kind: "call", id, data: { cap: capability, op, args } });
   });

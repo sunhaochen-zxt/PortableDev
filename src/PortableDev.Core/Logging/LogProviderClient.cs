@@ -18,6 +18,8 @@ public sealed class LogProviderClient : IDisposable
     private readonly Task _pump;
     private string? _providerName;
     private long _dropped;
+    private int _providerPriority = int.MaxValue;
+    private bool _conflicted;
     private bool _disposed;
 
     public LogProviderClient(KernelLogger owner)
@@ -34,13 +36,62 @@ public sealed class LogProviderClient : IDisposable
 
     public string? ProviderName => _providerName;
 
+    /// <summary>Two providers claimed the same priority; ingest is refused until the kernel restarts.</summary>
+    public bool Conflicted => _conflicted;
+
     public long Dropped => Interlocked.Read(ref _dropped);
 
-    /// <summary>Called by the kernel when a provider announces `log.ingest` and becomes ready.</summary>
-    public void Attach(string providerName) => _providerName = providerName;
+    /// <summary>
+    /// Called when a provider announces `log.ingest` and becomes ready. Lowest priority wins; two
+    /// providers with the same priority are both refused (spec 5.3.1) and records go to the fallback.
+    /// </summary>
+    public void Attach(string providerName, int priority = 0)
+    {
+        if (_conflicted)
+        {
+            return;
+        }
+
+        if (_providerName is null)
+        {
+            _providerName = providerName;
+            _providerPriority = priority;
+            return;
+        }
+
+        if (string.Equals(_providerName, providerName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (priority < _providerPriority)
+        {
+            _providerName = providerName;
+            _providerPriority = priority;
+            return;
+        }
+
+        if (priority == _providerPriority)
+        {
+            var first = _providerName;
+            _conflicted = true;
+            _providerName = null;
+            _owner.Error("log.provider", "two log providers share the same priority; refusing both", null, new JsonObject
+            {
+                ["first"] = first,
+                ["second"] = providerName,
+                ["priority"] = priority,
+            });
+        }
+    }
 
     public void Detach(string providerName)
     {
+        if (_conflicted)
+        {
+            return;
+        }
+
         if (string.Equals(_providerName, providerName, StringComparison.Ordinal))
         {
             _providerName = null;
@@ -95,6 +146,12 @@ public sealed class LogProviderClient : IDisposable
         catch (AggregateException)
         {
             // Shutting down.
+        }
+
+        // Records already accepted must not vanish with the queue: fall back to the file sink.
+        while (_queue.Reader.TryRead(out var record))
+        {
+            _owner.WriteToFallback(record);
         }
 
         _cts.Dispose();

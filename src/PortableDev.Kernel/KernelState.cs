@@ -26,6 +26,9 @@ public sealed class KernelState
 
     public bool Stopping { get; private set; }
 
+    /// <summary>Force shutdown: kill extensions immediately instead of a graceful drain.</summary>
+    public bool ForceShutdown { get; private set; }
+
     public int ActiveTasks => _activeTasks;
 
     private int _activeTasks;
@@ -40,6 +43,10 @@ public sealed class KernelState
 
     public void LeaveTask() => Interlocked.Decrement(ref _activeTasks);
 
-    public void BeginShutdown() => Stopping = true;
+    public void BeginShutdown(bool force = false)
+    {
+        Stopping = true;
+        ForceShutdown |= force;
+    }
 
 }

@@ -23,6 +23,7 @@ public sealed class ClientConnection : IMessageSink
 
     private string _extensionName = string.Empty;
     private bool _isExtension;
+    private bool _handshakeDone;
 
     public ClientConnection(Stream stream, string connectionId, IKernelServices kernel)
     {
@@ -35,10 +36,22 @@ public sealed class ClientConnection : IMessageSink
 
     public bool WantsExtensionEvents => _features.Contains(Features.ExtEvents);
 
-    public Task RunAsync(CancellationToken serverToken)
+    public async Task RunAsync(CancellationToken serverToken)
     {
-        _ = serverToken;
-        return RunCoreAsync();
+        // The server token is the kernel-wide lifetime: when it fires (shutdown), the connection's
+        // own lifetime must end too, otherwise clients could keep issuing commands while we stop.
+        using var registration = serverToken.Register(() =>
+        {
+            try
+            {
+                _lifetime.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        });
+
+        await RunCoreAsync().ConfigureAwait(false);
     }
 
     public async Task SendAsync(Envelope envelope)
@@ -92,6 +105,8 @@ public sealed class ClientConnection : IMessageSink
                 return;
             }
 
+            _handshakeDone = true;
+
             if (_isExtension)
             {
                 await RunExtensionLoopAsync().ConfigureAwait(false);
@@ -103,11 +118,22 @@ public sealed class ClientConnection : IMessageSink
         catch (ProtocolException ex)
         {
             _kernel.Logger.Warn("conn.protocol", ex.Message, new JsonObject { ["session"] = SessionId });
-            await TrySendHelloErrorAsync(ex.Code, ex.Message, null).ConfigureAwait(false);
+            if (!_handshakeDone)
+            {
+                await TrySendHelloErrorAsync(ex.Code, ex.Message, null).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown or peer gone.
         }
         catch (IOException)
         {
             // Peer closed.
+        }
+        catch (Exception ex)
+        {
+            _kernel.Logger.Error("conn.crash", "connection handler threw", ex, new JsonObject { ["session"] = SessionId });
         }
         finally
         {
@@ -254,6 +280,18 @@ public sealed class ClientConnection : IMessageSink
         {
             // Client-supplied ids become intent file names and audit keys; never let them carry path syntax.
             id = _kernel.State.NextTaskId();
+        }
+
+        if (_kernel.State.Stopping)
+        {
+            await SendAsync(Envelope.Event(id, 1, new JsonObject
+            {
+                ["type"] = EventTypes.Done,
+                ["ok"] = false,
+                ["exitCode"] = ExitCodes.Cancelled,
+                ["error"] = Error(ErrorCodes.Cancelled, "kernel is shutting down", "retry after it restarts"),
+            })).ConfigureAwait(false);
+            return;
         }
 
         TaskContext? task;

@@ -57,7 +57,8 @@
 
 ## 5. 测试
 
-`tools/generation-e2e.py`：**29 项**（fake 机模式，不碰真实机器）。
+`tools/generation-e2e.py`：**29 项**（fake 机模式，不碰真实机器）。损坏/越界的存档会在恢复前被
+全量校验拒绝（`ERR_PKG_INVALID`，零副作用）；审计条目被真空后回滚返回 `ERR_AUDIT_EXPIRED`（20）。
 
 - 装 A、B1、B2 三代会生成三档；
 - `--list` 数量正确；

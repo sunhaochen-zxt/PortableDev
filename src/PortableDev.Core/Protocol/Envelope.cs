@@ -96,6 +96,11 @@ public sealed class Envelope
             throw new ProtocolException("\"kind\" is required");
         }
 
+        if (envelope.V != ProtocolConstants.Version)
+        {
+            throw new ProtocolException($"unsupported envelope version {envelope.V} (this kernel speaks {ProtocolConstants.Version})");
+        }
+
         return envelope;
     }
 

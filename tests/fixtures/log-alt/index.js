@@ -2,6 +2,7 @@
 // same contract (ingest + log command). Proves the kernel does not depend on storage layout.
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { connect, ready, emit, parseFlags, priOf, levelName } = require("./protocol");
 
 const STATE = process.env.PD_STATE || "state";
@@ -12,6 +13,27 @@ let seq = countLines();
 const followTimers = new Set();
 const AUDIT = path.join(ROOT, "audit.jsonl");
 let auditSeq = 0;
+
+function auditLastSeq() {
+  try {
+    const text = fs.readFileSync(AUDIT, "utf8").replace(/\s+$/, "");
+    const lines = text.split("\n");
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      try {
+        const parsed = JSON.parse(lines[index]);
+        if (typeof parsed.seq === "number") { return parsed.seq; }
+      } catch (error) { /* skip a partial line */ }
+    }
+  } catch (error) { /* first boot */ }
+  return 0;
+}
+
+function auditTaskMarker(task) {
+  const digest = crypto.createHash("sha256").update(String(task)).digest("hex").slice(0, 24);
+  return path.join(ROOT, "tasks", digest + ".json");
+}
+
+auditSeq = auditLastSeq();
 
 function auditAppend(records) {
   if (!records || records.length === 0) {
@@ -29,6 +51,21 @@ function auditAppend(records) {
   } finally {
     fs.closeSync(fd);
   }
+  for (const record of records) {
+    const task = record && record.task != null && String(record.task).length > 0 ? String(record.task) : null;
+    if (!task) { continue; }
+    try {
+      const markerPath = auditTaskMarker(task);
+      fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+      let marker = { schema: 1, task: task, first: null, last: null, count: 0 };
+      try { marker = JSON.parse(fs.readFileSync(markerPath, "utf8")); } catch (error) { /* first append */ }
+      marker.count = (marker.count || 0) + 1;
+      marker.last = record.ts || marker.last || null;
+      if (!marker.first) { marker.first = marker.last; }
+      fs.writeFileSync(markerPath, JSON.stringify(marker));
+    } catch (error) { /* markers are best effort */ }
+  }
+
   return { count: records.length, lastSeq: auditSeq };
 }
 
@@ -38,9 +75,7 @@ function auditQuery(args) {
   let text = "";
   try {
     text = fs.readFileSync(AUDIT, "utf8");
-  } catch (error) {
-    return { entries: [], truncated: false, oldestTs: null };
-  }
+  } catch (error) { /* no audit file: marker below distinguishes expired from never-audited */ }
   for (const line of text.split("\n")) {
     if (!line.trim()) {
       continue;
@@ -56,7 +91,16 @@ function auditQuery(args) {
   }
   entries.sort((a, b) => (a.seq || 0) - (b.seq || 0));
   const hasBegin = entries.some((entry) => entry.phase === "begin");
-  return { entries, truncated: entries.length > 0 && !hasBegin, oldestTs: entries.length > 0 ? entries[0].ts : null };
+  let truncated = entries.length > 0 && !hasBegin;
+  let oldestTs = entries.length > 0 ? entries[0].ts : null;
+  if (entries.length === 0 && task) {
+    try {
+      const marker = JSON.parse(fs.readFileSync(auditTaskMarker(task), "utf8"));
+      truncated = true;
+      oldestTs = marker.first || null;
+    } catch (error) { /* never audited: a genuine no-op */ }
+  }
+  return { entries, truncated, oldestTs };
 }
 
 function handleCall2(message, send) {

@@ -122,11 +122,14 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
 
         _lock = instance;
 
-        Registry = ExtensionRegistry.Scan(Paths.Root, Paths.AppRoot, State.Abi);
         Sessions = new SessionRegistry();
         Supervisor = new ExtensionSupervisor(this);
         Router = new CommandRouter(this);
-        RegisterBuiltinCommands();
+        // Builtins are registered first: a user extension that wants a builtin name is rejected,
+        // never the other way around (architecture 3.8: no silent takeover of builtin commands).
+        var commandTable = new CommandTable();
+        RegisterBuiltinCommands(commandTable);
+        Registry = ExtensionRegistry.Scan(Paths.Root, Paths.AppRoot, State.Abi, commandTable);
         Logger.SendToProvider = (name, envelope) => Supervisor.TrySend(name, envelope);
 
         var providers = Registry.Extensions
@@ -152,6 +155,17 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
             ["commands"] = Registry.Commands.All.Count,
             ["warnings"] = new JsonArray(Registry.Warnings.Select(w => (JsonNode?)w).ToArray()),
         });
+
+        foreach (var required in new[] { "log", "storage" })
+        {
+            if (Registry.Find(required) is not { State: ExtensionState.Ready })
+            {
+                Logger.Warn("kernel.required-extension", "required built-in extension is missing or rejected", new JsonObject
+                {
+                    ["extension"] = required,
+                });
+            }
+        }
 
         var recovery = new RecoveryService(Paths, Settings, Logger).Run();
         if (recovery.Adopted + recovery.Dropped + recovery.StagingDeleted + recovery.RecordsDeleted > 0)
@@ -188,9 +202,12 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
         }
         finally
         {
-            State.BeginShutdown();
+            // Close client connections and stop accepting first, then flush what is still queued.
+            linked.Cancel();
+            Logger.Flush();
+            State.BeginShutdown(State.ForceShutdown);
             Supervisor.BeginShutdown();
-            await Supervisor.StopAllAsync().ConfigureAwait(false);
+            await Supervisor.StopAllAsync(State.ForceShutdown).ConfigureAwait(false);
             await idleTask.ConfigureAwait(false);
             Logger.Info("kernel.stop", "kernel stopped", null);
         }
@@ -202,19 +219,25 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
     {
         if (State is not null && !State.Stopping)
         {
-            State.BeginShutdown();
+            State.BeginShutdown(force);
             Supervisor?.BeginShutdown();
             Logger?.Info("kernel.shutdown", "shutdown requested", new JsonObject { ["force"] = force });
         }
 
-        try
+        // Give the in-flight task (typically `kernel stop` itself) a moment to publish its done event
+        // before the server token tears the client connections down.
+        _ = Task.Run(async () =>
         {
-            _shutdown.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Already gone.
-        }
+            await Task.Delay(TimeSpan.FromMilliseconds(150)).ConfigureAwait(false);
+            try
+            {
+                _shutdown.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already gone.
+            }
+        });
 
         return Task.CompletedTask;
     }
@@ -237,7 +260,7 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
         Logger?.Dispose();
     }
 
-    private void RegisterBuiltinCommands()
+    private void RegisterBuiltinCommands(CommandTable commandTable)
     {
         foreach (var builtin in Router.Builtins)
         {
@@ -254,10 +277,10 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
                 Hidden = false,
             };
 
-            var conflict = Registry.Commands.TryRegister(entry);
+            var conflict = commandTable.TryRegister(entry);
             if (conflict is not null)
             {
-                Logger.Warn("command.conflict", "builtin command conflicts with an extension", new JsonObject
+                Logger.Warn("command.conflict", "builtin command conflicts with another builtin", new JsonObject
                 {
                     ["command"] = builtin.Name,
                     ["conflict"] = conflict,
@@ -301,7 +324,7 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
                 Logger.Info("log.replay", "replayed fallback records into the provider", new JsonObject { ["count"] = records.Count });
             }
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or OperationCanceledException)
+        catch (Exception ex)
         {
             Logger.Warn("log.replay", "fallback replay failed", new JsonObject { ["error"] = ex.Message });
         }

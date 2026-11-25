@@ -69,6 +69,13 @@ public sealed class SingleInstanceLock : IDisposable
                 {
                     mutex.ReleaseMutex();
                     mutex.Dispose();
+                    if (existing.Root is not null &&
+                        !string.Equals(Path.GetFullPath(existing.Root), Path.GetFullPath(stickRoot), StringComparison.OrdinalIgnoreCase))
+                    {
+                        // A copied stick shares the id but not the root; explain it instead of a bare "busy".
+                        return (null, $"stick id {stickId} is already used by another stick root '{existing.Root}' (copied stick?)", ExitCodes.Busy);
+                    }
+
                     return (null, $"another kernel is using this stick (pid {existing.Pid?.ToString() ?? "?"})", ExitCodes.Busy);
                 }
 
@@ -179,12 +186,13 @@ public sealed class SingleInstanceLock : IDisposable
         AtomicFile.WriteAllText(_path, document.ToJsonString());
     }
 
-    private static (int? Pid, DateTimeOffset? HeartbeatAt) ReadLock(string path)
+    private static (int? Pid, DateTimeOffset? HeartbeatAt, string? Root) ReadLock(string path)
     {
         try
         {
             var node = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
             var pid = JsonUtil.Int(node, "pid");
+            var root = JsonUtil.String(node, "root");
             var heartbeatText = JsonUtil.String(node, "heartbeatAt");
             DateTimeOffset? heartbeat = null;
             if (heartbeatText is not null && DateTimeOffset.TryParse(heartbeatText, out var parsed))
@@ -208,11 +216,11 @@ public sealed class SingleInstanceLock : IDisposable
                 }
             }
 
-            return (pid, heartbeat);
+            return (pid, heartbeat, root);
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or UnauthorizedAccessException)
         {
-            return (null, null);
+            return (null, null, null);
         }
     }
 }

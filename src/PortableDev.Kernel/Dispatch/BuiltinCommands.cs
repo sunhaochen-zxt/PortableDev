@@ -75,13 +75,13 @@ public sealed class BuiltinCommandSet
         Add("kernel status", ["status"], false, true, "kernel liveness and identity", "pd kernel status [--json]", KernelStatusAsync);
         Add("kernel ps", [], false, true, "running extension processes", "pd kernel ps [--json]", KernelPsAsync);
         Add("kernel ext list", [], false, true, "installed extensions and their state", "pd kernel ext list [--json]", KernelExtListAsync);
-        Add("kernel restart", [], false, false, "restart one extension", "pd kernel restart <名字>", KernelRestartAsync);
-        Add("kernel stop", [], false, false, "stop the kernel", "pd kernel stop [--force]", KernelStopAsync);
+        Add("kernel restart", [], true, false, "restart one extension", "pd kernel restart <名字>", KernelRestartAsync);
+        Add("kernel stop", [], true, false, "stop the kernel", "pd kernel stop [--force]", KernelStopAsync);
         Add("kernel log", [], false, true, "kernel fallback log", "pd kernel log [--tail <n>]", KernelLogAsync);
         Add("config list", [], false, true, "list settings", "pd config list [--json]", ConfigListAsync);
         Add("config get", [], false, true, "read one setting", "pd config get <键> [--file]", ConfigGetAsync);
-        Add("config set", [], false, false, "change one setting", "pd config set <键> <值>", ConfigSetAsync);
-        Add("config unset", [], false, false, "reset one setting", "pd config unset <键>", ConfigUnsetAsync);
+        Add("config set", [], true, false, "change one setting", "pd config set <键> <值>", ConfigSetAsync);
+        Add("config unset", [], true, false, "reset one setting", "pd config unset <键>", ConfigUnsetAsync);
     }
 
     private void Add(string name, string[] aliases, bool mutates, bool parallel, string summary, string? usage,

@@ -62,6 +62,8 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 - 租界带 `owner` / `expiresAt`：adopt/abort 校验「在这张租界目录内 + 未过期 + 归属同一扩展」，
   gc 先清过期租界再算引用；
 - 接线记录在首次 apply 时保存 `wiring.before`（机器原值），clean/回滚据此还原而不是一律删除；
+- `log.audit` 的 seq 跨 provider 重启从磁盘恢复（不再归零）；provider 为每个 task 写一个小 marker，
+  审计文件被保留期真空后 query 返回 `truncated:true`，从而 `pd rollback` 报 `ERR_AUDIT_EXPIRED`(20)；
 
 ## 5. 收编（adopt）
 
@@ -145,8 +147,9 @@ storage 只认识“把某个原语执行掉”，不认识任务与批次。
 
 ### 9.4 还没覆盖的
 
-机器层原语（PATH / 环境变量 / 注册表 / 启动器）要等接线层（`apply` / `clean`）落地；
-存档点回滚是另一套（快照式），等接线层。
+机器层原语（PATH / 环境变量 / 注册表 / 启动器）已由接线层（`apply` / `clean`）落地，并在首次
+apply 时记录机器原值（`wiring.before`），clean / 回滚 / 存档点恢复都能还原；
+存档点回滚是另一套（快照式），已在 `generation` 能力实现。
 
 
 ## 10. 安全边界
@@ -166,7 +169,7 @@ storage 只认识“把某个原语执行掉”，不认识任务与批次。
 
 ## 12. 测试
 
-`tools/storage-e2e.py`：**60 项**，自己起内核、跑完、收尾。
+`tools/storage-e2e.py`：**62 项**，自己起内核、跑完、收尾。
 
 | 组 | 断言 |
 |---|---|
@@ -191,7 +194,8 @@ python -u tools/storage-e2e.py .run
 
 | 项 | 说明 |
 |---|---|
-| 机器层回滚 | storage 自己的 `current.set` / `record.write` 已可回滚；PATH / 环境变量 / 注册表 / 启动器的逆执行器等接线层 |
-| 存档点 | 等接线层，快照要包含接线状态（架构 9.4） |
+| 租界续期 | 到期后需重新申请，没有续期接口 |
+| restore 断点续跑 | generation.restore 失败后靠账本回滚，不能从中断点继续 |
+| 审计全量扫描 | `log.audit query` 仍按月文件全量扫描；任务多了以后需要索引 |
 | 租界续期 | 不支持续期（只有 ttl 到期），到期后需重新申请 |
 | 扩展卸载时的数据清理 | 等 `pd remove` |
