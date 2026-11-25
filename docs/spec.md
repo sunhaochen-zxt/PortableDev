@@ -853,6 +853,7 @@
 | `ERR_PROTOCOL` | 协议不兼容 |
 | `ERR_BUSY` | 另一个改机器的任务在跑 |
 | `ERR_ASSERT` | 断言失败 |
+| `ERR_SCRIPT` | 包脚本失败（非零退出/违反请求协议） |
 | `ERR_PKG_INVALID` | 包说明书不合法（缺字段、路径带盘符等） |
 | `ERR_PKG_NOT_FOUND` | 包或版本不存在 |
 | `ERR_PKG_AMBIGUOUS` | 多个源都有，需要 `--source` |

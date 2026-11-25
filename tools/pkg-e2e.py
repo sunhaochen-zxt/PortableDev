@@ -184,6 +184,13 @@ def prepare(root):
         os.makedirs(os.path.join(root, "state", directory), exist_ok=True)
     shutil.rmtree(os.path.join(root, "state", "logs"), ignore_errors=True)
     os.makedirs(os.path.join(root, "state", "logs"), exist_ok=True)
+    shutil.rmtree(os.path.join(root, "state", "sources"), ignore_errors=True)
+    os.makedirs(os.path.join(root, "state", "sources"), exist_ok=True)
+    os.makedirs(os.path.join(root, "config"), exist_ok=True)
+    try:
+        os.remove(os.path.join(root, "config", "sources.json"))
+    except OSError:
+        pass
 
 
 def start_kernel(root):
@@ -347,7 +354,7 @@ def main():
         print("unknown package name")
         result = pd(root, "--json", "install", "firefox")
         done = done_of(result.stdout)
-        check("name needs index", result.returncode == 11 and (done or {}).get("error", {}).get("code") == "ERR_UNSUPPORTED", done)
+        check("unknown name resolves to 20", result.returncode == 20 and (done or {}).get("error", {}).get("code") == "ERR_PKG_NOT_FOUND", done)
 
         print("audit recorded the install")
         result = pd(root, "log", "--grep", "storage.adopt", "--tail", "10")

@@ -47,6 +47,11 @@
       "name": "storage.generation",
       "version": 1,
       "mutates": true
+    },
+    {
+      "name": "storage.home",
+      "version": 1,
+      "mutates": true
     }
   ],
   "commands": [

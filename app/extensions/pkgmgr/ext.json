@@ -32,8 +32,36 @@
       ],
       "mutates": true,
       "parallel": false,
-      "summary": "install a package from a .pdpkg, a directory or a URL",
-      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>]"
+      "summary": "install a package from a source, a .pdpkg, a directory or a URL",
+      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>] [--source <源>] [--force] [--offline] [--refresh]"
+    },
+    {
+      "name": "fetch",
+      "mutates": false,
+      "parallel": true,
+      "summary": "download a package into the blob cache without installing it",
+      "usage": "pd fetch <包>[@版本] [--source <源>] [--offline] [--refresh]"
+    },
+    {
+      "name": "search",
+      "mutates": false,
+      "parallel": true,
+      "summary": "search cached indexes (offline)",
+      "usage": "pd search <词> [--source <源>] [--limit <n>] [--installed]"
+    },
+    {
+      "name": "source",
+      "mutates": true,
+      "parallel": false,
+      "summary": "list/add/remove/enable/disable/refresh package sources",
+      "usage": "pd source list | add <名> <路径|URL|gh:owner/repo> [--kind dir|http|git] [--priority N] [--ttl dur] | remove <名> | enable|disable <名> | refresh [名]"
+    },
+    {
+      "name": "index",
+      "mutates": false,
+      "parallel": true,
+      "summary": "build an index from a directory or inspect an index file",
+      "usage": "pd index build <目录> [--out <文件>] [--name <源名>] [--priority N] | pd index inspect <文件|URL>"
     }
   ],
   "lifecycle": {

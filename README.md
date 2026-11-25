@@ -12,7 +12,9 @@ V2 是一次微内核重写（V1 在仓库 `main`）：内核只做协议与调�
 src/PortableDev.Core        协议帧/信封、配置、身份、日志契约、扩展清单
 src/PortableDev.Kernel      pd-kernel：管道、派发、监督器、恢复、单实例锁
 src/PortableDev.Shell       pd.exe：参数、连接、事件渲染、退出码
+src/PortableDev.Elevate      pd-elevate：HKLM / 盘外路径的 UAC 批次助手
 app/extensions/             storage / rollback / log / download / unpack / pkgmgr
+                            （pkgmgr 内含 sources.js 索引解析、scripts.js 受限脚本协议）
 tests/PortableDev.Core.Runner  单元测试（18 项）
 tools/                      e2e 驱动 + 文档一致性检查
 docs/                       规范与实现说明（architecture / spec / commands / …）
@@ -41,7 +43,10 @@ PD_LOG_FIXTURE=log-ext python -u tools/storage-e2e.py .run                      
 python -u tools/pkg-e2e.py .run                                                     # 37
 python -u tools/pd-e2e.py .run                                                      # 29
 python -u tools/wire-e2e.py .run                                                    # 28
-python -u tools/generation-e2e.py .run                                              # 26+3
+python -u tools/generation-e2e.py .run                                              # 29
+python -u tools/source-e2e.py .run                                                   # 34
+python -u tools/script-e2e.py .run                                                   # 22
+python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```
 

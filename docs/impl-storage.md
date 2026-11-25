@@ -157,7 +157,10 @@ apply 时记录机器原值（`wiring.before`），clean / 回滚 / 存档点恢
 - `stagingPath` 必须在 `staging\\` 内，`storePath` 必须在 `store\\` 内——越界一律 `ERR_UNSUPPORTED`；
 - 包名/版本必须匹配白名单（`^[a-z][a-z0-9-]{0,63}$` / 版本不含路径分隔符），否则 `ERR_PKG_INVALID`；拼接后还要用 `path.relative` 复验在 `store\` / `records\` / `current\` 内；
 - `contentHash` 必须是 64 位十六进制，且 store 名与 `hashes.tree` 始终用**本地重算**的目录指纹（contentHash 只记作 `hashes.archive`）；
-- storage 自己不读包脚本、不跑命令，只做文件系统动作。
+- storage 自己不读包脚本、不跑命令，只做文件系统动作；
+- HKLM 与稳定根/用户目录之外的目标走 `pd-elevate.exe` 提权批次（`state\wire\fake-mode` 下写 fake 状态）；
+- 家目录：`home\<包>` 在盘上，稳定根下自动建 junction；`data.link`/`data.copy` 与普通接线共用
+  ledger/rollback，目标已存在时拒绝覆盖。
 
 ## 11. 和内核的分工
 

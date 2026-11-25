@@ -72,7 +72,7 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
 
 ## 6. 测试
 
-`tools/wire-e2e.py`：**28 项**。
+`tools/wire-e2e.py`：**43 项**。
 
 | 组 | 断言 |
 |---|---|
@@ -86,8 +86,20 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
 
 | 项 | 说明 |
 |---|---|
-| HKLM 写入 | 需要提权批次，等 `elevation` 流程 |
-| 系统 PATH | 同上 |
+| 系统 PATH | 仍只写用户 PATH；系统 PATH 需要提权批次 + 广播校验 |
+| 提权批次的一致性 | HKLM/盘外路径由 `pd-elevate` 执行；ledger 在改动之后才写（崩在中间会留下无账可撤的改动） |
 | 启动器模板 | 现在只生成最小 `.cmd`；图标、无窗口、`runAs` 等字段未处理 |
 | 存档点 | 已实现（见 [impl-generation.md](impl-generation.md)）：接线状态随每次 apply 入库 |
 | 广播设置变更 | 环境变量用 .NET API 写，系统会广播；PATH 同理。未做显式 `WM_SETTINGCHANGE` 校验 |
+
+## 8. 提权与 HKLM（2026-11-25）
+
+- HKLM 写入、以及稳定根/用户目录之外的 `link`/`copy` 目标，由 `src/PortableDev.Elevate`
+  的 `pd-elevate` 助手执行：一次请求文件列出一批 op，结果文件回传每个 op 的 `before`；
+  非管理员时助手用 `runas` 自重启（UAC），取消则整批失败；
+- **部署**：把构建出的 `pd-elevate.exe`（或 `pd-elevate.dll` + `dotnet`）放到
+  `<盘>\app\tools\`；storage 按这个路径查找，找不到时 HKLM/盘外写入返回 `ERR_UNSUPPORTED`；
+- **测试**：`state\wire\fake-mode` 下 HKLM/link/copy 全部走 fake 状态，不需要 UAC；
+  助手自身支持 `--fake <state.json>` 无 UAC 自测；真实 UAC 用 `tools/elevation-selftest.py` 手动跑；
+- 已知限制：提权批次里“机器已改、ledger 尚未写”的窗口存在（崩在中间会留下无账可撤的改动）；
+  `script.elevated: true` 的包脚本未实现。

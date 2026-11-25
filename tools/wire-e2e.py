@@ -77,7 +77,9 @@ def build_packages(packages):
         "path": ["bin"],
         "env": {"WIRED_HOME": "{{ROOT}}\\current\\wired"},
         "registry": [{"hive": "HKCU", "key": "Software\\PortableDevTest", "name": "Mark",
-                      "type": "REG_SZ", "value": "1"}],
+                      "type": "REG_SZ", "value": "1"},
+                     {"hive": "HKLM", "key": "Software\\PortableDevTest", "name": "MachineMark",
+                      "type": "REG_SZ", "value": "2"}],
         "launch": [{"name": "wired", "exe": "bin\\wired.cmd"}],
         "asserts": [{"kind": "exists", "path": "bin\\wired.txt"}],
     }
@@ -85,6 +87,21 @@ def build_packages(packages):
         "package.json": json.dumps(wired).encode(),
         "files/bin/wired.txt": b"wired content\n",
         "files/bin/wired.cmd": b"@echo off\necho wired\n",
+    })
+
+    homed = {
+        "schema": 1, "id": "homed", "version": "1.0.0", "platform": "win-x64",
+        "path": ["bin"],
+        "env": {"HOMED_PATH": "{{HOME}}"},
+        "data": [
+            {"kind": "link", "source": "{{STICK}}\\\\home\\\\homed", "target": "{{HOME}}\\\\cache"},
+            {"kind": "copy", "source": "{{STICK}}\\\\home\\\\homed\\\\seed", "target": "{{HOME}}\\\\copy"},
+        ],
+        "asserts": [{"kind": "exists", "path": "bin\\homed.txt"}],
+    }
+    make_zip(os.path.join(packages, "homed-1.0.0.pdpkg"), {
+        "package.json": json.dumps(homed).encode(),
+        "files/bin/homed.txt": b"homed content\n",
     })
 
     realwired = {
@@ -178,6 +195,9 @@ def main():
     open(fake_mode, "w", encoding="utf-8").write("1\n")
     packages = os.path.join(root, "wpkgs")
     build_packages(packages)
+    os.makedirs(os.path.join(root, "home", "homed", "seed"), exist_ok=True)
+    with open(os.path.join(root, "home", "homed", "seed", "note.txt"), "w", encoding="utf-8") as handle:
+        handle.write("seed")
 
     # Pre-seed a user-owned env var / registry value so clean must restore them, not delete them.
     seeded = fake_state(root)
@@ -208,6 +228,9 @@ def main():
         check("registry value written",
               any(key.endswith("PortableDevTest\\Mark") and value.get("value") == "1" for key, value in registry.items()),
               registry)
+        check("HKLM registry value written (fake)",
+              any(key.startswith("HKLM\\") and key.endswith("PortableDevTest\\MachineMark") and value.get("value") == "2"
+                  for key, value in registry.items()), registry)
         launcher = os.path.normcase(os.path.join(stable, "wired.cmd"))
         check("launcher generated", any(os.path.normcase(key) == launcher for key in state.get("launchers", {})),
               list(state.get("launchers", {}).keys()))
@@ -242,6 +265,9 @@ def main():
               any(key.endswith("PortableDevTest\\Mark") and value.get("value") == "user-orig"
                   for key, value in state.get("registry", {}).items()),
               state.get("registry"))
+        check("HKLM registry value removed by clean",
+              not any(key.startswith("HKLM\\") and key.endswith("PortableDevTest\\MachineMark")
+                      for key in state.get("registry", {})), state.get("registry"))
         check("launcher removed", not any(os.path.normcase(key) == launcher for key in state.get("launchers", {})),
               state.get("launchers"))
         check("junction removed", not os.path.exists(link), link)
@@ -256,6 +282,71 @@ def main():
                                     for entry in (state.get("path") or "").split(";") if entry), state.get("path"))
         check("env reapplied after clean", state.get("env", {}).get("WIRED_HOME") == os.path.join(stable, "current", "wired"),
               state.get("env"))
+
+        print("home directory and data wiring (fake machine)")
+        result = pd(root, "--json", "install", os.path.join(packages, "homed-1.0.0.pdpkg"))
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("homed install exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("homed wiring changes", metrics.get("wiringChanges", 0) >= 4, metrics)
+        state = fake_state(root)
+        home_machine = os.path.join(stable, "home", "homed")
+        links = state.get("links", {})
+        check("home junction created",
+              any(os.path.normcase(key) == os.path.normcase(home_machine) for key in links), list(links.keys()))
+        data_link_target = os.path.join(home_machine, "cache")
+        check("data link created",
+              any(os.path.normcase(key) == os.path.normcase(data_link_target) for key in links), list(links.keys()))
+        copies = state.get("copies", {})
+        check("data copy recorded",
+              any(os.path.normcase(key) == os.path.normcase(os.path.join(home_machine, "copy")) for key in copies), copies)
+        check("{{HOME}} expanded in env", state.get("env", {}).get("HOMED_PATH") == home_machine, state.get("env"))
+
+        result = pd(root, "--json", "clean")
+        check("clean after homed exit 0", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+        state = fake_state(root)
+        links = state.get("links", {})
+        check("home junction kept by clean",
+              any(os.path.normcase(key) == os.path.normcase(home_machine) for key in links), list(links.keys()))
+        check("data link removed by clean",
+              not any(os.path.normcase(key) == os.path.normcase(data_link_target) for key in links), list(links.keys()))
+        check("data copy removed by clean",
+              not any(os.path.normcase(key) == os.path.normcase(os.path.join(home_machine, "copy"))
+                      for key in state.get("copies", {})), state.get("copies"))
+
+        print("elevation helper (fake mode)")
+        helper_dll = os.path.abspath(os.path.join("src", "PortableDev.Elevate", "bin", "Debug", "net8.0", "win-x64", "pd-elevate.dll"))
+        if os.path.isfile(helper_dll):
+            tmp = os.path.join(root, "state", "tmp")
+            os.makedirs(tmp, exist_ok=True)
+            helper_state = os.path.join(tmp, "elevate-fake.json")
+            helper_request = os.path.join(tmp, "elevate-request.json")
+            helper_result = os.path.join(tmp, "elevate-result.json")
+            json.dump({"schema": 1, "registry": {}, "links": {}, "copies": {}}, open(helper_state, "w", encoding="utf-8"))
+            json.dump({
+                "schema": 1, "result": helper_result, "ops": [
+                    {"op": "registry.set", "hive": "HKLM", "key": "Software\\PortableDevTest",
+                     "name": "HelperMark", "type": "REG_SZ", "value": "1"},
+                    {"op": "link.create", "source": os.path.join(root, "home", "homed"),
+                     "target": os.path.join(tmp, "helper-link")},
+                    {"op": "copy.create", "source": os.path.join(root, "home", "homed", "seed"),
+                     "target": os.path.join(tmp, "helper-copy")},
+                ],
+            }, open(helper_request, "w", encoding="utf-8"))
+            helper_proc = subprocess.run([DOTNET, helper_dll, helper_request, "--fake", helper_state],
+                                         capture_output=True, text=True, timeout=120)
+            helper_result_data = json.load(open(helper_result, encoding="utf-8")) if os.path.isfile(helper_result) else None
+            check("elevation helper fake mode", helper_proc.returncode == 0 and (helper_result_data or {}).get("ok") is True,
+                  (helper_proc.returncode, (helper_proc.stderr or "")[:200]))
+            helper_state_data = json.load(open(helper_state, encoding="utf-8"))
+            check("elevation helper fake registry",
+                  any(key.startswith("HKLM\\") and key.endswith("HelperMark")
+                      for key in helper_state_data.get("registry", {})),
+                  list(helper_state_data.get("registry", {}).keys()))
+            check("elevation helper fake link/copy",
+                  bool(helper_state_data.get("links")) and bool(helper_state_data.get("copies")), helper_state_data)
+        else:
+            check("elevation helper fake mode", False, helper_dll + " is missing (build PortableDev.Elevate)")
 
         print("real machine environment round trip")
         stop_kernel(root)

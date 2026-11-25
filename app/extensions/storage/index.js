@@ -754,6 +754,71 @@ fs.mkdirSync(WIRE_DIR, { recursive: true });
 
 const FAKE = process.env.PD_WIRE_FAKE === "1" || fs.existsSync(path.join(WIRE_DIR, "fake-mode"));
 
+// Elevated helper: used for HKLM and machine paths outside the user's own directories.
+let elevateCounter = 0;
+
+function elevateHelperCommand() {
+  const explicit = process.env.PD_ELEVATE_HELPER;
+  if (explicit && fs.existsSync(explicit)) {
+    return explicit.toLowerCase().endsWith(".dll")
+      ? [process.env.PD_DOTNET || "dotnet", explicit]
+      : [explicit];
+  }
+  const tools = path.join(ROOT, "app", "tools");
+  const exe = path.join(tools, "pd-elevate.exe");
+  if (fs.existsSync(exe)) {
+    return [exe];
+  }
+  const dll = path.join(tools, "pd-elevate.dll");
+  if (fs.existsSync(dll)) {
+    return [process.env.PD_DOTNET || "dotnet", dll];
+  }
+  return null;
+}
+
+function runElevated(ops) {
+  const command = elevateHelperCommand();
+  if (!command) {
+    throw new StorageError("ERR_UNSUPPORTED",
+      "elevation helper not found (expected " + path.join(ROOT, "app", "tools", "pd-elevate.exe") + ")");
+  }
+
+  const dir = path.join(STATE, "tmp");
+  fs.mkdirSync(dir, { recursive: true });
+  elevateCounter += 1;
+  const base = "elevate-" + process.pid + "-" + elevateCounter;
+  const requestPath = path.join(dir, base + ".json");
+  const resultPath = path.join(dir, base + ".result.json");
+  writeJson(requestPath, { schema: 1, result: resultPath, ops: ops });
+  let result;
+  try {
+    execFileSync(command[0], command.slice(1).concat([requestPath]), {
+      stdio: "ignore",
+      timeout: 300000,
+      windowsHide: true,
+    });
+  } catch (error) {
+    throw new StorageError("ERR_IO", "elevation failed or was cancelled: " + (error.message || String(error)));
+  } finally {
+    fs.rmSync(requestPath, { force: true });
+  }
+
+  try {
+    result = readJson(resultPath);
+  } catch (error) {
+    throw new StorageError("ERR_IO", "elevation helper produced no result (cancelled?)");
+  } finally {
+    fs.rmSync(resultPath, { force: true });
+  }
+
+  if (!result || result.ok !== true) {
+    const failure = (result && result.error) || {};
+    throw new StorageError(failure.code || "ERR_IO", failure.message || "elevation failed");
+  }
+
+  return result.results || [];
+}
+
 function stableRoot() {
   try {
     const settings = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "settings.json"), "utf8"));
@@ -770,7 +835,7 @@ function readFake() {
   try {
     return JSON.parse(fs.readFileSync(FAKE_FILE, "utf8"));
   } catch (error) {
-    return { path: null, env: {}, registry: {}, launchers: {} };
+    return { path: null, env: {}, registry: {}, launchers: {}, links: {}, copies: {} };
   }
 }
 
@@ -887,6 +952,201 @@ function launcherId(file) {
   return path.resolve(file);
 }
 
+function linkPath(target) {
+  return path.resolve(String(target));
+}
+
+function readLinkTarget(target) {
+  if (FAKE) {
+    const fake = readFake();
+    return Object.prototype.hasOwnProperty.call(fake.links || {}, linkPath(target)) ? fake.links[linkPath(target)] : null;
+  }
+  return readLink(target);
+}
+
+function writeLink(target, source) {
+  if (FAKE) {
+    const fake = readFake();
+    fake.links = fake.links || {};
+    if (source === null) {
+      delete fake.links[linkPath(target)];
+    } else {
+      fake.links[linkPath(target)] = linkPath(source);
+    }
+    writeFake(fake);
+    return;
+  }
+  if (source === null) {
+    if (!removeLink(target)) {
+      throw new StorageError("ERR_IO", "cannot remove the junction: " + target);
+    }
+    return;
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.symlinkSync(path.resolve(source), target, "junction");
+}
+
+function allowedLinkTarget(target) {
+  if (FAKE) {
+    return true;
+  }
+  for (const root of [stableRoot(), process.env.USERPROFILE, process.env.APPDATA, process.env.LOCALAPPDATA]) {
+    if (root && inside(root, target)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function wireLinkCreate(args) {
+  const target = linkPath(String(args.target || ""));
+  const source = path.resolve(String(args.source || ""));
+  if (!target || !source || target.length === 0) {
+    throw new StorageError("ERR_BAD_ARGS", "link.create needs source and target");
+  }
+  if (!inside(ROOT, source)) {
+    throw new StorageError("ERR_UNSUPPORTED", "link source must be inside the stick: " + source);
+  }
+  if (!allowedLinkTarget(target)) {
+    runElevated([{ op: "link.create", source: source, target: target }]);
+    await ledgerEntry(args.task, {
+      op: "link.create",
+      target: target,
+      source: source,
+      before: null,
+      after: { source: source },
+      undo: { cap: "storage.wire", op: "link.remove", args: { target: target } },
+    });
+    return { changed: true, target: target, source: source, elevated: true };
+  }
+  const existing = readLinkTarget(target);
+  if (existing !== null) {
+    if (path.resolve(existing) === source) {
+      return { changed: false, target: target, source: source };
+    }
+    throw new StorageError("ERR_IO", "target already exists and points elsewhere: " + target);
+  }
+  const before = null;
+  await ledgerEntry(args.task, {
+    op: "link.create",
+    target: target,
+    source: source,
+    before: before,
+    after: { source: source },
+    undo: { cap: "storage.wire", op: "link.remove", args: { target: target } },
+  });
+  writeLink(target, source);
+  return { changed: true, target: target, source: source };
+}
+
+async function wireCopyCreate(args) {
+  const target = path.resolve(String(args.target || ""));
+  const source = path.resolve(String(args.source || ""));
+  if (!target || !source) {
+    throw new StorageError("ERR_BAD_ARGS", "copy.create needs source and target");
+  }
+  if (!inside(ROOT, source)) {
+    throw new StorageError("ERR_UNSUPPORTED", "copy source must be inside the stick: " + source);
+  }
+  if (!allowedLinkTarget(target) && !FAKE) {
+    runElevated([{ op: "copy.create", source: source, target: target }]);
+    await ledgerEntry(args.task, {
+      op: "copy.create",
+      target: target,
+      source: source,
+      undo: { cap: "storage.wire", op: "copy.remove", args: { target: target } },
+    });
+    return { changed: true, target: target, source: source, elevated: true };
+  }
+  if (!allowedLinkTarget(target)) {
+    throw new StorageError("ERR_UNSUPPORTED", "copy target needs elevation or a user-writable location: " + target);
+  }
+  if (fs.existsSync(target)) {
+    throw new StorageError("ERR_IO", "copy target already exists: " + target);
+  }
+  await ledgerEntry(args.task, {
+    op: "copy.create",
+    target: target,
+    source: source,
+    undo: { cap: "storage.wire", op: "copy.remove", args: { target: target } },
+  });
+  if (FAKE) {
+    const fake = readFake();
+    fake.copies = fake.copies || {};
+    fake.copies[target] = source;
+    writeFake(fake);
+    return { changed: true, target: target, source: source };
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.cpSync(source, target, { recursive: true });
+  return { changed: true, target: target, source: source };
+}
+
+async function wireCopyRemove(args) {
+  const target = path.resolve(String(args.target || ""));
+  if (!target) {
+    throw new StorageError("ERR_BAD_ARGS", "copy.remove needs target");
+  }
+  if (FAKE) {
+    const fake = readFake();
+    if (!fake.copies || !Object.prototype.hasOwnProperty.call(fake.copies, target)) {
+      return { changed: false, target: target };
+    }
+    delete fake.copies[target];
+    writeFake(fake);
+    return { changed: true, target: target };
+  }
+  if (!allowedLinkTarget(target)) {
+    runElevated([{ op: "copy.remove", target: target }]);
+    return { changed: true, target: target, elevated: true };
+  }
+  if (!fs.existsSync(target)) {
+    return { changed: false, target: target };
+  }
+  await ledgerEntry(args.task, {
+    op: "copy.remove",
+    target: target,
+    undo: null,
+  });
+  fs.rmSync(target, { recursive: true, force: true });
+  return { changed: true, target: target };
+}
+
+async function wireLinkRemove(args) {
+  const target = linkPath(String(args.target || ""));
+  if (!target) {
+    throw new StorageError("ERR_BAD_ARGS", "link.remove needs target");
+  }
+  if (!allowedLinkTarget(target) && !FAKE) {
+    const results = runElevated([{ op: "link.remove", target: target }]);
+    const elevatedBefore = (results[0] && results[0].before) || null;
+    if (elevatedBefore === null) {
+      return { changed: false, target: target };
+    }
+    await ledgerEntry(args.task, {
+      op: "link.remove",
+      target: target,
+      before: elevatedBefore,
+      after: null,
+      undo: { cap: "storage.wire", op: "link.create", args: { target: target, source: elevatedBefore.target } },
+    });
+    return { changed: true, target: target, before: elevatedBefore, elevated: true };
+  }
+  const before = readLinkTarget(target);
+  if (before === null) {
+    return { changed: false, target: target };
+  }
+  await ledgerEntry(args.task, {
+    op: "link.remove",
+    target: target,
+    before: before,
+    after: null,
+    undo: { cap: "storage.wire", op: "link.create", args: { target: target, source: before } },
+  });
+  writeLink(target, null);
+  return { changed: true, target: target, before: before };
+}
+
 function readLauncher(file) {
   if (FAKE) {
     const fake = readFake();
@@ -997,9 +1257,10 @@ async function wireRemovePath(args) {
 }
 
 async function wireSetRegistry(args) {
-  const entry = { hive: args.hive || "HKCU", key: String(args.key || ""), name: args.name || "" };
-  if (String(entry.hive).toUpperCase() !== "HKCU") {
-    throw new StorageError("ERR_UNSUPPORTED", "only HKCU can be written without elevation (asked for " + entry.hive + ")");
+  const hive = String(args.hive || "HKCU").toUpperCase();
+  const entry = { hive: hive, key: String(args.key || ""), name: args.name || "" };
+  if (hive !== "HKCU" && hive !== "HKLM") {
+    throw new StorageError("ERR_UNSUPPORTED", "only HKCU/HKLM are supported (asked for " + args.hive + ")");
   }
   if (entry.key.length === 0 || entry.key.includes("\u0000") || entry.name.includes("\u0000")) {
     throw new StorageError("ERR_BAD_ARGS", "registry key/name is empty or contains a NUL");
@@ -1010,6 +1271,35 @@ async function wireSetRegistry(args) {
   if (value !== null && /(^|[^A-Za-z])[A-Za-z]:[\\/]/.test(value.value)) {
     throw new StorageError("ERR_UNSUPPORTED", "registry path values must use the stable root, not a drive letter");
   }
+  if (hive === "HKLM" && !FAKE) {
+    // Elevation: one helper call does get+set. The ledger entry is written after the effect
+    // (documented limitation: a crash between the two leaves an unaudited machine change).
+    const results = runElevated([{
+      op: value === null ? "registry.delete" : "registry.set",
+      hive: hive,
+      key: entry.key,
+      name: entry.name,
+      type: value === null ? undefined : value.type,
+      value: value === null ? undefined : value.value,
+    }]);
+    const before = (results[0] && results[0].before) || null;
+    if (JSON.stringify(before) === JSON.stringify(value)) {
+      return { before, after: value, changed: false };
+    }
+    await ledgerEntry(args.task, {
+      op: "registry.set",
+      hive: entry.hive,
+      key: entry.key,
+      name: entry.name,
+      before,
+      after: value,
+      undo: before === null
+        ? { cap: "storage.wire", op: "registry.delete", args: { hive: entry.hive, key: entry.key, name: entry.name } }
+        : { cap: "storage.wire", op: "registry.set", args: { hive: entry.hive, key: entry.key, name: entry.name, type: before.type, value: before.value } },
+    });
+    return { before, after: value, changed: true };
+  }
+
   const before = readRegistry(entry);
   if (JSON.stringify(before) === JSON.stringify(value)) {
     return { before, after: value, changed: false };
@@ -1083,8 +1373,39 @@ function expandText(record, value) {
   return String(value === undefined || value === null ? "" : value)
     .replace(/\{\{ROOT\}\}/g, stableRoot())
     .replace(/\{\{STICK\}\}/g, ROOT)
+    .replace(/\{\{HOME\}\}/g, path.join(stableRoot(), "home", record.id))
+    .replace(/\{\{PERSIST\}\}/g, path.join(stableRoot(), "home", record.id))
+    .replace(/\{\{APPDATA\}\}/g, process.env.APPDATA || "")
+    .replace(/\{\{LOCALAPPDATA\}\}/g, process.env.LOCALAPPDATA || "")
+    .replace(/\{\{USERPROFILE\}\}/g, process.env.USERPROFILE || "")
     .replace(/\{\{ID\}\}/g, record.id)
     .replace(/\{\{VERSION\}\}/g, String(record.version || ""));
+}
+
+function homeStickPath(pkg) {
+  return path.join(ROOT, "home", pkg);
+}
+
+function homeMachinePath(pkg) {
+  return path.join(stableRoot(), "home", pkg);
+}
+
+async function ensureHome(args) {
+  const pkg = packageId(args.pkg, "home package id");
+  const stick = homeStickPath(pkg);
+  const machine = homeMachinePath(pkg);
+  fs.mkdirSync(stick, { recursive: true });
+  let changed = false;
+  const existing = readLinkTarget(machine);
+  if (existing === null) {
+    writeLink(machine, stick);
+    changed = true;
+  } else if (path.resolve(existing) !== path.resolve(stick)) {
+    throw new StorageError("ERR_IO", "home junction points elsewhere: " + machine);
+  }
+
+  logInfo("storage.home", "home directory ready", { pkg: pkg, stickPath: stick, machinePath: machine });
+  return { stickPath: stick, machinePath: machine, changed: changed };
 }
 
 function recordWiring(record) {
@@ -1177,6 +1498,13 @@ async function applyRecord(record, task, dryRun) {
     changed += 1;
   }
 
+  const wiringText = JSON.stringify(wiring);
+  const needsHome = wiringText.includes("{{HOME}}") || wiringText.includes("{{PERSIST}}") ||
+    (Array.isArray(wiring.data) && wiring.data.length > 0);
+  if (needsHome) {
+    await ensureHome({ pkg: record.id });
+  }
+
   // Snapshot the machine's pre-install values once, so clean/unwire can restore them instead of
   // blindly deleting (which used to wipe a user's own env var / registry value / launcher).
   const before = ensureBefore(record);
@@ -1221,6 +1549,34 @@ async function applyRecord(record, task, dryRun) {
     }
     if ((await wireWriteLauncher({ task, path: file, content: launcherContent(record, launcher) })).changed) {
       changed += 1;
+    }
+  }
+
+  for (const item of wiring.data || []) {
+    const kind = String((item && item.kind) || "");
+    if (kind === "link") {
+      const source = expandText(record, item.source || "");
+      const target = expandText(record, item.target || "");
+      if (!source || !target) {
+        continue;
+      }
+      const result = await wireLinkCreate({ task: task, source: source, target: target });
+      if (result.changed) {
+        changed += 1;
+      }
+      continue;
+    }
+
+    if (kind === "copy") {
+      const source = expandText(record, item.source || "");
+      const target = expandText(record, item.target || "");
+      if (!source || !target) {
+        continue;
+      }
+      if ((await wireCopyCreate({ task: task, source: source, target: target })).changed) {
+        changed += 1;
+      }
+      continue;
     }
   }
 
@@ -1463,6 +1819,11 @@ async function restoreWiring(record, task) {
   const wiring = recordWiring(record);
   const raw = wiring.before && typeof wiring.before === "object" ? wiring.before : {};
   const sameMode = (raw.fake === true) === FAKE;
+  if (raw.fake !== undefined && !sameMode) {
+    // This record was wired against the other machine view (fake vs real); leave this machine alone.
+    return 0;
+  }
+
   const before = sameMode ? raw : {};
   const beforePath = before.path || {};
   const beforeEnv = before.env || {};
@@ -1517,6 +1878,23 @@ async function restoreWiring(record, task) {
     }
   }
 
+  for (const item of wiring.data || []) {
+    const kind = String((item && item.kind) || "");
+    const target = expandText(record, item.target || "");
+    if (!target) {
+      continue;
+    }
+    if (kind === "link") {
+      if ((await wireLinkRemove({ task: task, target: target })).changed) {
+        changed += 1;
+      }
+    } else if (kind === "copy") {
+      if ((await wireCopyRemove({ task: task, target: target })).changed) {
+        changed += 1;
+      }
+    }
+  }
+
   return changed;
 }
 
@@ -1525,6 +1903,10 @@ async function previewRestore(record) {
   const wiring = recordWiring(record);
   const raw = wiring.before && typeof wiring.before === "object" ? wiring.before : {};
   const sameMode = (raw.fake === true) === FAKE;
+  if (raw.fake !== undefined && !sameMode) {
+    return 0;
+  }
+
   const before = sameMode ? raw : {};
   const beforePath = before.path || {};
   const beforeEnv = before.env || {};
@@ -1573,6 +1955,24 @@ async function previewRestore(record) {
     const target = typeof prior === "string" ? prior : null;
     if (current !== target) {
       wouldChange += 1;
+    }
+  }
+
+  for (const item of wiring.data || []) {
+    const kind = String((item && item.kind) || "");
+    const target = expandText(record, item.target || "");
+    if (!target) {
+      continue;
+    }
+    if (kind === "link" && readLinkTarget(target) !== null) {
+      wouldChange += 1;
+    } else if (kind === "copy") {
+      const exists = FAKE
+        ? Object.prototype.hasOwnProperty.call(readFake().copies || {}, path.resolve(target))
+        : fs.existsSync(target);
+      if (exists) {
+        wouldChange += 1;
+      }
     }
   }
 
@@ -1825,6 +2225,18 @@ async function handleWireCall(capability, op, args) {
       return wireWriteLauncher(args);
     case "launcher.remove":
       return wireRemoveLauncher(args);
+    case "link.create":
+      return wireLinkCreate(args);
+    case "link.remove":
+      return wireLinkRemove(args);
+    case "link.get":
+      return { source: readLinkTarget(String(args.target || "")) };
+    case "copy.create":
+      return wireCopyCreate(args);
+    case "copy.remove":
+      return wireCopyRemove(args);
+    case "home.ensure":
+      return ensureHome(args);
     case "apply":
       return applyRecords(args);
     case "clean":
@@ -1931,6 +2343,7 @@ const link = connect({
         { name: "storage.ledger", version: 1, mutates: true },
         { name: "storage.wire", version: 1, mutates: true },
         { name: "storage.generation", version: 1, mutates: true },
+        { name: "storage.home", version: 1, mutates: true },
       ]);
       return;
     }

@@ -140,7 +140,7 @@ pd [全局开关] <命令> [参数...]
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
 | `pd source list` | 看源 | 否 | 能 | `--json` | — |
-| `pd source add <名> <地址>` | 加源 | **是**（写 `sources.json`） | 不能 | `--kind` `--priority` | 2/3/15 |
+| `pd source add <名> <地址>` | 加源 | **是**（写 `sources.json`） | 不能 | `--kind` `--priority` `--ttl` | 2/3/15 |
 | `pd source remove <名>` | 删源 | **是** | 能 | — | 20 |
 | `pd source enable/disable <名>` | 启停源 | **是** | 能 | — | 20 |
 | `pd source refresh [名]` | 刷新索引 | **是**（写索引缓存） | 不能 | `--all` | 3/15/20 |
@@ -211,7 +211,7 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 | `--no-scripts` | 一律不跑脚本（优先于 `--allow-scripts` 与配置 `install.allowScripts`） |
 | `--source <源>` | 指定从哪个源解析 |
 | `--pin` | 锁定到解析出的那个版本，跳过后续的源/版本漂移判定 |
-| `--sha256` | 直接给 URL 包的哈希（源索引未实现前的必需项） |
+| `--sha256` | 直接给 URL 包的哈希（URL 来源必需；按名从索引安装时由索引提供） |
 
 **输出**：
 
@@ -223,9 +223,12 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 
 **当前实现范围**（其余见 [impl-pkgmgr.md](impl-pkgmgr.md)）：
 
-- 支持：`.pdpkg` 文件、包目录、URL 直链（需 `--sha256`）；
-- 未支持：按包名安装（等索引/源）、包脚本、`7z`/`msi` 解包、激活类断言、PATH/环境变量/注册表/启动器接线；
-- 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`），命令类断言标为不支持。
+- 支持：`.pdpkg`、包目录、URL 直链（需 `--sha256`）、**按包名从源索引解析**（`name@版本范围`、
+  多源优先级、yanked、离线缓存、`--source`/`--pin`/`--refresh`/`--offline`）；
+- 支持：包脚本（受限请求协议；本地默认跑、网络源需 `--allow-scripts`，`--no-scripts` 优先）、
+  PATH/环境变量/HKCU/HKLM/启动器接线、`data.link`/`data.copy`、`{{HOME}}` 家目录联接；
+- 未支持：`scoop` 源、依赖递归安装、`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
+- 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`）。
 
 ### 5.2 `pd upgrade`
 

@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { connect, ready } = require("./protocol");
+const { createSourceManager } = require("./sources");
+const { runScript } = require("./scripts");
 
 const ROOT = process.env.PD_ROOT || ".";
 const CACHE = path.join(ROOT, "cache", "blobs");
@@ -37,6 +39,10 @@ function exitForCode(code) {
     case "ERR_EXT_MISSING":
     case "ERR_AUDIT_EXPIRED":
       return 20;
+    case "ERR_PKG_AMBIGUOUS":
+      return 21;
+    case "ERR_PKG_YANKED":
+      return 22;
     case "ERR_OFFLINE_MISS":
       return 23;
     case "ERR_DEP_UNSATISFIED":
@@ -81,6 +87,31 @@ function requestGrant(taskId, hint) {
     pendingGrants.set(key, { resolve, reject, timer });
     send({ v: 1, kind: "ctl", id: taskId, data: { action: "grant.request", kind: "dir", hint, mode: "rw", ttl: "10m" } });
   });
+}
+
+let sourceManager = null;
+
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, "config", "settings.json"), "utf8"));
+  } catch (error) {
+    return {};
+  }
+}
+
+function sources() {
+  if (sourceManager === null) {
+    const settings = readSettings();
+    sourceManager = createSourceManager({
+      root: ROOT,
+      call: (capability, op, args) => callCapability(capability, op, args),
+      settings: {
+        defaultChannel: (settings.install && settings.install.defaultChannel) || "stable",
+      },
+    });
+  }
+
+  return sourceManager;
 }
 
 function parseFlags(argv) {
@@ -264,6 +295,7 @@ async function install(message) {
     let archive = null;
     let dirRoot = null;
     let label = source;
+    let resolvedPackage = null;
 
     if (/^https?:\/\//i.test(source)) {
       if (!flags.sha256) {
@@ -280,11 +312,32 @@ async function install(message) {
       } else if (fs.existsSync(full)) {
         kind = "archive";
         archive = full;
+      } else if (String(target).toLowerCase().endsWith(".pdpkg")) {
+        throw new PkgError("ERR_PKG_NOT_FOUND", "no such package file: " + full, 20);
       } else {
-        if (String(target).toLowerCase().endsWith(".pdpkg")) {
-          throw new PkgError("ERR_PKG_NOT_FOUND", "no such package file: " + full, 20);
+        event("step", { stepId: "source", title: "resolve source", state: "running" });
+        const resolved = await sources().resolve(String(target), flags);
+        resolvedPackage = {
+          id: resolved.id,
+          version: resolved.version,
+          source: resolved.source.name,
+          stale: resolved.stale === true,
+          sha256: resolved.entry.sha256,
+        };
+        label = resolved.source.name + ":" + resolved.id + "@" + resolved.version;
+        event("step", { stepId: "source", title: "resolve source", state: "done" });
+
+        if (flags["dry-run"] === true) {
+          event("kv", { title: "install plan", items: { package: resolved.id, version: resolved.version, source: resolved.source.name, url: resolved.entry.url } });
+          done({ summary: "dry-run: would install " + resolved.id + " " + resolved.version + " from " + resolved.source.name, metrics: { dryRun: true, package: resolved.id, version: resolved.version, source: resolved.source.name } });
+          return;
         }
-        throw new PkgError("ERR_UNSUPPORTED", "installing by package name needs an index (not implemented yet); pass a .pdpkg, a directory or a URL", 11);
+
+        event("step", { stepId: "fetch", title: "download", state: "running" });
+        const blob = await sources().materialize(resolved, flags);
+        event("step", { stepId: "fetch", title: "download", state: "done" });
+        kind = "archive";
+        archive = blob.path;
       }
     }
 
@@ -305,8 +358,18 @@ async function install(message) {
     const pkgId = validPackageId(flags.as || manifest.id);
     const version = validVersion(manifest.version);
 
+    if (resolvedPackage) {
+      if (!flags.as && String(manifest.id) !== resolvedPackage.id) {
+        throw new PkgError("ERR_PKG_INVALID", "index resolved " + resolvedPackage.id + " but the .pdpkg says " + manifest.id, 3);
+      }
+      if (String(manifest.version) !== resolvedPackage.version) {
+        throw new PkgError("ERR_PKG_INVALID", "index resolved " + resolvedPackage.id + "@" + resolvedPackage.version +
+          " but the .pdpkg says " + manifest.version, 3);
+      }
+    }
+
     // A local archive with --sha256 must actually match; the flag used to be silently ignored.
-    if (kind === "archive" && flags.sha256) {
+    if (kind === "archive" && flags.sha256 && !resolvedPackage) {
       const expected = String(flags.sha256).toLowerCase();
       if (!/^[0-9a-f]{64}$/.test(expected)) {
         throw new PkgError("ERR_BAD_ARGS", "--sha256 must be a 64-character hex digest", 2);
@@ -363,6 +426,23 @@ async function install(message) {
       }
     }
 
+    const settings = readSettings();
+    const fromNetwork = resolvedPackage !== null || /^https?:\/\//i.test(String(target));
+    const scriptResult = await runScript({
+      manifest: manifest,
+      contentRoot: contentRoot,
+      scriptRoot: kind === "dir" ? dirRoot : pkgRoot,
+      pkgId: pkgId,
+      version: version,
+      task: id,
+      flags: flags,
+      settings: settings,
+      root: ROOT,
+      fromNetwork: fromNetwork,
+      event: event,
+      call: (capability, op, args) => callCapability(capability, op, args),
+    });
+
     event("step", { stepId: "assert", title: "assert", state: "running" });
     assertFilesExist(contentRoot, manifest.asserts);
     event("step", { stepId: "assert", title: "assert", state: "done" });
@@ -372,6 +452,7 @@ async function install(message) {
       env: manifest.env || {},
       registry: manifest.registry || [],
       launch: manifest.launch || [],
+      data: manifest.data || [],
     };
 
     event("step", { stepId: "adopt", title: "adopt", state: "running" });
@@ -385,6 +466,14 @@ async function install(message) {
       wiring,
     });
     event("step", { stepId: "adopt", title: "adopt", state: "done" });
+
+    for (const pending of scriptResult.pendingLinks || []) {
+      await callCapability("storage.wire", "link.create", {
+        task: id,
+        source: path.join(commit.storePath, pending.relative),
+        target: pending.target,
+      });
+    }
 
     event("step", { stepId: "wire", title: "wire", state: "running" });
     const current = await callCapability("storage.current", "set", { task: id, pkg: pkgId, storePath: commit.storePath });
@@ -408,6 +497,8 @@ async function install(message) {
         link: current.link,
         existed: commit.existed === true,
         wiringChanges: wired.changed,
+        source: resolvedPackage ? resolvedPackage.source : null,
+        indexStale: resolvedPackage ? resolvedPackage.stale : false,
         task: id,
       },
     });
@@ -419,6 +510,368 @@ async function install(message) {
     }
     await cleanupGrant();
     fail(error);
+  }
+}
+
+function commandIo(message) {
+  const id = message.id;
+  let seq = 0;
+  return {
+    id: id,
+    event: (type, data) => send({ v: 1, kind: "evt", id, seq: ++seq, data: Object.assign({ type }, data) }),
+    done: (payload) => send({ v: 1, kind: "evt", id, seq: ++seq, data: Object.assign({ type: "done", ok: true, exitCode: 0 }, payload) }),
+    fail: (error) => send({
+      v: 1, kind: "evt", id, seq: ++seq,
+      data: {
+        type: "done", ok: false,
+        exitCode: error.exitCode || exitForCode(error.code),
+        error: { code: error.code || "ERR_INTERNAL", message: error.message || String(error) },
+      },
+    }),
+  };
+}
+
+function commandContext(message) {
+  const argv = (message.data && message.data.argv) || [];
+  const parsed = parseFlags(argv);
+  const clientCwd = (message.data && message.data.ctx && message.data.ctx.cwd) || process.cwd();
+  const resolveFrom = (value) => (path.isAbsolute(String(value)) ? path.resolve(String(value)) : path.resolve(clientCwd, String(value)));
+  return { argv: argv, flags: parsed.flags, positional: parsed.positional, resolveFrom: resolveFrom };
+}
+
+function cacheState(source, manager) {
+  if (source.kind === "dir" || source.kind === "builtin") {
+    return "live";
+  }
+  const cache = manager.cacheFor(source);
+  if (!fs.existsSync(cache.index)) {
+    return "missing";
+  }
+  try {
+    const meta = JSON.parse(fs.readFileSync(cache.meta, "utf8"));
+    const age = Date.now() - Date.parse(meta.fetchedAt || 0);
+    return age < manager.ttlMillis(source) ? "fresh" : "stale";
+  } catch (error) {
+    return "cached";
+  }
+}
+
+async function sourceCommand(message) {
+  const io = commandIo(message);
+  const { flags, positional, resolveFrom } = commandContext(message);
+  const manager = sources();
+  const sub = positional[0] || "list";
+  try {
+    const document = manager.load();
+    if (sub === "list") {
+      const rows = document.sources
+        .slice()
+        .sort((left, right) => (left.priority || 500) - (right.priority || 500))
+        .map((source) => [source.name, source.kind, String(source.priority || 500), source.enabled === false ? "no" : "yes", cacheState(source, manager)]);
+      await io.event("table", {
+        title: "sources",
+        columns: [
+          { key: "name", title: "源" },
+          { key: "kind", title: "类型" },
+          { key: "priority", title: "优先级" },
+          { key: "enabled", title: "启用" },
+          { key: "cache", title: "索引" },
+        ],
+        rows: rows,
+      });
+      io.done({ summary: rows.length + " sources", metrics: { sources: rows.length } });
+      return;
+    }
+
+    if (sub === "add") {
+      const name = String(positional[1] || "");
+      const target = positional[2] ? String(positional[2]) : "";
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+        throw new PkgError("ERR_BAD_ARGS", "source name must match [a-z][a-z0-9-]*", 2);
+      }
+      if (document.sources.some((source) => source.name === name)) {
+        throw new PkgError("ERR_BAD_ARGS", "source already exists: " + name, 2);
+      }
+      const kind = String(flags.kind || (/^https?:\/\//i.test(target) ? "http" : /^(gh:|github:)/i.test(target) ? "git" : "dir"));
+      if (kind === "builtin") {
+        throw new PkgError("ERR_UNSUPPORTED", "builtin sources ship with the app and cannot be added by hand", 11);
+      }
+      const source = { name: name, kind: kind, priority: Number(flags.priority) || 500, enabled: true };
+      if (kind === "dir") {
+        if (!target) {
+          throw new PkgError("ERR_BAD_ARGS", "source add <name> <path> needs a directory for kind=dir", 2);
+        }
+        const directory = resolveFrom(target);
+        if (!fs.existsSync(directory)) {
+          throw new PkgError("ERR_SOURCE_UNREACHABLE", "source directory does not exist: " + directory, 15);
+        }
+        source.path = directory;
+      } else if (kind === "http") {
+        if (!/^https?:\/\//i.test(target)) {
+          throw new PkgError("ERR_BAD_ARGS", "kind=http needs an http(s) index url", 2);
+        }
+        source.url = target;
+      } else if (kind === "git") {
+        const repo = target.replace(/^(gh:|github:)/i, "");
+        source.repo = repo;
+        source.url = "https://raw.githubusercontent.com/" + repo + "/HEAD/index.json";
+      } else {
+        throw new PkgError("ERR_UNSUPPORTED", "source kind " + kind + " is not implemented yet (dir/http/git)", 11);
+      }
+      if (flags.ttl) {
+        source.ttl = String(flags.ttl);
+      }
+      document.sources.push(source);
+      manager.save(document);
+      io.done({ summary: "added source " + name, metrics: { name: name, kind: kind, priority: source.priority } });
+      return;
+    }
+
+    if (sub === "remove") {
+      const name = String(positional[1] || "");
+      const index = document.sources.findIndex((source) => source.name === name);
+      if (index < 0) {
+        throw new PkgError("ERR_PKG_NOT_FOUND", "source not found: " + name, 20);
+      }
+      document.sources.splice(index, 1);
+      manager.save(document);
+      fs.rmSync(manager.cacheFor({ name: name }).dir, { recursive: true, force: true });
+      io.done({ summary: "removed source " + name, metrics: { name: name } });
+      return;
+    }
+
+    if (sub === "enable" || sub === "disable") {
+      const name = String(positional[1] || "");
+      const source = document.sources.find((candidate) => candidate.name === name);
+      if (!source) {
+        throw new PkgError("ERR_PKG_NOT_FOUND", "source not found: " + name, 20);
+      }
+      source.enabled = sub === "enable";
+      manager.save(document);
+      io.done({ summary: sub + "d source " + name, metrics: { name: name, enabled: source.enabled } });
+      return;
+    }
+
+    if (sub === "refresh") {
+      const names = positional[1] ? [String(positional[1])] : document.sources.filter((source) => source.enabled !== false).map((source) => source.name);
+      let refreshed = 0;
+      let stale = 0;
+      const errors = [];
+      const failures = [];
+      for (const name of names) {
+        const source = document.sources.find((candidate) => candidate.name === name);
+        if (!source) {
+          errors.push(name + ": source not found");
+          failures.push(new PkgError("ERR_PKG_NOT_FOUND", "source not found: " + name, 20));
+          continue;
+        }
+        io.event("step", { stepId: "refresh-" + name, title: "refresh " + name, state: "running" });
+        try {
+          const loaded = await manager.loadIndex(source, { refresh: true, offline: flags.offline === true });
+          refreshed += 1;
+          if (loaded.stale) {
+            stale += 1;
+          }
+          io.event("step", { stepId: "refresh-" + name, title: "refresh " + name, state: "done" });
+        } catch (error) {
+          io.event("step", { stepId: "refresh-" + name, title: "refresh " + name, state: "failed" });
+          errors.push(name + ": " + (error.message || String(error)));
+          failures.push(error);
+        }
+      }
+      if (refreshed === 0 && errors.length > 0) {
+        // Single-source refresh must surface the real code (e.g. ERR_INDEX_INVALID), not a generic one.
+        if (failures.length === 1 && failures[0] instanceof Error && failures[0].code) {
+          throw failures[0];
+        }
+        throw new PkgError("ERR_SOURCE_UNREACHABLE", errors.join("; "), 15);
+      }
+      io.done({ summary: "refreshed " + refreshed + " sources" + (stale ? " (" + stale + " stale)" : ""), metrics: { refreshed: refreshed, stale: stale, errors: errors } });
+      return;
+    }
+
+    throw new PkgError("ERR_BAD_ARGS", "unknown source subcommand: " + sub, 2);
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
+async function indexCommand(message) {
+  const io = commandIo(message);
+  const { flags, positional, resolveFrom } = commandContext(message);
+  const manager = sources();
+  const sub = positional[0] || "";
+  try {
+    if (sub === "build") {
+      const directory = positional[1] ? resolveFrom(positional[1]) : "";
+      if (!directory || !fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
+        throw new PkgError("ERR_BAD_ARGS", "index build needs an existing directory", 2);
+      }
+      const name = String(flags.name || path.basename(directory).toLowerCase().replace(/[^a-z0-9-]/g, "-") || "local");
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) {
+        throw new PkgError("ERR_BAD_ARGS", "index name must match [a-z][a-z0-9-]*", 2);
+      }
+      const document = manager.indexFromDirectory(directory);
+      document.name = name;
+      document.priority = Number(flags.priority) || 500;
+      document.generated = new Date().toISOString();
+      document.generator = "pd 2.0.0";
+      const out = flags.out ? resolveFrom(flags.out) : path.join(directory, "index.json");
+      fs.writeFileSync(out, JSON.stringify(document, null, 2) + "\n");
+      io.done({
+        summary: "index " + name + ": " + Object.keys(document.packages).length + " packages -> " + out,
+        metrics: { name: name, out: out, packages: Object.keys(document.packages).length },
+      });
+      return;
+    }
+
+    if (sub === "inspect") {
+      const target = positional[1] ? String(positional[1]) : "";
+      if (!target) {
+        throw new PkgError("ERR_BAD_ARGS", "index inspect needs a file or url", 2);
+      }
+      let document;
+      if (/^https?:\/\//i.test(target)) {
+        const dest = path.join(ROOT, "state", "tmp", "index-inspect-" + process.pid + ".json");
+        await callCapability("download.fetch", "get", { url: target, dest: dest, maxBytes: 32 * 1024 * 1024 });
+        try {
+          document = manager.validateIndex(JSON.parse(fs.readFileSync(dest, "utf8")));
+        } finally {
+          fs.rmSync(dest, { force: true });
+        }
+      } else {
+        const file = resolveFrom(target);
+        if (!fs.existsSync(file)) {
+          throw new PkgError("ERR_PKG_NOT_FOUND", "index file does not exist: " + file, 20);
+        }
+        document = manager.validateIndex(JSON.parse(fs.readFileSync(file, "utf8")));
+      }
+      const rows = Object.entries(document.packages).map(([id, entry]) => [id, entry.latest, String(Object.keys(entry.versions || {}).length), entry.title || ""]);
+      await io.event("table", {
+        title: "index " + document.name,
+        columns: [
+          { key: "package", title: "包" },
+          { key: "latest", title: "最新" },
+          { key: "versions", title: "版本数" },
+          { key: "title", title: "名称" },
+        ],
+        rows: rows,
+      });
+      io.done({ summary: "index " + document.name + ": " + rows.length + " packages", metrics: { name: document.name, packages: rows.length } });
+      return;
+    }
+
+    throw new PkgError("ERR_BAD_ARGS", "unknown index subcommand: " + sub, 2);
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
+async function searchCommand(message) {
+  const io = commandIo(message);
+  const { flags, positional } = commandContext(message);
+  const manager = sources();
+  const term = String(positional[0] || "").toLowerCase();
+  if (!term) {
+    io.fail(new PkgError("ERR_BAD_ARGS", "search needs a term", 2));
+    return;
+  }
+  try {
+    const document = manager.load();
+    let sourcesToSearch = document.sources.filter((source) => source.enabled !== false);
+    if (flags.source) {
+      sourcesToSearch = sourcesToSearch.filter((source) => source.name === String(flags.source));
+      if (sourcesToSearch.length === 0) {
+        throw new PkgError("ERR_PKG_NOT_FOUND", "source not found: " + flags.source, 20);
+      }
+    }
+    sourcesToSearch = sourcesToSearch.slice().sort((left, right) => (left.priority || 500) - (right.priority || 500));
+
+    let installed = null;
+    if (flags.installed === true) {
+      const records = await callCapability("storage.record", "list", {});
+      installed = new Set((records.items || []).map((item) => item.id));
+    }
+
+    const results = [];
+    const skipped = [];
+    for (const source of sourcesToSearch) {
+      let loaded;
+      try {
+        loaded = await manager.loadIndex(source, { offline: true });
+      } catch (error) {
+        skipped.push(source.name);
+        continue;
+      }
+      for (const [id, entry] of Object.entries(loaded.index.packages)) {
+        if (installed && !installed.has(id)) {
+          continue;
+        }
+        const title = String(entry.title || "");
+        const haystack = (id + " " + title).toLowerCase();
+        if (!haystack.includes(term)) {
+          continue;
+        }
+        const score = id.toLowerCase() === term ? 3 : id.toLowerCase().startsWith(term) ? 2 : 1;
+        results.push({ id: id, latest: entry.latest, title: title, source: source.name, priority: source.priority || 500, score: score });
+      }
+    }
+    results.sort((left, right) => right.score - left.score || left.priority - right.priority || left.id.localeCompare(right.id));
+    const limit = Number(flags.limit) > 0 ? Number(flags.limit) : 50;
+    const rows = results.slice(0, limit).map((result) => [result.id, result.latest, result.source, result.title]);
+    try {
+      await io.event("table", {
+        title: "search " + term,
+        columns: [
+          { key: "package", title: "包" },
+          { key: "latest", title: "最新" },
+          { key: "source", title: "源" },
+          { key: "title", title: "名称" },
+        ],
+        rows: rows,
+      });
+    } catch (error) {
+      // table rendering is best effort
+    }
+    io.done({
+      summary: rows.length + " matches" + (skipped.length ? " (offline: " + skipped.join(",") + ")" : ""),
+      metrics: { matches: rows.length, skippedSources: skipped },
+    });
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
+async function fetchCommand(message) {
+  const io = commandIo(message);
+  const { flags, positional } = commandContext(message);
+  const manager = sources();
+  const target = String(positional[0] || "");
+  if (!target) {
+    io.fail(new PkgError("ERR_BAD_ARGS", "fetch needs a package reference like name@version", 2));
+    return;
+  }
+  try {
+    io.event("step", { stepId: "source", title: "resolve source", state: "running" });
+    const resolved = await manager.resolve(target, flags);
+    io.event("step", { stepId: "source", title: "resolve source", state: "done" });
+    io.event("step", { stepId: "fetch", title: "download", state: "running" });
+    const blob = await manager.materialize(resolved, flags);
+    io.event("step", { stepId: "fetch", title: "download", state: "done" });
+    io.done({
+      summary: "fetched " + resolved.id + " " + resolved.version,
+      metrics: {
+        package: resolved.id,
+        version: resolved.version,
+        source: resolved.source.name,
+        path: blob.path,
+        cached: blob.cached === true,
+        sha256: blob.sha256,
+        size: blob.size,
+      },
+    });
+  } catch (error) {
+    io.fail(error);
   }
 }
 
@@ -468,6 +921,14 @@ connect({
       const command = (message.data && message.data.cmd) || argv[0] || "";
       if (command === "install") {
         install(message);
+      } else if (command === "source") {
+        sourceCommand(message);
+      } else if (command === "index") {
+        indexCommand(message);
+      } else if (command === "search") {
+        searchCommand(message);
+      } else if (command === "fetch") {
+        fetchCommand(message);
       } else {
         send({ v: 1, kind: "evt", id: message.id, seq: 1, data: { type: "done", ok: false, exitCode: 2, error: { code: "ERR_UNKNOWN_COMMAND", message: "pkgmgr has no command " + command } } });
       }

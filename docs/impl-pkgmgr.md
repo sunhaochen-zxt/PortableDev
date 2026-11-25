@@ -1,77 +1,111 @@
-# 包管理实现说明（pkgmgr / download / unpack）
+# 包管理实现说明（pkgmgr / download / unpack / sources）
 
-> 状态：可用。三种来源（`.pdpkg`、目录、URL）可装到 store 并建 current 指针；失败自动回滚。
-> 相关文档：[commands.md](commands.md) 5.1、[package-spec.md](package-spec.md)、[impl-storage.md](impl-storage.md)、[impl-rollback.md](impl-rollback.md)。
+> 状态：可用。四种来源（`.pdpkg`、目录、URL、**源索引按包名**）都能装到 store 并建 current 指针；
+> 失败自动回滚；包脚本走受限请求协议；家目录/接线/HKLM 由 storage 执行。
+> 相关文档：[commands.md](commands.md) 5.1、[package-spec.md](package-spec.md)、[index-spec.md](index-spec.md)、
+> [impl-storage.md](impl-storage.md)、[impl-rollback.md](impl-rollback.md)、[impl-wire.md](impl-wire.md)。
 
 ---
 
-## 1. 三个扩展的分工
+## 1. 扩展分工
 
-| 扩展 | 职责 | 不做什么 |
+| 扩展/模块 | 职责 | 不做什么 |
 |---|---|---|
-| `pkgmgr` | 编排安装流程、读说明书、跑断言、决定失败回滚 | 不直接碰 store/租界（都经 storage） |
-| `download` | URL → `cache\\blobs\\<sha256>`，边下边算哈希，镜像依次尝试 | 不安装、不解压 |
-| `unpack` | 把压缩包解到指定目录，带路径穿越与大小上限检查 | 不下载、不判断内容 |
+| `pkgmgr` | 编排安装流程、读说明书、跑断言与包脚本、决定失败回滚 | 不直接碰 store/租界（都经 storage） |
+| `pkgmgr/sources.js` | `config/sources.json`、索引缓存（`state/sources/<源>`）、版本范围解析 | 不碰 store |
+| `pkgmgr/scripts.js` | 受限脚本协议（stdout 请求 / stdin 回执）、超时与进程树清理 | 不直连内核 |
+| `download` | URL → blob（带哈希）或任意 URL → 指定路径（`get`，供索引/清单） | 不安装、不解压 |
+| `unpack` | 解压到指定目录，拒绝 `..`/绝对路径/链接/超限 | 不下载、不判断内容 |
 
-三者的连接全靠内核的 `call` 按能力名路由（spec 5.6），互不知道对方是谁。
+三者靠内核 `call` 按能力名路由（spec 5.6），互不知道对方是谁。
 
-## 2. 一次安装的流程（已实现部分）
+## 2. 一次安装的流程
 
 ```
 pd install <目标>
- 1. resolve   判断来源：.pdpkg / 目录 / URL（URL 需要 --sha256）
- 2. 读说明书   .pdpkg 先解到租界读 package.json；目录直接读
- 3. 预演       --dry-run 在这里返回计划，不碰 store
- 4. 取内容     ① 有 files\  → 直接用
-              ② 有 source.url → download.fetch → unpack.extract 到租界
-              ③ 目录包 → 整个目录先复制进租界（用户目录不在 staging 里）
- 5. 文件断言   exists / missing / json / fileHash，对着内容目录检查
- 6. 收编       storage.adopt commit：算指纹 → 写审计 → rename 进 store → 写记录
- 7. 接线指针   storage.current set（PATH/环境变量/注册表/启动器还没有）
- 8. 提交       storage.ledger commit → 清理租界
-失败时：调用 rollback.run 撤销该任务的账，然后返回原始错误
+ 1. resolve   来源判定：
+              URL（如需 --sha256）→ 下载 blob
+              本地 .pdpkg / 目录 → 直接用
+              包名[@范围] → sources.resolve（dir/http/git 源，优先级+范围+yanked/平台/渠道过滤）
+                            → materialize 到 cache\\blobs\\<sha256>
+ 2. 读说明书   .pdpkg/URL 先解到租界读 package.json；目录直接读
+ 3. 预演       --dry-run 在解析后返回计划（按名安装不下载 blob）
+ 4. 解来源     ① files\\ → 直接用 ② source.url → download.fetch → unpack.extract ③ 目录 → 复制进租界
+ 5. 包脚本     script 段（策略：本地默认跑，网络源需 --allow-scripts，--no-scripts 优先）
+ 6. 文件断言   exists / missing / json / fileHash
+ 7. 收编       storage.adopt commit（算指纹 → 写审计 → rename → 写记录）
+ 8. 家目录/接线 storage.wire apply（env/PATH/HKCU/HKLM/启动器/data.link/data.copy、{{HOME}} 展开）
+ 9. 提交       storage.ledger commit → 清理租界；失败时 rollback.run 撤销该任务的账
 ```
 
-**路径基准**：相对路径按**调用方 shell 的 cwd** 解析（`req.ctx.cwd`），不是按扩展进程自己的
-工作目录——这是 spec 3.5 上下文快照的直接后果。
+**路径基准**：相对路径按**调用方 shell 的 cwd** 解析（`req.ctx.cwd`）。
 
-## 3. 错误与退出码
+## 3. 源与索引（index-spec）
+
+- `config\sources.json` 随盘走：`{sources:[{name,kind,priority,enabled,path|url|repo,ttl}]}`；
+  默认自动加入内置源（`app\sources\<名>\index.json`）和 `<盘>\packages` 目录源；
+- 源类型：`dir`（有 index.json 就用，没有就现场扫 `.pdpkg`）、`http`（缓存到
+  `state\sources\<名>\index.json` + `meta.json`，TTL 默认 24h）、`git`（`gh:owner/repo` → raw index URL）、
+  `builtin`（随程序发布，只读）；`scoop` 仍未实现（`ERR_UNSUPPORTED`）；
+- 版本范围：`latest` / 精确版本 / `^` / `~` / `>= < ==` 组合；默认跳过 yanked、预发布
+  （除非显式管道/版本，yanked 需 `--force`）、平台不符、minKernel 不满足；
+- 多源：priority 小者优先，同优先级按声明顺序；`--source` 锁定单源；
+- 离线：`--offline` 只用缓存（索引/blob），缺内容报 `ERR_OFFLINE_MISS`(23)；
+- 命令：`pd source list|add|remove|enable|disable|refresh`、`pd index build|inspect`、
+  `pd search`（只读缓存）、`pd fetch`（只下不装）。
+
+## 4. 包脚本（package-spec 3.5）
+
+- 入口相对**包根**（archive 的包根、目录包的源目录），cwd 是内容根；
+- 策略：`--no-scripts` > `--allow-scripts` > `install.allowScripts`（`local`/`always`/`never`）；
+  本地来源默认跑，网络来源默认不跑；
+- 协议：stdout 一行一个 `{"type":"request","id","cmd","args"}`，pkgmgr 在 stdin 回
+  `{"id","ok","data"|"error"}`；白名单：`write/copy/move/rm/fetch/unpack/assert/link/path.add/env.set/reg.set/reg.del/launch`；
+- 一律拒：未知命令、`script.network=false` 时的 fetch、路径逃出内容根、`elevated:true`（见下）；
+- 脚本任何请求失败后仍继续并 exit 0 → 安装失败（不静默忽略）；脚本 exit≠0 / 超时（默认 10m）→ 失败；
+- 脚本拿不到内核管道（环境里没有 `PD_PIPE`），只能通过 pkgmgr 请求副作用；
+- **Job Object 尚未实现**：超时用 `taskkill /T /F` 杀进程树，隔离靠最小环境 + windowsHide。
+
+## 5. 家目录、data 与提权
+
+- `{{HOME}}` / `{{PERSIST}}` 展开为 `<稳定根>\home\<包>`；apply 前自动建
+  `<盘>\home\<包>`（用户数据）并把它接到稳定根（junction）；
+- `data.kind=link/copy`：link 建“机器路径 → 盘上目录”的联接；copy 复制一份，ledger 记录 undo；
+  目标已存在时拒绝覆盖；
+- HKLM、以及稳定根/用户目录之外的目标：storage 调 `pd-elevate`（`app\tools\pd-elevate.exe`）
+  做一次提权批次；`state\wire\fake-mode` 下这些操作写 fake 状态，完全不需要提权；
+- 已知限制：提权批次里“机器已改、ledger 尚未写”的窗口存在（崩溃可能留下无账可撤的改动）；
+  `elevated:true` 的**包脚本**仍未实现（会返回 `ERR_UNSUPPORTED`）。
+
+## 6. 错误与退出码
 
 | 情况 | 错误码 | 退出码 |
 |---|---|---|
-| 包说明书不合法 / 缺字段 | `ERR_PKG_INVALID` | 3 |
-| 下载后哈希不符 | `ERR_HASH` | 3 |
-| 找不到包文件 | `ERR_PKG_NOT_FOUND` | 20 |
-| 源连不上 / 网络错误 | `ERR_SOURCE_UNREACHABLE`、`ERR_NET` | 15 |
+| 说明书/索引不合法 | `ERR_PKG_INVALID` / `ERR_INDEX_INVALID` | 3 |
+| 哈希不符（下载/本地） | `ERR_HASH` | 3 |
+| 找不到包/源/版本 | `ERR_PKG_NOT_FOUND` | 20 |
+| 显式版本被撤回 | `ERR_PKG_YANKED`（`--force` 可装） | 22 |
+| 源连不上 / 网络错误 | `ERR_SOURCE_UNREACHABLE` / `ERR_NET` | 15 |
 | 离线且缓存没有 | `ERR_OFFLINE_MISS` | 23 |
-| 按包名安装（索引未实现） | `ERR_UNSUPPORTED` | 11 |
-| 路径穿越、解包不支持的格式 | `ERR_UNSUPPORTED` | 11 |
-| 文件断言失败 | `ERR_ASSERT` | 12 |
-| 平台不符 | `ERR_PKG_PLATFORM` | 11 |
+| 平台/格式不支持 | `ERR_PKG_PLATFORM` / `ERR_UNSUPPORTED` | 11 |
+| 断言失败 | `ERR_ASSERT` | 12 |
+| 脚本失败/超时 | `ERR_SCRIPT` / `ERR_TIMEOUT` | 1 / 25 |
 
-## 4. 安全边界
+## 7. 安全边界
 
-- **路径穿越**：解包前先列条目，拒绝绝对路径、盘符、`..`；解包后再统计文件数与字节数，超限即删；
-- **哈希**：下载边写边算，不符就删临时文件；本地文件同样校验；
-- **租界**：所有解压/复制都在 storage 发的租界里，收编才进 store；
-- **失败必回滚**：pkgmgr 在 catch 里调 `rollback.run`，再清理租界。
+- 解包前拒绝绝对路径/盘符/`..`/链接条目，解包后再查文件数与字节数，超限即删；
+- 下载边写边算哈希，不符删临时文件；本地文件同样校验；索引文件走 `download.get` 后立即校验 schema；
+- 所有解压/复制都在 storage 发的租界里，收编才进 store；
+- 脚本路径必须留在包根/内容根内，未知请求一律 `ok:false`；
+- 失败必回滚：pkgmgr catch 里调 `rollback.run`，再清理租界。
 
-## 5. 测试
+## 8. 测试
 
-`tools/pkg-e2e.py`：**37 项**，夹具在运行时生成（zip/tar.gz + 本地 HTTP 服务器）。
-
-| 组 | 断言 |
-|---|---|
-| 预演 | 退出码 0、计划事件、store 不变 |
-| `.pdpkg` | 装成功、内容落盘、current 指针、记录、staging 清空 |
-| 目录 | 复制进租界后收编成功 |
-| 远程内容 | 下载到 blob 缓存、解压、收编 |
-| URL 包 | `--sha256` 校验、重复内容复用同一 store 目录 |
-| 哈希不符 | `ERR_HASH` + 退出码 3 + 不留 store 目录 |
-| 路径穿越 | 拒绝并报告，租界外没有落文件 |
-| 断言失败 | `ERR_ASSERT` + 退出码 12 + 不留记录 |
-| 未知包名 | `ERR_UNSUPPORTED` + 退出码 11 |
-| 日志联动 | `pd log --grep storage.adopt` 能看到记录 |
+| 套件 | 项数 | 覆盖 |
+|---|---|---|
+| `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
+| `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
+| `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 
 运行：
 
@@ -79,21 +113,17 @@ pd install <目标>
 DN="Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
 "$DN" build src/PortableDev.Kernel/PortableDev.Kernel.csproj
 python -u tools/pkg-e2e.py .run
+python -u tools/source-e2e.py .run
+python -u tools/script-e2e.py .run
 ```
 
-## 6. 还没做的（按优先级）
+## 9. 还没做的
 
 | 项 | 说明 |
 |---|---|
-| 源与索引 | 按包名安装、`@版本`、多源优先级、yanked —— 需要 index-spec 落地 |
-| 包脚本 | `script` 段、stdout/stdin 受限协议、Job Object 隔离；目前一律不跑 |
-| 更多解包 | `7z` / `msi`（盘上有 7z，接上即可） |
-| 激活类断言 | 需要接线完成后才能跑命令类断言 |
-| （已完成）接线 | PATH / 环境变量 / 注册表 / 启动器已由 `storage.wire.*` + `apply`/`clean` 实现，见 impl-wire.md |
-| 升级 / 卸载 | `pd upgrade`、`pd remove` 还没有；store 不可变，二者主要是挪指针 + 删记录 |
-## 补充修复（2026-11-25 第二轮）
-
-- 失败路径不再静默：`storage.ledger commit`、租界清理（`storage.adopt abort`）失败会以
-  `log` 事件（warn）报给用户，而不是 `catch(() => {})` 吞掉。
-- 恶意归档回归用例：tar 内的 symlink/hardlink 条目会在解包前被拒（`ERR_UNSUPPORTED`），
-  并断言没有文件逃出目标目录、没有留下记录。
+| scoop 源 | `kind: scoop` 仍是 `ERR_UNSUPPORTED`，需要清单转换 |
+| 依赖求解 | `requires`/虚拟包/冲突只做版本条目的平台过滤，未做递归安装 |
+| 更多解包 | `7z` / `msi` |
+| 包脚本 Job Object | 现在只有超时 + 进程树杀，没有内存/CPU/子进程数配额 |
+| 提权脚本 | `script.elevated:true` 未实现（需要提权子进程 + 回执 IPC） |
+| 升级 / 卸载 | `pd upgrade` / `pd remove` 还没有 |

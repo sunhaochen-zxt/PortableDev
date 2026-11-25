@@ -2,6 +2,8 @@
 
 > 配套文档：[architecture.md](architecture.md)、[spec.md](spec.md)、[package-spec.md](package-spec.md)、[commands.md](commands.md)、[kernel.md](kernel.md)
 > 状态：草案。同样遵守「宁多勿少」：字段可以多写，接收方忽略不认识的。
+> v2 实现进度：`dir` / `http` / `git` 源、缓存、优先级、版本范围、yanked、离线均已实现
+> （见 impl-pkgmgr.md）；`scoop` 清单转换、依赖递归安装未实现。
 
 ---
 

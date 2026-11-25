@@ -116,13 +116,13 @@ function downloadHttp(url, target, expected, timeoutMs, maxBytes) {
         response.on("end", () => {
           out.end(() => {
             const actual = digest.digest("hex");
-            if (actual !== expected) {
+            if (expected !== null && expected !== undefined && actual !== expected) {
               cleanup();
               finish(reject, new DownloadError("ERR_HASH", "hash mismatch for " + currentUrl + ": expected " + expected + ", got " + actual));
               return;
             }
             fs.renameSync(temp, target);
-            finish(resolve, fs.statSync(target).size);
+            finish(resolve, { bytes: bytes, sha256: actual });
           });
         });
       });
@@ -136,6 +136,27 @@ function downloadHttp(url, target, expected, timeoutMs, maxBytes) {
 
     attempt(url);
   });
+}
+
+function insideRoot(candidate) {
+  const relative = path.relative(path.resolve(ROOT), path.resolve(candidate));
+  return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+// Untrusted fetch: no expected hash (used for index/metadata files). The caller validates content.
+async function fetchToPath(args) {
+  const url = String(args.url || "");
+  parseTarget(url);
+  const dest = path.resolve(String(args.dest || ""));
+  if (!insideRoot(dest)) {
+    throw new DownloadError("ERR_UNSUPPORTED", "destination must be inside the stick root: " + dest);
+  }
+
+  const maxBytes = Number(args.maxBytes) > 0 ? Number(args.maxBytes) : 32 * 1024 * 1024;
+  const timeoutMs = Number(args.timeoutMs) > 0 ? Number(args.timeoutMs) : 60000;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const downloaded = await downloadHttp(url, dest, null, timeoutMs, maxBytes);
+  return { path: dest, bytes: downloaded.bytes, sha256: downloaded.sha256 };
 }
 
 async function fetchBlob(args) {
@@ -174,8 +195,8 @@ async function fetchBlob(args) {
   for (const url of urls) {
     try {
       parseTarget(url);
-      const bytes = await downloadHttp(url, target, sha256, timeoutMs, maxBytes);
-      return { path: target, bytes, cached: false, sha256, url };
+      const downloaded = await downloadHttp(url, target, sha256, timeoutMs, maxBytes);
+      return { path: target, bytes: downloaded.bytes, cached: false, sha256, url };
     } catch (error) {
       lastError = error;
     }
@@ -192,12 +213,12 @@ async function handleCall(message) {
   const op = (message.data && message.data.op) || "";
   const args = (message.data && message.data.args) || {};
   try {
-    if (capability !== "download.fetch" || op !== "fetch") {
+    if (capability !== "download.fetch" || (op !== "fetch" && op !== "get")) {
       send({ v: 1, kind: "call.err", id, data: { error: { code: "ERR_UNSUPPORTED", message: "unknown " + capability + "/" + op } } });
       return;
     }
 
-    const result = await fetchBlob(args);
+    const result = op === "get" ? await fetchToPath(args) : await fetchBlob(args);
     send({ v: 1, kind: "call.ok", id, data: { result } });
   } catch (error) {
     send({ v: 1, kind: "call.err", id, data: { error: { code: error.code || "ERR_NET", message: error.message || String(error) } } });
