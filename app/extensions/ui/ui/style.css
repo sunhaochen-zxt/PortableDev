@@ -1,0 +1,17 @@
+:root {
+  --bg: #1b1d21; --panel: #24262b; --fg: #e6e6e6; --muted: #9aa0a6; --accent: #4a9eff; --border: #33363c;
+}
+html[data-theme="light"] {
+  --bg: #f5f6f8; --panel: #ffffff; --fg: #1f2328; --muted: #57606a; --accent: #0b62d6; --border: #d7dbe0;
+}
+body { margin: 0; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+header { padding: 16px 20px 8px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.muted { color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin: 12px 20px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+th { color: var(--muted); font-weight: 600; }
+button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+pre { white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px; color: var(--muted); }
+.error { color: #e5534b; }

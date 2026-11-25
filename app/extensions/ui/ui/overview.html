@@ -1,0 +1,27 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><title>概览</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>PortableDev</h1><div class="muted">便携盘开发环境</div></header>
+<section class="card" id="env">正在连接内核…</section>
+<section class="card" id="version"></section>
+<script src="common.js"></script>
+<script>
+(async () => {
+  const envNode = document.getElementById("env");
+  const versionNode = document.getElementById("version");
+  try {
+    const env = await window.pd.env();
+    envNode.innerHTML = "";
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(env, null, 2);
+    envNode.appendChild(pre);
+    const result = await window.pd.run(["version"]);
+    versionNode.textContent = (result.done && (result.done.summary || result.done.metrics && result.done.metrics.kernelVersion)) || "版本未知";
+  } catch (error) {
+    envNode.textContent = "";
+    renderError(envNode, error);
+  }
+})();
+</script>
+</body></html>

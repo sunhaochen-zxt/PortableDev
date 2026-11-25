@@ -1,0 +1,42 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><title>软件包</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>软件包</h1><div class="muted">已安装的包（调用 pd list）</div></header>
+<section class="card"><button id="refresh">刷新</button></section>
+<section class="card"><table id="table"><thead></thead><tbody></tbody></table></section>
+<script src="common.js"></script>
+<script>
+async function load() {
+  const table = document.getElementById("table");
+  const head = table.querySelector("thead");
+  const body = table.querySelector("tbody");
+  head.innerHTML = "";
+  body.innerHTML = "";
+  try {
+    const result = await window.pd.run(["list"]);
+    const tableEvent = (result.events || []).filter((event) => event.type === "table").pop();
+    if (tableEvent) {
+      const tr = document.createElement("tr");
+      for (const column of tableEvent.columns || []) {
+        const th = document.createElement("th");
+        th.textContent = column.title || column.key;
+        tr.appendChild(th);
+      }
+      head.appendChild(tr);
+      for (const row of tableEvent.rows || []) {
+        const tr2 = document.createElement("tr");
+        for (let index = 0; index < row.length; index++) tr2.appendChild(cell(row, index));
+        body.appendChild(tr2);
+      }
+    } else {
+      body.innerHTML = "<tr><td>没有数据</td></tr>";
+    }
+  } catch (error) {
+    renderError(body, error);
+  }
+}
+document.getElementById("refresh").addEventListener("click", load);
+load();
+</script>
+</body></html>

@@ -12,10 +12,12 @@ V2 是一次微内核重写（V1 在仓库 `main`）：内核只做协议与调�
 src/PortableDev.Core        协议帧/信封、配置、身份、日志契约、扩展清单
 src/PortableDev.Kernel      pd-kernel：管道、派发、监督器、恢复、单实例锁
 src/PortableDev.Shell       pd.exe：参数、连接、事件渲染、退出码
+src/PortableDev.Window      pd-window：窗口壳（WinForms + WebView2；页面来自 ui 扩展）
 src/PortableDev.Elevate      pd-elevate：HKLM / HKCU / 盘外路径的提权批次助手
 app/extensions/             storage / rollback / log / download / unpack / pkgmgr
                             （pkgmgr 内含 sources.js 索引解析、scripts.js 受限脚本协议）
                             proc（.NET，进程管理；构建时由 PortableDev.ProcExt 复制到 app/extensions/proc）
+                            ui（内置页面：概览 / 软件包 / 日志）
 tests/PortableDev.Core.Runner  单元测试（21 项）
 tests/PortableDev.Proc.Runner  进程原语/管道测试（8 项）
 archive/pd-job/                已归档的 pd-job helper（不再构建/部署）
@@ -33,6 +35,7 @@ dotnet build src/PortableDev.Shell/pd.csproj -c Debug --no-incremental
 dotnet build src/PortableDev.Elevate/PortableDev.Elevate.csproj -c Debug --no-incremental
 dotnet build src/PortableDev.Proc/PortableDev.Proc.csproj -c Debug --no-incremental
 dotnet build src/PortableDev.ProcExt/PortableDev.ProcExt.csproj -c Debug --no-incremental
+dotnet build src/PortableDev.Window/PortableDev.Window.csproj -c Debug --no-incremental
 dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Debug --no-incremental
 ```
 
@@ -58,6 +61,7 @@ python -u tools/registry-e2e.py .run-registry                                   
 dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）
 python -u tools/run-e2e.py                                                           # 19（pd run/shell + exec 通道）
+python -u tools/window-e2e.py                                                        # 8（窗口壳：内核链路 + WebView2 桥）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

@@ -1,0 +1,21 @@
+<!doctype html>
+<html data-theme="dark">
+<head><meta charset="utf-8"><title>日志</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>日志</h1><div class="muted">最近 50 条（pd log --tail 50）</div></header>
+<section class="card"><pre id="out"></pre></section>
+<script src="common.js"></script>
+<script>
+(async () => {
+  const out = document.getElementById("out");
+  try {
+    const result = await window.pd.run(["log", "--tail", "50"]);
+    const lines = (result.events || []).filter((event) => event.type === "log")
+      .map((event) => (event.level || "info") + "  " + (event.msg || ""));
+    out.textContent = lines.join("\n") || "（没有日志）";
+  } catch (error) {
+    renderError(out, error);
+  }
+})();
+</script>
+</body></html>

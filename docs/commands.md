@@ -89,10 +89,10 @@ pd [全局开关] <命令> [参数...]
 > **实现状态（2026-11-25）**：本节是目标命令面。已注册命令：`version` / `help` / `complete` /
 > `kernel status|ps|ext list|restart|stop|log` / `config list|get|set|unset` / `log` /
 > `install` / `remove` / `upgrade` / `list` / `rollback` / `apply` / `clean` / `gc` /
-> `source` / `index` / `search` / `fetch` / `proc` / `run` / `shell`。
+> `source` / `index` / `search` / `fetch` / `proc` / `run` / `shell` / `ui pages`。
 >
 > **未实现（2026-11-25）**：`ext` / `doctor` / `recover` / `outdated` /
-> `info` / `ui` / `env` / `selftest` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
+> `info` / `env` / `selftest` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
 
 ### 4.1 信息类
 

@@ -78,6 +78,7 @@ public sealed class BuiltinCommandSet
         Add("kernel restart", [], true, false, "restart one extension", "pd kernel restart <名字>", KernelRestartAsync);
         Add("kernel stop", [], true, false, "stop the kernel", "pd kernel stop [--force]", KernelStopAsync);
         Add("kernel log", [], false, true, "kernel fallback log", "pd kernel log [--tail <n>]", KernelLogAsync);
+        Add("ui pages", [], false, true, "pages declared by extensions", "pd ui pages [--json]", UiPagesAsync);
         Add("config list", [], false, true, "list settings", "pd config list [--json]", ConfigListAsync);
         Add("config get", [], false, true, "read one setting", "pd config get <键> [--file]", ConfigGetAsync);
         Add("config set", [], true, false, "change one setting", "pd config set <键> <值>", ConfigSetAsync);
@@ -231,6 +232,62 @@ public sealed class BuiltinCommandSet
         }).ConfigureAwait(false);
 
         return Ok("kernel running");
+    }
+
+    private async Task<CommandResult> UiPagesAsync(TaskContext ctx, string[] args)
+    {
+        _ = args;
+        var pages = new JsonArray();
+        var rows = new List<JsonArray>();
+        foreach (var manifest in _kernel.Registry.Extensions.OrderBy(m => m.Name, StringComparer.Ordinal))
+        {
+            if (!manifest.Enabled || manifest.Pages is not { } declared)
+            {
+                continue;
+            }
+
+            foreach (var node in declared)
+            {
+                if (node is not JsonObject page)
+                {
+                    continue;
+                }
+
+                var id = JsonUtil.String(page, "id");
+                var entry = JsonUtil.String(page, "entry");
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(entry))
+                {
+                    continue;
+                }
+
+                var title = JsonUtil.String(page, "title") ?? id;
+                pages.Add(new JsonObject
+                {
+                    ["extension"] = manifest.Name,
+                    ["id"] = id,
+                    ["title"] = title,
+                    ["entry"] = entry,
+                    ["icon"] = JsonUtil.String(page, "icon"),
+                    ["order"] = JsonUtil.Int(page, "order") ?? 100,
+                    ["nav"] = JsonUtil.String(page, "nav") ?? "sidebar",
+                });
+                rows.Add(new JsonArray(manifest.Name, id, title, entry));
+            }
+        }
+
+        await ctx.KvAsync("pages", new JsonObject { ["items"] = pages }).ConfigureAwait(false);
+        await ctx.EmitAsync(EventTypes.Table, new JsonObject
+        {
+            ["title"] = "pages",
+            ["columns"] = new JsonArray(
+                new JsonObject { ["key"] = "extension", ["title"] = "扩展" },
+                new JsonObject { ["key"] = "id", ["title"] = "页面" },
+                new JsonObject { ["key"] = "title", ["title"] = "标题" },
+                new JsonObject { ["key"] = "entry", ["title"] = "入口" }),
+            ["rows"] = new JsonArray(rows.Select(row => (JsonNode?)row).ToArray()),
+            ["final"] = true,
+        }).ConfigureAwait(false);
+        return Ok(rows.Count + " page(s)");
     }
 
     private async Task<CommandResult> KernelPsAsync(TaskContext ctx, string[] args)

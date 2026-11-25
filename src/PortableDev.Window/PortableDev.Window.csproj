@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>PortableDev.Window</RootNamespace>
+    <AssemblyName>pd-window</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <!-- WebView2 ships net462 reference assemblies and a WPF reference we do not use. -->
+    <NoWarn>$(NoWarn);NU1701</NoWarn>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="web\pd-bridge.js" LogicalName="PortableDev.Window.pd-bridge.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PortableDev.Core\PortableDev.Core.csproj" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4370.26" />
+  </ItemGroup>
+
+</Project>

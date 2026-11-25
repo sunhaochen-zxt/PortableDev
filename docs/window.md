@@ -3,6 +3,9 @@
 > 配套文档：[architecture.md](architecture.md)、[spec.md](spec.md)、[commands.md](commands.md)、[kernel.md](kernel.md)
 > 本文管：**窗口从哪加载页面、页面怎么调命令、事件怎么到页面、出错怎么显示、页面之间怎么隔离**。
 > 本文不管：具体页面长什么样（那是 `ui` 扩展的事）。
+>
+> **实现状态（2026-11-25）**：窗口壳 `src/PortableDev.Window`（`pd-window.exe`）+ 内置 `ui` 扩展已落地。
+> 与本文的差异记在第 11 节。
 
 ---
 
@@ -242,7 +245,30 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 
 ---
 
-## 10. 还没定的
+## 10. 实现状态与差异（2026-11-25）
+
+已实现：
+
+- Windows 壳 `src/PortableDev.Window`（WinForms + WebView2 控件，`pd-window.exe`）：
+  侧边栏列出所有扩展声明的页面，右侧加载页面；
+- 页面来源：`pd ui pages --json`（内核内置命令，扫描 `ext.json` 的 `pages`）；
+- 虚拟主机：`https://pd.local/<扩展名>/<entry>`，映射到扩展目录（命令行 --extensions 指定，默认探测）；
+- 宿主桥 `window.pd`：`exec` / `on` / `off` / `cancel` / `reply` / `env` / `navigate`，另有便捷方法
+  `run(argv)`（exec + 收集事件直到 done）；`config()` 尚未实现；
+- 事件按任务转发（`evt` / `evt:<id>`），prompt 带 `promptId`，页面用 `pd.reply` 回；
+- 内置 `ui` 扩展：概览 / 软件包 / 日志三个页面，只通过 `window.pd` 调命令；
+- 测试：`tools/window-e2e.py`（8 项）——无头 self-test 验证内核链路与页面清单；
+  `--smoke <文件>` 启动真实 WebView2、加载首页并断言 `window.pd` 注入成功。
+
+差异 / 未做：
+
+- WebView2 SDK 通过 `vendor/nuget/` 里的 `Microsoft.Web.WebView2` 包离线构建（`NuGet.config` 只用本地源），
+  没有把运行时打进盘；机器上需要装 WebView2 Runtime（Win10/11 一般随 Edge 已有）；
+- 主题/语言从 `config/settings.json` 注入 `pd.theme` / `pd.locale`；图标集、快捷键、多页签还没做；
+- CSP 目前靠页面自身约束（虚拟主机映射不能加响应头），没有强制注入；
+- 不支持 `pd.config()`、托盘通知、多窗口（按第 10 节仍待定）。
+
+## 11. 还没定的
 
 1. ~~页面之间的导航~~ → 已定：`pd.navigate`，同页签，不做新窗口（见 3.1）。
 2. 通知（安装完成后要不要系统托盘提示）。
