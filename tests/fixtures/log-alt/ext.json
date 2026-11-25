@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "name": "log",
+  "version": "0.0.1",
+  "title": "Log (alt)",
+  "priority": 10,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "log.ingest",
+      "version": 1,
+      "mutates": false
+    },
+    {
+      "name": "log.query",
+      "version": 1,
+      "mutates": false
+    },
+    {
+      "name": "log.audit",
+      "version": 1,
+      "mutates": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "log",
+      "mutates": false,
+      "parallel": true
+    }
+  ],
+  "lifecycle": {
+    "start": "eager",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "30s",
+    "maxRestarts": 3
+  }
+}

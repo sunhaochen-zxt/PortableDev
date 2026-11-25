@@ -1,0 +1,18 @@
+# build output
+bin/
+obj/
+*.user
+.vs/
+
+# runtime/test artifacts
+.run/
+.run-fresh/
+run-*/
+probe.out
+*.out
+
+# internal QA artifacts (audit reports are kept outside the repository)
+audit/
+
+# node
+node_modules/

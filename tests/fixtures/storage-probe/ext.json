@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "name": "storeprobe",
+  "version": "0.0.1",
+  "title": "Storage probe",
+  "priority": 60,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [],
+  "commands": [
+    {
+      "name": "storeprobe",
+      "summary": "exercise the storage capability",
+      "usage": "pd storeprobe run|abort|gc|ledger",
+      "mutates": true
+    }
+  ],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "60s",
+    "maxConcurrency": 2,
+    "restart": "on-crash",
+    "maxRestarts": 2
+  }
+}

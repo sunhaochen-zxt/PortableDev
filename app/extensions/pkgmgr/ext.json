@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "name": "pkgmgr",
+  "version": "0.0.1",
+  "title": "Package manager",
+  "priority": 30,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "pkg.install",
+      "version": 1,
+      "mutates": true
+    }
+  ],
+  "requires": [
+    "storage.grant",
+    "storage.adopt",
+    "storage.current",
+    "storage.ledger",
+    "download.fetch",
+    "unpack.extract",
+    "rollback.run"
+  ],
+  "commands": [
+    {
+      "name": "install",
+      "aliases": [
+        "add",
+        "i"
+      ],
+      "mutates": true,
+      "parallel": false,
+      "summary": "install a package from a .pdpkg, a directory or a URL",
+      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>]"
+    }
+  ],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "120s",
+    "stopTimeout": "3s",
+    "restart": "on-crash",
+    "maxRestarts": 2
+  }
+}

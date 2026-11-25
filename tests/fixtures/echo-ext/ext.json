@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "name": "echo",
+  "version": "0.0.1",
+  "title": "Echo",
+  "priority": 50,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "echo.echo",
+      "mutates": false
+    }
+  ],
+  "requires": [],
+  "commands": [
+    {
+      "name": "echo",
+      "summary": "echo a line back",
+      "usage": "pd echo <text>",
+      "mutates": false,
+      "parallel": true
+    }
+  ],
+  "permissions": [],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "4s",
+    "stopTimeout": "2s",
+    "maxConcurrency": 2,
+    "restart": "on-crash",
+    "maxRestarts": 2,
+    "restartBackoff": "1s"
+  }
+}

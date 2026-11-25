@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "name": "log",
+  "version": "0.0.1",
+  "title": "Log",
+  "priority": 10,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "log.ingest",
+      "version": 1,
+      "mutates": false
+    },
+    {
+      "name": "log.query",
+      "version": 1,
+      "mutates": false
+    },
+    {
+      "name": "log.audit",
+      "version": 1,
+      "mutates": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "log",
+      "summary": "query the journal",
+      "usage": "pd log [--tail N] [--since …] [--level …] [--unit …] [--grep …] [--follow] [--json] [--disk-usage] [--vacuum]",
+      "mutates": false,
+      "parallel": true
+    }
+  ],
+  "lifecycle": {
+    "start": "eager",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "30s",
+    "stopTimeout": "2s",
+    "maxConcurrency": 4,
+    "restart": "on-crash",
+    "maxRestarts": 5,
+    "restartBackoff": "1s"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "name": "unpack",
+  "version": "0.0.1",
+  "title": "Unpack",
+  "priority": 21,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "unpack.extract",
+      "version": 1,
+      "mutates": true
+    }
+  ],
+  "commands": [],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "120s",
+    "stopTimeout": "3s",
+    "restart": "on-crash",
+    "maxRestarts": 3
+  }
+}

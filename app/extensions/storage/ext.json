@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "name": "storage",
+  "version": "0.0.1",
+  "title": "Storage",
+  "priority": 5,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "storage.grant",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.adopt",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.record",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.current",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.gc",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.ledger",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.wire",
+      "version": 1,
+      "mutates": true
+    },
+    {
+      "name": "storage.generation",
+      "version": 1,
+      "mutates": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "apply",
+      "summary": "rebuild machine wiring from the records",
+      "usage": "pd apply [--dry-run]",
+      "mutates": true,
+      "parallel": false
+    },
+    {
+      "name": "clean",
+      "summary": "undo the machine wiring, keep packages",
+      "usage": "pd clean [--dry-run]",
+      "mutates": true,
+      "parallel": false
+    },
+    {
+      "name": "gc",
+      "summary": "remove unreferenced store versions, staging, generations and caches",
+      "usage": "pd gc [--keep <n>] [--blobs] [--dry-run] [--force]",
+      "mutates": true,
+      "parallel": false
+    }
+  ],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "60s",
+    "stopTimeout": "3s",
+    "maxConcurrency": 4,
+    "restart": "on-crash",
+    "maxRestarts": 3,
+    "restartBackoff": "1s"
+  }
+}

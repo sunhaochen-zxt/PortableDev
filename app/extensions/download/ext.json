@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "name": "download",
+  "version": "0.0.1",
+  "title": "Download",
+  "priority": 20,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "provides": [
+    {
+      "name": "download.fetch",
+      "version": 1,
+      "mutates": true
+    }
+  ],
+  "commands": [],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "120s",
+    "stopTimeout": "3s",
+    "restart": "on-crash",
+    "maxRestarts": 3
+  }
+}
