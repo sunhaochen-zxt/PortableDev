@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 DOTNET = r"Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
 DOTNET_ROOT = os.path.dirname(DOTNET)
@@ -40,7 +41,14 @@ def main():
     dest = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".run-app")
     app = os.path.join(dest, "app")
     print("deploying to " + dest)
-    shutil.rmtree(dest, ignore_errors=True)
+    if os.path.isdir(dest):
+        try:
+            shutil.rmtree(dest)
+        except OSError:
+            aside = dest + ".old-" + str(int(time.time()))
+            os.replace(dest, aside)
+            print("note: the previous folder is in use; moved it aside to " + aside)
+
     os.makedirs(app, exist_ok=True)
     extensions = os.path.join(app, "extensions")
     os.makedirs(extensions, exist_ok=True)

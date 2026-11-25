@@ -234,11 +234,21 @@ public sealed class BuiltinCommandSet
         return Ok("kernel running");
     }
 
+    /// <summary>Page entries are served through a virtual host; only safe relative paths are allowed.</summary>
+    private static bool IsSafePageEntry(string entry)
+        => entry.Length > 0
+           && !entry.StartsWith("/", StringComparison.Ordinal)
+           && !entry.StartsWith("\\", StringComparison.Ordinal)
+           && !entry.Contains(':')
+           && !entry.Contains("..", StringComparison.Ordinal)
+           && !entry.Contains('\0');
+
     private async Task<CommandResult> UiPagesAsync(TaskContext ctx, string[] args)
     {
         _ = args;
         var pages = new JsonArray();
         var rows = new List<JsonArray>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var manifest in _kernel.Registry.Extensions.OrderBy(m => m.Name, StringComparer.Ordinal))
         {
             if (!manifest.Enabled || manifest.Pages is not { } declared)
@@ -260,6 +270,23 @@ public sealed class BuiltinCommandSet
                     continue;
                 }
 
+                if (!IsSafePageEntry(entry) || !seen.Add(manifest.Name + ":" + id))
+                {
+                    _kernel.Logger.Warn("ui.page", "page declaration rejected", new JsonObject
+                    {
+                        ["extension"] = manifest.Name,
+                        ["id"] = id,
+                        ["entry"] = entry,
+                    });
+                    continue;
+                }
+
+                var nav = JsonUtil.String(page, "nav");
+                if (nav is not ("sidebar" or "menu" or "hidden"))
+                {
+                    nav = "sidebar";
+                }
+
                 var title = JsonUtil.String(page, "title") ?? id;
                 pages.Add(new JsonObject
                 {
@@ -269,7 +296,7 @@ public sealed class BuiltinCommandSet
                     ["entry"] = entry,
                     ["icon"] = JsonUtil.String(page, "icon"),
                     ["order"] = JsonUtil.Int(page, "order") ?? 100,
-                    ["nav"] = JsonUtil.String(page, "nav") ?? "sidebar",
+                    ["nav"] = nav,
                 });
                 rows.Add(new JsonArray(manifest.Name, id, title, entry));
             }

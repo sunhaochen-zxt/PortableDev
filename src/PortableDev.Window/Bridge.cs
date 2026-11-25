@@ -101,6 +101,7 @@ public sealed class Bridge
                         ? known
                         : JsonUtil.String(parameters, "taskId") ?? string.Empty;
                     await _link.ReplyAsync(taskId, promptId, parameters["value"]?.DeepClone()).ConfigureAwait(false);
+                    _prompts.TryRemove(promptId, out _);
                     Reply(id, new JsonObject());
                     return;
                 }

@@ -13,7 +13,9 @@ public sealed class KernelLink : IAsyncDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> _done = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly TaskCompletionSource<JsonArray> _pagesSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _pump;
+    private string? _pagesTaskId;
     private long _counter;
 
     private KernelLink(Stream stream) => _stream = stream;
@@ -113,6 +115,7 @@ public sealed class KernelLink : IAsyncDisposable
         var finished = await Task.WhenAny(task, Task.Delay(timeoutMs)).ConfigureAwait(false);
         if (finished != task)
         {
+            _done.TryRemove(id, out _);
             throw new TimeoutException("kernel did not answer within " + timeoutMs + "ms");
         }
 
@@ -176,23 +179,16 @@ public sealed class KernelLink : IAsyncDisposable
 
     public async Task<JsonArray> RequestPagesAsync()
     {
-        await ExecAsync(["ui", "pages"]).ConfigureAwait(false);
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        while (DateTime.UtcNow < deadline)
+        _pagesTaskId = await ExecAsync(["ui", "pages"]).ConfigureAwait(false);
+        try
         {
-            var page = Pages;
-            if (page is not null)
-            {
-                return page;
-            }
-
-            await Task.Delay(100).ConfigureAwait(false);
+            return await _pagesSignal.Task.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
         }
-
-        return new JsonArray();
+        catch (TimeoutException)
+        {
+            throw new TimeoutException("ui pages did not answer within 20s");
+        }
     }
-
-    private JsonArray? Pages { get; set; }
 
     private async Task PumpAsync()
     {
@@ -227,13 +223,31 @@ public sealed class KernelLink : IAsyncDisposable
             var type = JsonUtil.String(data, "type");
             if (type == EventTypes.Kv && JsonUtil.String(data, "title") == "pages")
             {
-                Pages = JsonUtil.Array(data, "items") ?? JsonUtil.Array(JsonUtil.Object(data, "items"), "items");
+                var items = JsonUtil.Array(data, "items") ?? JsonUtil.Array(JsonUtil.Object(data, "items"), "items");
+                if (items is not null)
+                {
+                    _pagesSignal.TrySetResult(items);
+                }
             }
 
             EventReceived?.Invoke(envelope.Id, data);
-            if (type == EventTypes.Done && _done.TryRemove(envelope.Id, out var waiter))
+            if (type == EventTypes.Done)
             {
-                waiter.TrySetResult(data);
+                if (string.Equals(envelope.Id, _pagesTaskId, StringComparison.Ordinal))
+                {
+                    var exitCode = JsonUtil.Int(data, "exitCode") ?? -1;
+                    if (exitCode != 0)
+                    {
+                        var error = JsonUtil.Object(data, "error");
+                        _pagesSignal.TrySetException(new InvalidOperationException(
+                            "ui pages failed: " + (JsonUtil.String(error, "code") ?? "exit " + exitCode)));
+                    }
+                }
+
+                if (_done.TryRemove(envelope.Id, out var waiter))
+                {
+                    waiter.TrySetResult(data);
+                }
             }
         }
     }

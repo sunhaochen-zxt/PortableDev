@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -9,11 +11,12 @@ namespace PortableDev.Window;
 public sealed class MainForm : Form
 {
     private readonly WindowOptions _options;
-    private readonly WebView2 _webView = new();
     private readonly ListBox _navigation = new();
     private readonly Label _status = new();
     private readonly List<JsonObject> _pages = new();
+    private WebView2 _webView = new();
     private KernelLink? _link;
+    private bool _initialized;
     private bool _smokeWritten;
     private System.Windows.Forms.Timer? _smokeTimer;
 
@@ -39,11 +42,28 @@ public sealed class MainForm : Form
         Controls.Add(_webView);
         Controls.Add(_navigation);
         Controls.Add(_status);
-        Load += async (_, _) => await InitializeAsync().ConfigureAwait(true);
+        Shown += async (_, _) => await InitializeAsync().ConfigureAwait(true);
+        FormClosed += (_, _) => DisposeLink();
+    }
+
+    private void DisposeLink()
+    {
+        var link = _link;
+        _link = null;
+        if (link is not null)
+        {
+            _ = link.DisposeAsync().AsTask();
+        }
     }
 
     private async Task InitializeAsync()
     {
+        if (_initialized)
+        {
+            return;
+        }
+
+        _initialized = true;
         try
         {
             _link = await KernelLink.ConnectAsync(_options.Root, _options.KernelDll).ConfigureAwait(true);
@@ -59,18 +79,7 @@ public sealed class MainForm : Form
                 _navigation.Items.Add(new PageItem(JsonUtil.String(page, "title") ?? "页面", page));
             }
 
-            if (_options.Smoke is not null)
-            {
-                _smokeTimer = new System.Windows.Forms.Timer { Interval = 25000 };
-                _smokeTimer.Tick += (_, _) =>
-                {
-                    _smokeTimer!.Stop();
-                    WriteSmoke(new JsonObject { ["ok"] = false, ["status"] = _status.Text, ["error"] = "window shell did not finish" });
-                    BeginInvoke(Close);
-                };
-                _smokeTimer.Start();
-            }
-
+            StartSmokeWatchdog();
             if (_pages.Count == 0)
             {
                 _status.Text = "没有安装界面扩展（缺少 ui 扩展）";
@@ -83,8 +92,18 @@ public sealed class MainForm : Form
                 return;
             }
 
-            var environment = await CreateWebViewEnvironmentAsync().ConfigureAwait(true);
-            await _webView.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
+            if (!await EnsureWebViewAsync().ConfigureAwait(true))
+            {
+                _status.Text = "WebView2 初始化失败（已重试 3 次），详见 state/logs/window-error.log";
+                if (_options.Smoke is not null)
+                {
+                    WriteSmoke(new JsonObject { ["ok"] = false, ["status"] = _status.Text, ["error"] = "webview failed" });
+                    BeginInvoke(Close);
+                }
+
+                return;
+            }
+
             var core = _webView.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
@@ -100,36 +119,109 @@ public sealed class MainForm : Form
             }
 
             _navigation.SelectedIndex = 0;
-            _status.Text = "内核 " + _link.KernelVersion + " · " + Path.GetFileName(_options.Root.TrimEnd(Path.DirectorySeparatorChar));
+            _status.Text = "内核 " + _link.KernelVersion + " · " + Path.GetFileName(_options.Root);
         }
         catch (Exception ex)
         {
-            _status.Text = "窗口壳启动失败: " + ex.Message;
-            if (_options.Smoke is not null)
-            {
-                WriteSmoke(new JsonObject { ["ok"] = false, ["status"] = _status.Text, ["error"] = ex.Message });
-                BeginInvoke(Close);
-            }
+            HandleFailure(ex);
         }
     }
 
+    private async Task<bool> EnsureWebViewAsync()
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                var environment = await CreateWebViewEnvironmentAsync(attempt).ConfigureAwait(true);
+                await _webView.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                WriteDiagnostic(ex, attempt);
+                RecreateWebView();
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
-    /// WebView2 refuses two processes sharing one user-data folder (ERROR_BUSY); give every window
-    /// its own folder and retry with a fresh one if a stale process still holds it.
+    /// Every attempt gets a fresh user-data folder: WebView2 refuses a folder another process still
+    /// holds (ERROR_BUSY) and reports E_UNEXPECTED when a half-initialized profile is reused.
     /// </summary>
-    private static async Task<CoreWebView2Environment> CreateWebViewEnvironmentAsync()
+    private static async Task<CoreWebView2Environment> CreateWebViewEnvironmentAsync(int attempt)
     {
         var local = Path.Combine(Path.GetTempPath(), "pd-window");
-        var folder = Path.Combine(local, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var name = attempt == 0
+            ? Environment.ProcessId.ToString(CultureInfo.InvariantCulture)
+            : Environment.ProcessId.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8];
+        var folder = Path.Combine(local, name);
+        return await CoreWebView2Environment.CreateAsync(null, folder).ConfigureAwait(true);
+    }
+
+    private void RecreateWebView()
+    {
         try
         {
-            return await CoreWebView2Environment.CreateAsync(null, folder).ConfigureAwait(true);
+            Controls.Remove(_webView);
+            _webView.Dispose();
         }
-        catch (Exception ex) when (ex.HResult == unchecked((int)0x800700AA))
+        catch (Exception)
         {
-            var fallback = Path.Combine(local, Guid.NewGuid().ToString("N"));
-            return await CoreWebView2Environment.CreateAsync(null, fallback).ConfigureAwait(true);
+            // The control may already be disposed.
         }
+
+        _webView = new WebView2 { Dock = DockStyle.Fill };
+        Controls.Add(_webView);
+        _webView.BringToFront();
+    }
+
+    private void HandleFailure(Exception ex)
+    {
+        WriteDiagnostic(ex, -1);
+        _status.Text = "窗口壳启动失败: " + ex.Message + "（详见 state/logs/window-error.log）";
+        if (_options.Smoke is not null)
+        {
+            WriteSmoke(new JsonObject { ["ok"] = false, ["status"] = _status.Text, ["error"] = ex.Message });
+            BeginInvoke(Close);
+        }
+    }
+
+    private void WriteDiagnostic(Exception ex, int attempt)
+    {
+        try
+        {
+            var directory = Path.Combine(_options.Root, "state", "logs");
+            Directory.CreateDirectory(directory);
+            var builder = new StringBuilder();
+            builder.AppendLine(DateTime.Now.ToString("O", CultureInfo.InvariantCulture) + " attempt=" + attempt
+                + " hresult=0x" + ex.HResult.ToString("X8", CultureInfo.InvariantCulture) + " " + ex.GetType().Name + ": " + ex.Message);
+            builder.AppendLine(ex.ToString());
+            File.AppendAllText(Path.Combine(directory, "window-error.log"), builder.ToString(), Encoding.UTF8);
+        }
+        catch (Exception)
+        {
+            // Diagnostics must never crash the shell.
+        }
+    }
+
+    private void StartSmokeWatchdog()
+    {
+        if (_options.Smoke is null)
+        {
+            return;
+        }
+
+        _smokeTimer = new System.Windows.Forms.Timer { Interval = 25000 };
+        _smokeTimer.Tick += (_, _) =>
+        {
+            _smokeTimer!.Stop();
+            WriteSmoke(new JsonObject { ["ok"] = false, ["status"] = _status.Text, ["error"] = "window shell did not finish" });
+            BeginInvoke(Close);
+        };
+        _smokeTimer.Start();
     }
 
     private async Task FinishSmokeAsync(CoreWebView2NavigationCompletedEventArgs args)
@@ -185,7 +277,7 @@ public sealed class MainForm : Form
     {
         var extension = JsonUtil.String(page, "extension") ?? string.Empty;
         var entry = JsonUtil.String(page, "entry") ?? string.Empty;
-        if (entry.StartsWith("/", StringComparison.Ordinal))
+        while (entry.StartsWith("/", StringComparison.Ordinal))
         {
             entry = entry[1..];
         }
