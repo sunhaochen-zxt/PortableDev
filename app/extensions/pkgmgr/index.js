@@ -1115,7 +1115,8 @@ async function upgradeCommand(message) {
         const suffix = rollback.failed > 0 ? " (rollback partial: " + rollback.failed + " step(s))" : "";
         failed.push({ package: pkg, code: error.code || "ERR_INTERNAL", message: (error.message || String(error)) + suffix, task: taskId });
         io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "failed" });
-        io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) + suffix });
+        io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) + suffix +
+          "; partial store directories are left for pd gc" });
         if (isCancelled(message.id)) {
           cancelled = true;
           break;

@@ -214,6 +214,7 @@ public sealed class ClientConnection : IMessageSink
             ["kernelVersion"] = _kernel.State.KernelVersion,
             ["kernelAbi"] = _kernel.State.Abi,
             ["stickId"] = _kernel.State.StickId,
+            ["machineId"] = _kernel.State.MachineId,
             ["root"] = _kernel.State.Root,
             ["stableRoot"] = _kernel.State.StableRoot,
             ["features"] = new JsonArray(Features.Json, Features.Prompt, Features.Cancel, Features.Progress, Features.Subscribe, Features.ExtEvents, Features.Grants),

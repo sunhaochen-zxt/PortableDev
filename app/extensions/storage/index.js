@@ -617,6 +617,8 @@ async function uninstall(args) {
     undo: { cap: "storage.record", op: "write", args: { record } },
   });
   recordDelete({ pkg });
+  // last-apply describes the machine wiring of the previous apply; the package just left, so it is stale.
+  fs.rmSync(LAST_APPLY_FILE, { force: true });
 
   const generationSeq = skipGeneration ? null : writeGeneration(readAllRecords());
   logInfo("storage.uninstall", "package uninstalled", {
@@ -905,6 +907,8 @@ const FAKE_FILE = path.join(WIRE_DIR, "fake.json");
 fs.mkdirSync(WIRE_DIR, { recursive: true });
 
 const FAKE = process.env.PD_WIRE_FAKE === "1" || fs.existsSync(path.join(WIRE_DIR, "fake-mode"));
+// Set from hello.ok; records remember which machine captured their pre-install values.
+let MACHINE_ID = "";
 
 // Elevated helper: used for HKLM and machine paths outside the user's own directories.
 let elevateCounter = 0;
@@ -1248,9 +1252,16 @@ async function wireCopyRemove(args) {
     if (!fake.copies || !Object.prototype.hasOwnProperty.call(fake.copies, target)) {
       return { changed: false, target: target };
     }
+    const copySource = fake.copies[target] || (args.source ? path.resolve(String(args.source)) : null);
+    await ledgerEntry(args.task, {
+      op: "copy.remove",
+      target: target,
+      before: copySource ? { source: copySource } : null,
+      undo: copySource ? { cap: "storage.wire", op: "copy.create", args: { target: target, source: copySource } } : null,
+    });
     delete fake.copies[target];
     writeFake(fake);
-    return { changed: true, target: target };
+    return { changed: true, target: target, undo: copySource !== null };
   }
   if (!allowedLinkTarget(target)) {
     runElevated([{ op: "copy.remove", target: target }]);
@@ -1259,13 +1270,15 @@ async function wireCopyRemove(args) {
   if (!fs.existsSync(target)) {
     return { changed: false, target: target };
   }
+  const copySource = args.source ? path.resolve(String(args.source)) : null;
   await ledgerEntry(args.task, {
     op: "copy.remove",
     target: target,
-    undo: null,
+    before: copySource ? { source: copySource } : null,
+    undo: copySource ? { cap: "storage.wire", op: "copy.create", args: { target: target, source: copySource } } : null,
   });
   fs.rmSync(target, { recursive: true, force: true });
-  return { changed: true, target: target };
+  return { changed: true, target: target, undo: copySource !== null };
 }
 
 async function wireLinkRemove(args) {
@@ -1601,6 +1614,12 @@ function ensureBefore(record) {
     // Remember which machine view the values came from: restoring fake-mode values onto the real
     // machine (or vice versa) is meaningless, so those records fall back to plain removal.
     wiring.before.fake = FAKE;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(wiring.before, "machine")) {
+    // The stick travels between machines; restoring A's captured env/registry values on B would
+    // corrupt B. Records without this field predate the feature and keep the old behaviour.
+    wiring.before.machine = MACHINE_ID || "unknown";
   }
 
   for (const key of ["path", "env", "registry", "launchers"]) {
@@ -2007,7 +2026,13 @@ async function restoreWiring(record, task) {
     return 0;
   }
 
-  const before = sameMode ? raw : {};
+  const crossMachine = Boolean(raw.machine) && Boolean(MACHINE_ID) && raw.machine !== MACHINE_ID;
+  if (crossMachine) {
+    logInfo("storage.wire", "record was wired on another machine; removing without restoring its old values",
+      { pkg: record.id, recordMachine: raw.machine, machine: MACHINE_ID });
+  }
+
+  const before = sameMode && !crossMachine ? raw : {};
   const beforePath = before.path || {};
   const beforeEnv = before.env || {};
   const beforeRegistry = before.registry || {};
@@ -2072,7 +2097,7 @@ async function restoreWiring(record, task) {
         changed += 1;
       }
     } else if (kind === "copy") {
-      if ((await wireCopyRemove({ task: task, target: target })).changed) {
+      if ((await wireCopyRemove({ task: task, target: target, source: expandText(record, item.source || "") })).changed) {
         changed += 1;
       }
     }
@@ -2090,7 +2115,8 @@ async function previewRestore(record) {
     return 0;
   }
 
-  const before = sameMode ? raw : {};
+  const crossMachine = Boolean(raw.machine) && Boolean(MACHINE_ID) && raw.machine !== MACHINE_ID;
+  const before = sameMode && !crossMachine ? raw : {};
   const beforePath = before.path || {};
   const beforeEnv = before.env || {};
   const beforeRegistry = before.registry || {};
@@ -2528,6 +2554,8 @@ const link = connect({
   onMessage(message, outbound) {
     send = outbound;
     if (message.kind === "hello.ok") {
+      MACHINE_ID = String((message.data && message.data.machineId) ||
+        process.env.COMPUTERNAME || process.env.HOSTNAME || "");
       ready(send, [
         { name: "storage.grant", version: 1, mutates: true },
         { name: "storage.adopt", version: 1, mutates: true },

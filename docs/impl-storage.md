@@ -115,6 +115,10 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 - `--purge` 把 `home<包>` rename 到 `state	rash...`（同卷原子 rename），账本 `home.purge` 记 trash 路径，
   undo 是 `storage.home restore`；`pd gc` 最终删除 trash，gc 之后数据不可恢复；
 - 删记录；`skipGeneration:false` 时写一个存档点（升级流程传 `true`，由新装版本统一写）；
+  卸载后删除 `state/wire/last-apply.json`（它描述上一次 apply，已经过期）；
+- 记录里的 `wiring.before` 带 `fake` 与 `machine` 标记：跨机器（`machineId` 不同）拆线时
+  只删本机可见的接线，**不把安装机捕获的原值写回本机**（写 warn 日志）；没有 `machine` 字段的
+  老记录保持旧行为；
 - 所有改动**先写账本、带 `undo`**；rollback 部分失败会按失败上报，不再静默成功；
 - `store` 目录不在这里删，留给 `gc` 按引用判断。
 
@@ -153,6 +157,7 @@ storage 自己会写的条目：
 | 拆家目录联接头 | `home.unlink`（before = 目标） | `{cap:"storage.home", op:"ensure", args:{pkg}}` |
 | 删除家目录数据（移到 trash） | `home.purge`（before = home 路径，trash = 目标） | `{cap:"storage.home", op:"restore", args:{pkg, from, to}}` |
 | 删包记录 | `record.delete`（before = 旧记录） | `{cap:"storage.record", op:"write", args:{record}}` |
+| 删除 data.copy 目标 | `copy.remove`（before = source） | `{cap:"storage.wire", op:"copy.create", args:{target, source}}`（source 在盘上时） |
 
 ### 9.2 执行撤销的原语
 

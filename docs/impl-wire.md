@@ -45,6 +45,8 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
   PATH 里原本有没有该目录）记进记录的 `wiring.before`；
 - `clean` **只拆接线**：包、记录、store、用户数据都不动；有 `wiring.before` 时**还原安装前的值**
   （用户原有的同名环境变量 / 注册表值/启动器不会被删掉）；fake 机模式下捕获的值不会用到真机上；
+- 记录同时标记捕获时的机器（`wiring before.machine`，来自 hello.ok 的 machineId）；
+  换机器后 clean/remove 只删本机接线，不把安装机捕获的原值写回本机；
 - 两者都可以 `--dry-run`；
 - `clean` 之后 `apply` 能把接线原样建回来（记录里存着声明）。
 

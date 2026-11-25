@@ -131,6 +131,13 @@ def stop_kernel(root):
     time.sleep(0.8)
 
 
+def write_fake_state(root, state):
+    path = os.path.join(root, "state", "wire", "fake.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+
+
 def record(root, pkg):
     path = os.path.join(root, "state", "records", pkg + ".json")
     if not os.path.isfile(path):
@@ -186,6 +193,10 @@ def main():
     make_pkg(os.path.join(work, "flaky-1.0.0.pdpkg"), "flaky", "1.0.0", "flaky 1")
     make_pkg(os.path.join(work, "flaky-2.0.0.pdpkg"), "flaky", "2.0.0", "flaky 2", {
         "asserts": [{"kind": "exists", "path": "bin/absent.txt"}],
+    })
+    make_pkg(os.path.join(work, "copied-1.0.0.pdpkg"), "copied", "1.0.0", "copied", {
+        "data": [{"kind": "copy", "source": "{{STICK}}\\\\home\\\\copied\\\\seed",
+                  "target": "{{HOME}}\\\\copy"}],
     })
 
     kernel, log = start_kernel(root)
@@ -303,8 +314,56 @@ def main():
               (flaky_target, current_target(root, "flaky")))
         check("failed upgrade writes no generation", generation_count(root) == flaky_gens, (flaky_gens, generation_count(root)))
         check("failed upgrade rollback is not partial", "rollback partial" not in str((done or {}).get("error")), done)
+        check("failed upgrade points at pd gc", "pd gc" in result.stdout, result.stdout[-500:])
         result = pd(root, "--json", "remove", "flaky")
         check("remove flaky", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
+
+        print("cross-machine record must not restore another machine's old values")
+        result = pd(root, "--json", "install", "wiredhome@1.0.0", "--source", "fixtures")
+        check("install wiredhome for cross-machine case", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+        record_path = os.path.join(root, "state", "records", "wiredhome.json")
+        record_data = json.load(open(record_path, encoding="utf-8"))
+        before = record_data.setdefault("wiring", {}).setdefault("before", {})
+        before["machine"] = "machine-a"
+        before.setdefault("env", {})["WIRED_HOME"] = "from-machine-a"
+        with open(record_path, "w", encoding="utf-8") as handle:
+            json.dump(record_data, handle)
+        state = fake_state(root)
+        state.setdefault("env", {})["WIRED_HOME"] = "machine-b-current"
+        write_fake_state(root, state)
+
+        result = pd(root, "--json", "clean")
+        check("clean cross-machine exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("cross-machine clean removes wiring instead of restoring foreign values",
+              "WIRED_HOME" not in fake_state(root).get("env", {}), fake_state(root).get("env"))
+        result = pd(root, "--json", "remove", "wiredhome")
+        check("remove cross-machine record", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
+        print("data.copy remove / rollback")
+        seed = os.path.join(root, "home", "copied", "seed")
+        os.makedirs(seed, exist_ok=True)
+        with open(os.path.join(seed, "data.txt"), "w", encoding="utf-8") as handle:
+            handle.write("copy me\n")
+        result = pd(root, "--json", "install", "copied@1.0.0", "--source", "fixtures")
+        check("install copied", result.returncode == 0 and record(root, "copied") is not None,
+              (result.returncode, result.stdout[-300:]))
+        copy_keys = [key for key in (fake_state(root).get("copies") or {}) if os.path.normcase(key).endswith(os.path.normcase(os.sep + "copy"))]
+        check("data copy recorded", bool(copy_keys), fake_state(root).get("copies"))
+        result = pd(root, "--json", "remove", "copied")
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("remove copied exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("data copy removed on unwire", not any(os.path.normcase(key).endswith(os.path.normcase(os.sep + "copy"))
+                                                      for key in (fake_state(root).get("copies") or {})),
+              fake_state(root).get("copies"))
+        task = (metrics.get("removed") or [{}])[0].get("task")
+        result = pd(root, "--json", "rollback", "--task", task or "missing")
+        check("rollback of data.copy removal exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        copy_keys = [key for key in (fake_state(root).get("copies") or {}) if os.path.normcase(key).endswith(os.path.normcase(os.sep + "copy"))]
+        check("rollback restored the data copy", bool(copy_keys), fake_state(root).get("copies"))
+        result = pd(root, "--json", "remove", "copied", "--purge")
+        check("cleanup copied", result.returncode == 0, (result.returncode, result.stdout[-300:]))
 
         print("home package: remove keeps data, purge is rollback-able")
         result = pd(root, "--json", "install", "wiredhome@1.0.0", "--source", "fixtures")

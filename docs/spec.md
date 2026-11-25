@@ -433,6 +433,7 @@
     "kernelVersion": "2.0.0",
     "kernelAbi": 1,
     "stickId": "pd-748bc65148ad",
+    "machineId": "m-a5f24fefbd80",
     "root": "Z:\\PortableDev",
     "stableRoot": "C:\\Dev",
     "features": ["json", "prompt", "cancel", "progress", "subscribe"],
@@ -614,7 +615,7 @@
 - `invocationId` 来自内核注入的 `PD_INVOCATION_ID`；内核只接受与本轮拉起记录一致的连接，
   不一致（或没带）回 `hello.err`（`ERR_PROTOCOL`）后断开——本机其他进程不能冒充扩展；
 - 同一扩展已有连接时，重复接入一律拒绝；
-- 内核回 `hello.ok`（`protocolRange` / `kernelAbi` / `stickId` / `root` / `limits`）。
+- 内核回 `hello.ok`（`protocolRange` / `kernelAbi` / `stickId` / `machineId` / `root` / `limits`）。
 
 扩展随后再发 `ext.ready`：
 
