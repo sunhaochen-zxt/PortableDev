@@ -74,14 +74,22 @@ public sealed class StdioPipes : IDisposable
         return handle;
     }
 
-    /// <summary>Duplicates this process's stdin/stdout/stderr so a child can inherit them.</summary>
-    public static StdioPipes FromCurrentProcess()
+    /// <summary>
+    /// Duplicates this process's stdin/stdout/stderr so a child can inherit them. When
+    /// <paramref name="redirectStdoutToStderr"/> is set the child writes its stdout to our stderr,
+    /// which keeps an NDJSON event stream on stdout clean.
+    /// </summary>
+    public static StdioPipes FromCurrentProcess(bool redirectStdoutToStderr = false)
     {
         var process = GetCurrentProcess();
+        var stderrSource = GetStdHandle(StandardError);
+        var stdout = redirectStdoutToStderr
+            ? Duplicate(process, stderrSource)
+            : Duplicate(process, GetStdHandle(StandardOutput));
         return new StdioPipes(
             Duplicate(process, GetStdHandle(StandardInput)),
-            Duplicate(process, GetStdHandle(StandardOutput)),
-            Duplicate(process, GetStdHandle(StandardError)));
+            stdout,
+            Duplicate(process, stderrSource));
     }
 
     private static IntPtr Duplicate(IntPtr process, IntPtr handle)

@@ -129,6 +129,23 @@ def make_pkg(root):
     return directory
 
 
+def make_launch_pkg(root):
+    directory = os.path.join(root, "pkgs", "launchdemo")
+    shutil.rmtree(directory, ignore_errors=True)
+    os.makedirs(os.path.join(directory, "files", "bin"), exist_ok=True)
+    manifest = {
+        "schema": 1, "id": "launchdemo", "version": "1.0.0", "platform": "win-x64",
+        "launch": [{"name": "hello", "exe": "bin/hello.cmd"}],
+    }
+    with open(os.path.join(directory, "package.json"), "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle)
+    with open(os.path.join(directory, "files", "bin", "base.txt"), "w", encoding="utf-8") as handle:
+        handle.write("base")
+    with open(os.path.join(directory, "files", "bin", "hello.cmd"), "w", encoding="utf-8") as handle:
+        handle.write("@echo off\r\necho hello %~1\r\nexit /b 0\r\n")
+    return directory
+
+
 def pd(root, *args, timeout=120):
     env = dict(os.environ)
     env["DOTNET_ROOT"] = os.path.dirname(DOTNET)
@@ -161,6 +178,9 @@ def main():
         package = make_pkg(root)
         done = call(stream, ["install", package])
         check("install exit 0", done and done.get("exitCode") == 0, done)
+        launch_package = make_launch_pkg(root)
+        done = call(stream, ["install", launch_package])
+        check("install launch package exit 0", done and done.get("exitCode") == 0, done)
 
         print("pd run: inherited stdio and exit codes")
         result = pd(root, "run", "demo", "--exe", "bin/hello.cmd", "world")
@@ -178,6 +198,39 @@ def main():
 
         result = pd(root, "run", "demo")
         check("missing --exe 2", result.returncode == 2, result.stderr[-300:])
+
+        print("launch declaration")
+        result = pd(root, "run", "launchdemo", "world")
+        check("launch declaration auto-resolved", result.returncode == 0, result.stderr[-300:])
+        check("launch target output", "hello world" in result.stdout, result.stdout[-300:])
+
+        result = pd(root, "run", "launchdemo", "--name", "nope")
+        check("unknown launcher 2", result.returncode == 2, result.stderr[-300:])
+
+        print("--json")
+        result = pd(root, "--json", "run", "launchdemo", "world")
+        done_event = None
+        for line in result.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "done":
+                done_event = event
+        check("json run exit 0", result.returncode == 0, result.stderr[-300:])
+        check("json done event", done_event is not None and done_event.get("exitCode") == 0, done_event)
+        check("json metrics child exit", (done_event or {}).get("metrics", {}).get("childExitCode") == 0, done_event)
+        check("json child output on stderr", "hello world" in result.stderr, result.stderr[-300:])
+
+        print("pd shell")
+        environment = dict(os.environ)
+        environment["DOTNET_ROOT"] = os.path.dirname(DOTNET)
+        environment.pop("PD_KERNEL", None)
+        shell = subprocess.run([DOTNET, PD_DLL, "--root", root, "shell"],
+                               input="echo shell-ok\r\nexit\r\n", capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", env=environment, timeout=120)
+        check("shell exit 0", shell.returncode == 0, shell.stderr[-300:])
+        check("shell ran the command", "shell-ok" in shell.stdout, shell.stdout[-300:])
 
         done = call(stream, ["kernel", "stop"])
         check("kernel stop exit 0", done and done.get("exitCode") == 0, done)

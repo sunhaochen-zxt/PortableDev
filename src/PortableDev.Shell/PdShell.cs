@@ -356,11 +356,6 @@ public sealed class PdShell : IDisposable
 
         try
         {
-            if (_options.Json)
-            {
-                throw new InvalidOperationException("pd run is not supported with --json yet (the child would share the event stream)");
-            }
-
             var command = JsonUtil.String(request, "command");
             if (string.IsNullOrWhiteSpace(command))
             {
@@ -383,7 +378,8 @@ public sealed class PdShell : IDisposable
                 }
             }
 
-            using var stdio = StdioPipes.FromCurrentProcess();
+            // In --json mode the child's stdout goes to our stderr so the NDJSON stream stays clean.
+            using var stdio = StdioPipes.FromCurrentProcess(_options.Json);
             var spec = new ProcessStartSpec
             {
                 FileName = command,

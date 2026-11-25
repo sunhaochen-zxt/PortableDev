@@ -89,9 +89,9 @@ pd [全局开关] <命令> [参数...]
 > **实现状态（2026-11-25）**：本节是目标命令面。已注册命令：`version` / `help` / `complete` /
 > `kernel status|ps|ext list|restart|stop|log` / `config list|get|set|unset` / `log` /
 > `install` / `remove` / `upgrade` / `list` / `rollback` / `apply` / `clean` / `gc` /
-> `source` / `index` / `search` / `fetch` / `proc` / `run`。
+> `source` / `index` / `search` / `fetch` / `proc` / `run` / `shell`。
 >
-> **未实现（2026-11-25）**：`shell` / `ext` / `doctor` / `recover` / `outdated` /
+> **未实现（2026-11-25）**：`ext` / `doctor` / `recover` / `outdated` /
 > `info` / `ui` / `env` / `selftest` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
 
 ### 4.1 信息类
@@ -163,8 +163,8 @@ pd [全局开关] <命令> [参数...]
 
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
-| `pd run <包> [参数...]` | 用该包的环境启动程序 | 否 | 能 | `--exe` `--cwd` `--` 分隔 `--propagate` `--detach` | 2/20/1 |
-| `pd shell` | 开一个环境齐备的终端 | 否 | 能 | `--profile msvc` `cmd` `--propagate` | 4 |
+| `pd run <包> [参数...]` | 用该包的环境启动程序 | 否 | 能 | `--exe` `--cwd` `--name` `--` 分隔 `--propagate` `--detach` | 2/20/1 |
+| `pd shell` | 开一个环境齐备的终端 | 否 | 能 | `cmd` `--propagate`（`--profile` 未实现） | 2/11 |
 | `pd bundle export` | 导出环境清单 | 否 | 能 | `--out` `--lock` | 3 |
 | `pd bundle install <文件>` | 按清单装 | **是** | 见 5.1 | `--from-dir` `--dry-run` | 同 install |
 
@@ -433,17 +433,17 @@ local/mytool@0.1.0
 
 ### 5.12 `pd run` / `pd shell`
 
-- `run`（MVP 形态）：`pd run <包> --exe <store 内相对路径> [--cwd <目录>] [--detach] [-- args...]`；
-  记录来自 `state\records`，程序在**调用方终端**里执行（内核只转发 exec 请求，见 spec 4.10），
-  stdio 原生继承；`.cmd`/`.bat` 自动用 `cmd /c` 包装；
-  按包的 `launch` 声明自动解析可执行文件**尚未实现**（目前必须给 `--exe`）；
+- `run`：`pd run <包> [--exe <store 内相对路径>] [--cwd <目录>] [--name <启动器名>] [--detach] [-- args...]`；
+  不带 `--exe` 时按包的 `launch` 声明解析（只有一个启动器就自动选，多个用 `--name` 指定），
+  `launch.args` / `launch.env` / `launch.cwd` 里的占位符会展开；`.cmd`/`.bat` 自动用 `cmd /c` 包装；
+- 程序在**调用方终端**里执行（内核只转发 exec 请求，见 spec 4.10），stdio 原生继承；
 - **`run` 的退出码属于 `pd` 自己的空间**（见第 3 节）：启动失败 `2`/`20`/`1`，被启动程序非 0 → `1`；
-- 被启动程序的真实退出码放 `done.metrics.childExitCode`（`--json` 可见）；需要让 shell 拿到它，
-  显式加 `--propagate`（此时退出码 = 子进程退出码，`pd` 不再附加语义）；
+- 被启动程序的真实退出码放 `done.metrics.childExitCode`；`--propagate` 时直接透传；
+- `--json` 下仍可用：子进程 stdout 接到 `pd` 的 stderr，保证 stdout 是干净 NDJSON；
 - `--detach`：子进程不进壳的 job，终端关闭 / 壳退出 / 内核停止都不影响它；只对后台程序有意义
   （交互式程序不要用：detach 后没有终端），细节见 [proc.md](proc.md) 第 9 节；
-- `shell`：开一个终端，PATH 指向稳定根，可选 `--profile msvc` 附加变量；
-- `shell` 同理：默认退出码属于 `pd` 的空间；加 `--propagate` 才是终端里那条命令的退出码。
+- `shell`：开一个环境齐备的终端（PATH 含所有已装包的 `current\`），MVP 只支持默认 `cmd`；
+  退出码与 `--propagate` 规则同 `run`；`--profile` 尚未实现（返回 11）。
 
 ### 5.13 `pd pkg pack`
 

@@ -1393,6 +1393,16 @@ async function listCommand(message) {
   }
 }
 
+function expandRunText(text, context) {
+  return String(text === undefined || text === null ? "" : text)
+    .replace(/\{\{STICK\}\}/g, context.root)
+    .replace(/\{\{ROOT\}\}/g, context.stableRoot)
+    .replace(/\{\{HOME\}\}/g, path.join(context.root, "home", context.id))
+    .replace(/\{\{PERSIST\}\}/g, path.join(context.root, "home", context.id))
+    .replace(/\{\{ID\}\}/g, context.id)
+    .replace(/\{\{VERSION\}\}/g, context.version || "");
+}
+
 // `pd run` executes an installed package program *in the client terminal*: pkgmgr resolves the
 // record, the shell spawns the process with inherited stdio and reports the exit code back.
 async function runPackage(message) {
@@ -1415,23 +1425,56 @@ async function runPackage(message) {
       throw new PkgError("ERR_PKG_INVALID", "record has no store path: " + target, 3);
     }
     const base = path.resolve(String(record.storePath));
-    const relativeExe = String(flags.exe || "");
-    if (!relativeExe) {
-      throw new PkgError("ERR_BAD_ARGS", "pd run needs --exe (a path inside the package store); resolving from the package launch declaration is not implemented yet", 2);
+    const settings = readSettings();
+    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\Dev");
+    const expandRun = (text) => expandRunText(text, {
+      root: ROOT,
+      stableRoot: stableRoot,
+      id: String(target),
+      version: String(record.version || ""),
+    });
+
+    let relativeExe = "";
+    let launchArgs = [];
+    let launchEnv = {};
+    let launchCwd = null;
+    if (flags.exe) {
+      relativeExe = String(flags.exe);
+    } else {
+      const declarations = (record.wiring && Array.isArray(record.wiring.launch) ? record.wiring.launch : [])
+        .filter((entry) => entry && entry.exe);
+      const wanted = flags.name ? String(flags.name).toLowerCase() : null;
+      const candidates = wanted
+        ? declarations.filter((entry) => String(entry.name || "").toLowerCase() === wanted)
+        : declarations;
+      if (candidates.length === 0) {
+        throw new PkgError("ERR_BAD_ARGS",
+          (wanted ? "no launch declaration named " + flags.name : "this package has no launch declaration") +
+          "; pass --exe <store 内相对路径>", 2);
+      }
+      if (candidates.length > 1) {
+        throw new PkgError("ERR_BAD_ARGS", "the package has several launch declarations; pick one with --name", 2);
+      }
+      const chosen = candidates[0];
+      relativeExe = String(chosen.exe);
+      launchArgs = Array.isArray(chosen.args) ? chosen.args.map((entry) => expandRun(String(entry))) : [];
+      launchEnv = chosen.env && typeof chosen.env === "object" ? chosen.env : {};
+      launchCwd = chosen.cwd ? expandRun(String(chosen.cwd)) : null;
     }
+
     let command = path.resolve(base, relativeExe);
     if (command !== base && !command.startsWith(base + path.sep)) {
-      throw new PkgError("ERR_UNSUPPORTED", "run --exe must stay inside the package store path", 11);
+      throw new PkgError("ERR_UNSUPPORTED", "the run target must stay inside the package store path", 11);
     }
     if (!fs.existsSync(command)) {
       throw new PkgError("ERR_PKG_INVALID", "run target does not exist: " + command, 3);
     }
-    const cwd = flags.cwd ? path.resolve(base, String(flags.cwd)) : base;
+    const cwd = flags.cwd ? path.resolve(base, String(flags.cwd)) : (launchCwd ? path.resolve(base, launchCwd) : base);
 
     // Launchers are usually .cmd/.bat; CreateProcess needs an executable, so wrap them in the shell.
-    let commandArgs = childArgs;
+    let commandArgs = launchArgs.concat(childArgs);
     if (/\.(cmd|bat)$/i.test(command)) {
-      commandArgs = ["/c", command].concat(childArgs);
+      commandArgs = ["/c", command].concat(commandArgs);
       command = process.env.ComSpec || "cmd.exe";
     }
 
@@ -1444,9 +1487,10 @@ async function runPackage(message) {
         environment[name] = value;
       }
     }
-    const settings = readSettings();
-    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\Dev");
     environment.PATH = path.join(stableRoot, "current", String(target)) + ";" + (environment.PATH || "");
+    for (const [name, value] of Object.entries(launchEnv)) {
+      environment[name] = expandRun(String(value));
+    }
 
     io.event("step", { stepId: "run", title: "run", state: "running" });
     const reply = await execOnClient(message.id, {
@@ -1466,6 +1510,63 @@ async function runPackage(message) {
       exitCode: childExitCode === 0 ? 0 : 1,
       summary: target + " exited with " + childExitCode,
       metrics: { childExitCode: childExitCode, package: target },
+    });
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
+// `pd shell` opens a terminal with every installed package's current directory on PATH. Like
+// `pd run` it goes through the client exec channel, so the child owns the caller's terminal.
+async function shellPackage(message) {
+  const io = commandIo(message);
+  try {
+    const argv = (message.data && message.data.argv) || [];
+    const separator = argv.indexOf("--");
+    const parsed = parseFlags(separator >= 0 ? argv.slice(0, separator) : argv);
+    const flags = parsed.flags;
+    if (flags.profile) {
+      throw new PkgError("ERR_UNSUPPORTED", "shell profiles are not implemented yet", 11);
+    }
+    const shellName = String(parsed.positional[0] || "cmd").toLowerCase();
+    if (shellName !== "cmd") {
+      throw new PkgError("ERR_UNSUPPORTED", "only the default cmd shell is supported yet", 11);
+    }
+
+    const records = sortedRecords((await callCapability("storage.record", "list", {})).items);
+    const settings = readSettings();
+    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\Dev");
+    const environment = {};
+    for (const [name, value] of Object.entries(process.env)) {
+      if (name === "PD_PIPE" || name === "PD_INVOCATION_ID" || name === "PD_EXTENSION" || name === "PD_DOTNET") {
+        continue;
+      }
+      if (value !== undefined) {
+        environment[name] = value;
+      }
+    }
+    const managed = records.map((record) => path.join(stableRoot, "current", String(record.id)));
+    environment.PATH = managed.concat([environment.PATH || ""]).join(";");
+    const cwd = (message.data && message.data.ctx && message.data.ctx.cwd) || ROOT;
+
+    io.event("step", { stepId: "shell", title: "shell", state: "running" });
+    const reply = await execOnClient(message.id, {
+      command: process.env.ComSpec || "cmd.exe",
+      args: [],
+      cwd: cwd,
+      env: environment,
+      detach: false,
+    });
+    if (reply && reply.error) {
+      throw new PkgError(reply.error.code || "ERR_IO", reply.error.message || "the shell could not be started", 1);
+    }
+    const childExitCode = Number(reply && reply.exitCode !== undefined ? reply.exitCode : 0);
+    io.event("step", { stepId: "shell", title: "shell", state: "done" });
+    io.done({
+      ok: childExitCode === 0,
+      exitCode: childExitCode === 0 ? 0 : 1,
+      summary: "shell exited with " + childExitCode,
+      metrics: { childExitCode: childExitCode },
     });
   } catch (error) {
     io.fail(error);
@@ -1571,6 +1672,8 @@ connect({
         runCommand(message, fetchCommand);
       } else if (command === "run") {
         runCommand(message, runPackage);
+      } else if (command === "shell") {
+        runCommand(message, shellPackage);
       } else {
         send({ v: 1, kind: "evt", id: message.id, seq: 1, data: { type: "done", ok: false, exitCode: 2, error: { code: "ERR_UNKNOWN_COMMAND", message: "pkgmgr has no command " + command } } });
       }

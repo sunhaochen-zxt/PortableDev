@@ -77,6 +77,13 @@
       "usage": "pd fetch <包>[@版本] [--source <源>] [--offline] [--refresh]"
     },
     {
+      "name": "shell",
+      "mutates": false,
+      "parallel": true,
+      "summary": "open an environment-ready cmd in the caller terminal",
+      "usage": "pd shell [cmd] [--propagate]"
+    },
+    {
       "name": "run",
       "mutates": false,
       "parallel": true,
