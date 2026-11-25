@@ -46,6 +46,7 @@ dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Deb
 ```bash
 python tools/deploy-dev.py            # 生成 .run-app/
 # 双击 .run-app/启动 PortableDev.cmd 打开窗口壳（自动拉起内核）；命令行用 .run-app/pd.cmd
+# 启动器只做一件事：设置 DOTNET_ROOT（随盘 .NET 不在 PATH 上）；机器装了全局 .NET 时可直接双击 pd-window.exe
 ```
 
 ## 测试

@@ -41,6 +41,13 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
             throw new InvalidOperationException("cannot find the stick root");
         }
 
+        // A launcher may pass the folder with a trailing separator or stray quotes.
+        root = root.Trim().Trim('"');
+        while (root.Length > 3 && (root.EndsWith(Path.DirectorySeparatorChar) || root.EndsWith(Path.AltDirectorySeparatorChar)))
+        {
+            root = root[..^1];
+        }
+
         extensions ??= LocateExtensions(root);
         kernelDll ??= LocateKernelDll(root, kernelDll);
         return new WindowOptions(root, extensions, selfTest, smoke, kernelDll);

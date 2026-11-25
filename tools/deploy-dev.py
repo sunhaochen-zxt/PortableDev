@@ -3,7 +3,7 @@
 
 Copies the built kernel/shell/window/elevate binaries and the product extensions into
 <dest>/app, initializes the stick root and writes launchers:
-  <dest>/启动 PortableDev.cmd   -> opens the window shell
+  <dest>/启动 PortableDev.cmd   -> opens the window shell (kernel starts on demand)
   <dest>/pd.cmd                 -> runs the CLI against this root
 
 Usage: python tools/deploy-dev.py [dest]   (default: .run-app)
@@ -31,9 +31,13 @@ def copy_binaries(source, target):
             shutil.copy2(full, os.path.join(target, name))
 
 
+def write_lines(path, lines):
+    with open(path, "w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write("\r\n".join(lines) + "\r\n")
+
+
 def main():
-    dest = sys.argv[1] if len(sys.argv) > 1 else os.path.join(".run-app")
-    dest = os.path.abspath(dest)
+    dest = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".run-app")
     app = os.path.join(dest, "app")
     print("deploying to " + dest)
     shutil.rmtree(dest, ignore_errors=True)
@@ -54,34 +58,32 @@ def main():
     subprocess.run([DOTNET, os.path.join(app, "pd-kernel.dll"), "--root", dest, "--init", "--once"],
                    check=True, capture_output=True, text=True)
 
+    root_value = DOTNET_ROOT.replace("/", os.sep)
     launcher = os.path.join(dest, "启动 PortableDev.cmd")
-    window_exe = os.path.join("app", "pd-window.exe")
-    lines = [
+    write_lines(launcher, [
         "@echo off",
         "setlocal",
-        "set \"ROOT=%~dp0\"",
-        "set \"DOTNET_ROOT=" + DOTNET_ROOT.replace("/", "\\") + "\"",
-        "start \"\" \"%ROOT%" + window_exe + "\" --root \"%ROOT%\"",
-    ]
-    with open(launcher, "w", encoding="utf-8", newline="\r\n") as handle:
-        handle.write("\r\n".join(lines) + "\r\n")
+        "for %%i in (\"%~dp0.\") do set \"ROOT=%%~fi\"",
+        "set \"DOTNET_ROOT=" + root_value + "\"",
+        "start \"\" \"%ROOT%" + os.sep + "app" + os.sep + "pd-window.exe\" --root \"%ROOT%\"",
+    ])
 
     cli = os.path.join(dest, "pd.cmd")
-    cli_lines = [
+    write_lines(cli, [
         "@echo off",
         "setlocal",
-        "set \"ROOT=%~dp0\"",
-        "set \"DOTNET_ROOT=" + DOTNET_ROOT.replace("/", "\\") + "\"",
-        "\"" + DOTNET.replace("/", "\\") + "\" \"%ROOT%app\\pd.dll\" --root \"%ROOT%\" %*",
-    ]
-    with open(cli, "w", encoding="utf-8", newline="\r\n") as handle:
-        handle.write("\r\n".join(cli_lines) + "\r\n")
+        "for %%i in (\"%~dp0.\") do set \"ROOT=%%~fi\"",
+        "set \"DOTNET_ROOT=" + root_value + "\"",
+        "\"" + DOTNET.replace("/", os.sep) + "\" \"%ROOT%" + os.sep + "app" + os.sep + "pd.dll\" --root \"%ROOT%\" %*",
+    ])
 
     readme = os.path.join(dest, "README.txt")
     with open(readme, "w", encoding="utf-8") as handle:
         handle.write("PortableDev 本地测试盘\r\n\r\n")
         handle.write("双击 启动 PortableDev.cmd 打开窗口壳（会自动拉起内核）。\r\n")
         handle.write("命令行用 pd.cmd，例如：pd.cmd list / pd.cmd install <目标>\r\n")
+        handle.write("\r\n为什么用启动器而不是直接双击 exe：随盘 .NET 不在 PATH 上，\r\n")
+        handle.write("exe 的 host 解析发生在托管代码之前，只能靠 DOTNET_ROOT 环境变量。\r\n")
 
     print("done:")
     print("  window: " + launcher)
