@@ -15,7 +15,7 @@ src/PortableDev.Shell       pd.exe：参数、连接、事件渲染、退出码
 src/PortableDev.Elevate      pd-elevate：HKLM / 盘外路径的 UAC 批次助手
 app/extensions/             storage / rollback / log / download / unpack / pkgmgr
                             （pkgmgr 内含 sources.js 索引解析、scripts.js 受限脚本协议）
-tests/PortableDev.Core.Runner  单元测试（18 项）
+tests/PortableDev.Core.Runner  单元测试（21 项）
 tools/                      e2e 驱动 + 文档一致性检查
 docs/                       规范与实现说明（architecture / spec / commands / …）
 ```
@@ -47,7 +47,7 @@ python -u tools/wire-e2e.py .run                                                
 python -u tools/generation-e2e.py .run                                              # 29
 python -u tools/source-e2e.py .run                                                   # 34
 python -u tools/script-e2e.py .run                                                   # 22
-python -u tools/manage-e2e.py .run-manage                                            # 35
+python -u tools/manage-e2e.py .run-manage                                            # 67
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

@@ -148,12 +148,16 @@ if ext_root.exists():
                 implemented.add(name)
 
 declared_unimplemented = set()
-status_match = re.search(r"\*\*实现状态[^\n]*\*\*[：:](.*?)(?:\n\n|\n#)", commands_body, re.S)
-if status_match:
-    for token in re.findall(r"`([^`]+)`", status_match.group(1)):
+unimpl_match = re.search(r"\*\*未实现[^\n]*\*\*[：:](.*?)(?:\n\n|\n#)", commands_body, re.S)
+if unimpl_match:
+    for token in re.findall(r"`([^`]+)`", unimpl_match.group(1)):
         for word in re.split(r"[^a-z-]+", token):
             if word:
                 declared_unimplemented.add(word)
+
+for token in sorted(declared_unimplemented):
+    if token in implemented:
+        problems.append(f"[命令] commands.md 的'未实现'清单里写着已实现的 pd {token}")
 
 for match in re.finditer(r"^\|\s*`pd(?:\s+([a-z][a-z0-9-]*))?", commands_body, re.M):
     name = match.group(1)

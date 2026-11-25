@@ -43,14 +43,19 @@ pd install <目标>
 
 ### 2.1 升级 / 卸载 / 列表
 
-- `pd upgrade`：先 `storage.record.list` → 源解析目标版本（`--to` 可显式降级，否则只升）；
+- `pd upgrade`：先 `storage.record.list` → 源解析目标版本（`--to` 可显式降级或同版本重装，否则只升）；
   每个包先 `storage.uninstall` **只摘旧版本**（`skipGeneration:true`，保留 store 目录和家目录数据），
-  再复用 `install()` 装新版本；两步共用同一个审计任务 `<任务号>-up-<包>`，
-  安装失败由 `install` 自己的 catch 调 `rollback.run` 把 uninstall 撤回来。
-- `pd remove`：调 `storage.uninstall`（默认保留家目录，`--purge` 连 `home\<包>` 一起删；
-  `skipGeneration:false`），每个包一个审计任务 `<任务号>-rm-<包>`，失败时 `rollback.run`。
-- `pd list`：读记录 + 检查 current 指针；`--outdated` 只读本地索引缓存解析最新版，不联网刷新。
+  再复用 `install()` 装新版本；两步共用同一个审计任务 `<任务号>-up-<包>`；
+  **uninstall 或 install 任一步失败都会 `rollback.run` 撤销该包**（不再只覆盖 install 失败）。
+  安装期开关（`--allow-scripts`/`--no-scripts`/`--force`/`--channel`/`--prerelease`/
+  `--refresh`/`--offline`）会透传给内层安装。
+- `pd remove`：调 `storage.uninstall`（默认保留家目录；`--purge` 把数据 rename 到 `state/trash`，
+  gc 前可用 `pd rollback --task` 恢复），每包审计任务 `<任务号>-rm-<包>`，失败时 rollback 并检查
+  部分失败；成功后补 `ledger commit`，metrics 里给每个包带审计任务号 `task`。
+- `pd list`：读记录 + 检查 current 指针；`--outdated` 只读本地索引缓存解析最新版，不联网刷新；
+  解析失败与“已最新”用 `latestError` 区分。
 - 批量语义：一个包失败不影响其他包；最后汇总，退出码取第一个失败的错误映射。
+  `--dry-run` 解析失败按 20 退出；一个包都没装时按名 upgrade → 20；remove 的 `--dry-run` 全部不存在 → 20。
 - `install(message, options)` 支持注入 `taskId` / `io`（默认 `commandIo(message)`），
   这样升级能在同一审计任务里跑完整安装流程并转发事件。
 
@@ -120,7 +125,7 @@ pd install <目标>
 | `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
-| `tools/manage-e2e.py` | 35 | install/upgrade/remove/list、`--to` 升降级、`--all`、`--dry-run`、`--purge`/`--keep-data`、记录/current/存档点、旧 store 保留、错码 |
+| `tools/manage-e2e.py` | 67 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
 
 运行：
 

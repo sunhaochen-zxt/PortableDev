@@ -36,7 +36,7 @@
       "mutates": true,
       "parallel": false,
       "summary": "install a package from a source, a .pdpkg, a directory or a URL",
-      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>] [--source <源>] [--force] [--offline] [--refresh]"
+      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>] [--source <源>] [--force] [--offline] [--refresh] [--allow-scripts] [--no-scripts]"
     },
     {
       "name": "remove",

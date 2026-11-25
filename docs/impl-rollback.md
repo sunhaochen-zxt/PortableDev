@@ -40,7 +40,7 @@ rollback 不认识任何业务语义。它看到的每条账都长这样：
 4. 倒序遍历，挑出有 undo 的条目
 5. 逐条：call <undo.cap>/<undo.op> <undo.args>
         成功 → 写一条 rollback.step（durable）→ 继续
-        失败 → 停下，报 failed
+        失败 → 停下，报 failed（命令退出码 1；错误里给失败步骤明细）
 6. 汇总 { rolledBack, skipped, failed }
 ```
 
@@ -66,10 +66,10 @@ rollback 不认识任何业务语义。它看到的每条账都长这样：
 
 | 项 | 现状 |
 |---|---|
-| 机器层 undo（PATH / 环境变量 / 注册表 / 启动器） | 原语还没落地（等接线层），这些条目会被标 `skipped` |
+| 机器层 undo（PATH / 环境变量 / 注册表 / 启动器 / link / home） | 已通过 `storage.wire.*` 与 `storage.home.*` 落地 |
 | 存档点回滚（`--to <序号>`） | 已实现（见 [impl-generation.md](impl-generation.md)）；`--task` 与它互斥 |
 | 审计流被真空 | 检测到 `truncated` 就拒绝执行，不半撤 |
-| 回滚本身失败 | 停下并报告 `failed`；已完成的步骤留在审计流里，可人工确认后重跑 |
+| 回滚本身失败 | 停下并报告 `failed`；`pd rollback --task` 退出码 1 并列出失败步骤；`pkgmgr` 自动回滚时也会把 partial 写进错误 |
 | 安全 | 只执行审计流里的 `{cap,op,args}`；条目 `_unit` 目前固定由 storage 写入，日志提供者不参与伪造 |
 
 ## 6. 测试

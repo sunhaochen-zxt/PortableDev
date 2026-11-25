@@ -25,6 +25,8 @@ function exitForCode(code) {
     case "ERR_ENV":
     case "ERR_PROTOCOL":
       return 4;
+    case "ERR_ELEVATION":
+      return 8;
     case "ERR_BUSY":
       return 10;
     case "ERR_UNSUPPORTED":
@@ -76,6 +78,40 @@ function callCapability(capability, op, args, timeoutMs) {
   });
 }
 
+const cancelledTasks = new Set();
+
+function isCancelled(id) {
+  return cancelledTasks.has(String(id));
+}
+
+function throwIfCancelled(id) {
+  if (isCancelled(id)) {
+    throw new PkgError("ERR_CANCELLED", "cancelled by the client", 130);
+  }
+}
+
+// rollback.run reports partial failures as a normal result; every caller must look at it instead of
+// assuming a resolved promise means the machine was fully restored.
+async function rollbackTask(taskId, event) {
+  try {
+    const result = (await callCapability("rollback.run", "run", { task: taskId })) || {};
+    const failed = Number(result.failed || 0);
+    if (failed > 0) {
+      const detail = (result.failures || []).map((item) => item.op + ": " + item.message).join("; ");
+      if (event) {
+        event("log", { level: "warn", msg: "rollback of " + taskId + " left " + failed + " step(s) unapplied: " + detail });
+      }
+      return { failed: failed, failures: result.failures || [] };
+    }
+    return { failed: 0, failures: [] };
+  } catch (error) {
+    if (event) {
+      event("log", { level: "warn", msg: "rollback of " + taskId + " failed: " + (error.message || String(error)) });
+    }
+    return { failed: 1, failures: [{ op: "rollback.run", message: error.message || String(error) }] };
+  }
+}
+
 // Grants are a ctl exchange (spec 5.4), not a capability call.
 function requestGrant(taskId, hint) {
   return new Promise((resolve, reject) => {
@@ -85,7 +121,7 @@ function requestGrant(taskId, hint) {
       reject(new PkgError("ERR_EXT_TIMEOUT", "storage did not answer the grant request", 25));
     }, 30000);
     pendingGrants.set(key, { resolve, reject, timer });
-    send({ v: 1, kind: "ctl", id: taskId, data: { action: "grant.request", kind: "dir", hint, mode: "rw", ttl: "10m" } });
+    send({ v: 1, kind: "ctl", id: taskId, data: { action: "grant.request", kind: "dir", hint, mode: "rw", ttl: "30m" } });
   });
 }
 
@@ -124,6 +160,11 @@ function parseFlags(argv) {
       break;
     }
     if (arg.startsWith("--")) {
+      const eq = arg.indexOf("=");
+      if (eq > 2) {
+        flags[arg.slice(2, eq)] = arg.slice(eq + 1);
+        continue;
+      }
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith("--")) {
         flags[arg.slice(2)] = next;
@@ -287,6 +328,7 @@ async function install(message, options) {
   };
 
   try {
+    throwIfCancelled(id);
     event("step", { stepId: "resolve", title: "resolve", state: "running" });
 
     const fromDir = flags["from-dir"];
@@ -304,6 +346,11 @@ async function install(message, options) {
     if (/^https?:\/\//i.test(source)) {
       if (!flags.sha256) {
         throw new PkgError("ERR_UNSUPPORTED", "installing from a URL needs --sha256 (source index is not implemented yet)", 11);
+      }
+      if (flags["dry-run"] === true) {
+        event("kv", { title: "install plan", items: { url: source, sha256: String(flags.sha256) } });
+        done({ summary: "dry-run: would download and install " + source, metrics: { dryRun: true, url: source } });
+        return;
       }
       const blob = await callCapability("download.fetch", "fetch", { url: source, sha256: String(flags.sha256), offline: flags.offline === true });
       kind = "archive";
@@ -345,6 +392,7 @@ async function install(message, options) {
       }
     }
 
+    throwIfCancelled(id);
     let manifest;
     let pkgRoot = null;
     if (kind === "dir") {
@@ -416,6 +464,7 @@ async function install(message, options) {
           url: manifest.source.url,
           mirrors: manifest.source.mirrors || [],
           sha256: manifest.source.sha256,
+          offline: flags.offline === true,
         });
         const extracted = await callCapability("unpack.extract", "extract", {
           archive: blob.path,
@@ -451,6 +500,7 @@ async function install(message, options) {
     assertFilesExist(contentRoot, manifest.asserts);
     event("step", { stepId: "assert", title: "assert", state: "done" });
 
+    throwIfCancelled(id);
     const wiring = {
       path: manifest.path || [],
       env: manifest.env || {},
@@ -507,13 +557,13 @@ async function install(message, options) {
       },
     });
   } catch (error) {
-    try {
-      await callCapability("rollback.run", "run", { task: taskId });
-    } catch (rollbackError) {
-      event("log", { level: "warn", msg: "rollback failed: " + (rollbackError.message || String(rollbackError)) });
-    }
+    await rollbackTask(taskId, event);
     await cleanupGrant();
-    fail(error);
+    // A cancelled task already received its terminal done(130) from the kernel; sending another one
+    // would just be dropped, so stay quiet in that case.
+    if (!isCancelled(id)) {
+      fail(error);
+    }
   }
 }
 
@@ -913,6 +963,10 @@ async function upgradeCommand(message) {
   try {
     const installed = sortedRecords((await callCapability("storage.record", "list", {})).items);
     if (installed.length === 0) {
+      if (positional.length > 0) {
+        io.fail(new PkgError("ERR_PKG_NOT_FOUND", positional[0] + " is not installed", 20));
+        return;
+      }
       io.done({ summary: "no packages installed", metrics: { upgraded: 0, skipped: 0, failed: 0, packages: [] } });
       return;
     }
@@ -921,7 +975,7 @@ async function upgradeCommand(message) {
     if (flags.all === true) {
       selected = installed;
     } else if (positional.length > 0) {
-      selected = positional.map((name) => {
+      selected = [...new Set(positional)].map((name) => {
         const pkg = validPackageId(name);
         const found = installed.find((record) => record.id === pkg);
         if (!found) {
@@ -946,8 +1000,8 @@ async function upgradeCommand(message) {
       try {
         const resolved = await manager.resolve(targetRef, flags);
         const order = compareVersions(resolved.version, record.version);
-        // --to is an explicit pin, so it may also downgrade; without it only newer versions count.
-        const wanted = to !== null ? order !== 0 : order > 0;
+        // --to is an explicit pin: it may upgrade, downgrade or reinstall the same version.
+        const wanted = to !== null ? true : order > 0;
         plan.push({ record: record, resolved: resolved, action: wanted ? "upgrade" : "skip" });
       } catch (error) {
         plan.push({ record: record, resolved: null, error: error, action: "fail" });
@@ -975,6 +1029,14 @@ async function upgradeCommand(message) {
       } catch (error) {
         // table rendering is best effort
       }
+      const planError = plan.find((item) => item.action === "fail");
+      if (planError) {
+        const head = planError.error || {};
+        io.fail(new PkgError(head.code || "ERR_INTERNAL",
+          "dry-run failed for " + planError.record.id + ": " + (head.message || String(head)),
+          exitForCode(head.code)));
+        return;
+      }
       io.done({
         summary: "dry-run: " + plan.filter((item) => item.action === "upgrade").length + " upgrade(s), " +
           plan.filter((item) => item.action === "skip").length + " up to date, " +
@@ -997,7 +1059,12 @@ async function upgradeCommand(message) {
     const skipped = [];
     const failed = [];
     const ctx = (message.data && message.data.ctx) || {};
+    let cancelled = false;
     for (const item of plan) {
+      if (isCancelled(message.id)) {
+        cancelled = true;
+        break;
+      }
       if (item.action === "fail") {
         failed.push({ package: item.record.id, code: (item.error && item.error.code) || "ERR_INTERNAL", message: (item.error && item.error.message) || String(item.error) });
         continue;
@@ -1018,9 +1085,15 @@ async function upgradeCommand(message) {
           task: taskId, pkg: pkg, purgeData: false, skipGeneration: true,
         });
         const argv = [pkg + "@" + item.resolved.version, "--source", item.resolved.source.name];
-        if (flags.offline === true) {
-          argv.push("--offline");
+        for (const name of ["no-scripts", "allow-scripts", "force", "channel", "prerelease", "refresh", "offline"]) {
+          const value = flags[name];
+          if (value === true) {
+            argv.push("--" + name);
+          } else if (typeof value === "string" && value.length > 0) {
+            argv.push("--" + name, value);
+          }
         }
+        throwIfCancelled(message.id);
         const metrics = await runInstall(
           { id: message.id, data: { argv: argv, ctx: ctx, cmd: "install" } },
           taskId,
@@ -1035,13 +1108,22 @@ async function upgradeCommand(message) {
             io.event(type, data);
           },
         );
-        upgraded.push({ package: pkg, from: item.record.version, to: item.resolved.version, storePath: metrics.storePath || null });
+        upgraded.push({ package: pkg, from: item.record.version, to: item.resolved.version, storePath: metrics.storePath || null, task: taskId });
         io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "done" });
       } catch (error) {
-        failed.push({ package: pkg, code: error.code || "ERR_INTERNAL", message: error.message || String(error) });
+        const rollback = await rollbackTask(taskId, io.event);
+        const suffix = rollback.failed > 0 ? " (rollback partial: " + rollback.failed + " step(s))" : "";
+        failed.push({ package: pkg, code: error.code || "ERR_INTERNAL", message: (error.message || String(error)) + suffix, task: taskId });
         io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "failed" });
-        io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) });
+        io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) + suffix });
+        if (isCancelled(message.id)) {
+          cancelled = true;
+          break;
+        }
       }
+    }
+    if (cancelled) {
+      return;
     }
 
     const summary = upgraded.length + " upgraded, " + skipped.length + " up to date, " + failed.length + " failed";
@@ -1089,6 +1171,10 @@ async function removeCommand(message) {
       }
     }
 
+    if (dryRun && targets.length === 0 && missing.length > 0) {
+      io.fail(new PkgError("ERR_PKG_NOT_FOUND", "not installed: " + missing.join(","), 20));
+      return;
+    }
     if (dryRun) {
       const rows = targets.map((item) => [item.pkg, item.record.version, purgeData ? "删除数据" : "保留数据", "would remove"]);
       try {
@@ -1120,24 +1206,38 @@ async function removeCommand(message) {
 
     const removed = [];
     const failed = [];
+    let cancelled = false;
     for (const item of targets) {
+      if (isCancelled(message.id)) {
+        cancelled = true;
+        break;
+      }
       const taskId = String(message.id) + "-rm-" + item.pkg;
       io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "running" });
       try {
         const result = await callCapability("storage.uninstall", "run", {
           task: taskId, pkg: item.pkg, purgeData: purgeData, skipGeneration: false,
         });
-        removed.push({ package: item.pkg, version: item.record.version, homePurged: result.homePurged === true });
+        try {
+          await callCapability("storage.ledger", "commit", { task: taskId });
+        } catch (ledgerError) {
+          io.event("log", { level: "warn", msg: "ledger commit failed: " + (ledgerError.message || String(ledgerError)) });
+        }
+        removed.push({ package: item.pkg, version: item.record.version, homePurged: result.homePurged === true, homeTrash: result.homeTrash || null, task: taskId });
         io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "done" });
       } catch (error) {
-        failed.push({ package: item.pkg, code: error.code || "ERR_INTERNAL", message: error.message || String(error) });
+        const rollback = await rollbackTask(taskId, io.event);
+        const suffix = rollback.failed > 0 ? " (rollback partial: " + rollback.failed + " step(s))" : "";
+        failed.push({ package: item.pkg, code: error.code || "ERR_INTERNAL", message: (error.message || String(error)) + suffix, task: taskId });
         io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "failed" });
-        try {
-          await callCapability("rollback.run", "run", { task: taskId });
-        } catch (rollbackError) {
-          io.event("log", { level: "warn", msg: "rollback failed: " + (rollbackError.message || String(rollbackError)) });
+        if (isCancelled(message.id)) {
+          cancelled = true;
+          break;
         }
       }
+    }
+    if (cancelled) {
+      return;
     }
 
     const parts = [];
@@ -1178,6 +1278,7 @@ async function listCommand(message) {
     }
 
     const latest = {};
+    const latestError = {};
     if (flags.outdated === true) {
       for (const record of records) {
         try {
@@ -1187,6 +1288,7 @@ async function listCommand(message) {
           }
         } catch (error) {
           latest[record.id] = null;
+          latestError[record.id] = error.code || "ERR_IO";
         }
       }
     }
@@ -1197,7 +1299,9 @@ async function listCommand(message) {
       const current = fs.existsSync(path.join(ROOT, "current", record.id));
       const newer = Object.prototype.hasOwnProperty.call(latest, record.id) ? latest[record.id] : undefined;
       rows.push([record.id, record.version, newer === undefined ? "-" : (newer === null ? "?" : newer), current ? "yes" : "missing"]);
-      packages.push({ package: record.id, version: record.version, latest: newer === undefined ? null : newer, current: current, storePath: record.storePath });
+      packages.push({ package: record.id, version: record.version, latest: newer === undefined ? null : newer,
+        latestError: Object.prototype.hasOwnProperty.call(latestError, record.id) ? latestError[record.id] : null,
+        current: current, storePath: record.storePath });
     }
 
     const outdatedCount = packages.filter((item) => item.latest !== null).length;
@@ -1234,6 +1338,10 @@ connect({
 
     if (message.kind === "ctl") {
       const action = message.data && message.data.action;
+      if (action === "cancel") {
+        cancelledTasks.add(String(message.id));
+        return;
+      }
       if (action === "grant.reply") {
         const entry = pendingGrants.get(String(message.id));
         if (entry) {

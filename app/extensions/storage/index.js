@@ -519,7 +519,25 @@ async function uninstall(args) {
   const pkg = packageId(args.pkg, "uninstall package id");
   const purgeData = args.purgeData === true;
   const skipGeneration = args.skipGeneration === true;
+  if (task === null || task.length === 0) {
+    // Never delete records/user data without an audit trail: nothing would be undoable.
+    throw new StorageError("ERR_BAD_ARGS", "storage.uninstall needs a non-empty task id");
+  }
   const record = recordGet({ pkg });
+  if (String(record.id) !== pkg) {
+    throw new StorageError("ERR_PKG_INVALID", "record id does not match its file name: " + record.id + " vs " + pkg);
+  }
+
+  const wiring = recordWiring(record);
+  const rawBefore = wiring.before && typeof wiring.before === "object" ? wiring.before : {};
+  const hasMachineWiring = (wiring.path || []).length > 0 || Object.keys(wiring.env || {}).length > 0 ||
+    (wiring.registry || []).length > 0 || (wiring.launch || []).length > 0 || (wiring.data || []).length > 0;
+  if (rawBefore.fake !== undefined && (rawBefore.fake === true) !== FAKE && hasMachineWiring) {
+    // Deleting the record here would orphan wiring that this machine view never touched.
+    throw new StorageError("ERR_UNSUPPORTED",
+      "package " + pkg + " was wired in the " + (rawBefore.fake === true ? "fake" : "real") +
+      " machine view; run pd remove in that mode first");
+  }
 
   await ensureBegin(task, pkg);
 
@@ -527,13 +545,16 @@ async function uninstall(args) {
 
   let currentCleared = false;
   const link = path.join(CURRENT, pkg);
-  if (readLink(link) !== null) {
+  const previousTarget = readLink(link);
+  if (previousTarget !== null) {
+    const actual = path.resolve(previousTarget);
+    const restoreTarget = inside(STORE, actual) ? actual : record.storePath;
     await ledgerEntry(task, {
       op: "current.clear",
       pkg,
-      before: record.storePath,
+      before: actual,
       after: null,
-      undo: { cap: "storage.current", op: "set", args: { pkg, storePath: record.storePath } },
+      undo: { cap: "storage.current", op: "set", args: { pkg, storePath: restoreTarget } },
     });
     if (!removeLink(link)) {
       throw new StorageError("ERR_IO", "cannot remove the current link: " + link);
@@ -542,10 +563,15 @@ async function uninstall(args) {
   }
 
   // Keep the user's files by default; only the machine-side junction is detached so the package is
-  // gone from PATH/launchers. --purge additionally removes the stick-side home directory.
+  // gone from PATH/launchers. --purge moves the stick-side home directory to state/trash, where
+  // rollback can rename it back and pd gc can finally delete it.
   let homeDetached = false;
   const machineHome = homeMachinePath(pkg);
-  if (readLinkTarget(machineHome) !== null) {
+  const homeTarget = readLinkTarget(machineHome);
+  if (homeTarget !== null) {
+    if (path.resolve(homeTarget).toLowerCase() !== path.resolve(homeStickPath(pkg)).toLowerCase()) {
+      throw new StorageError("ERR_IO", "home junction points elsewhere: " + machineHome);
+    }
     await ledgerEntry(task, {
       op: "home.unlink",
       pkg,
@@ -553,23 +579,33 @@ async function uninstall(args) {
       after: null,
       undo: { cap: "storage.home", op: "ensure", args: { pkg } },
     });
-    if (!removeLink(machineHome)) {
-      throw new StorageError("ERR_IO", "cannot remove the home junction: " + machineHome);
-    }
+    // writeLink is FAKE aware and verifies the real junction removal, unlike bare removeLink.
+    writeLink(machineHome, null);
     homeDetached = true;
+  } else if (fs.existsSync(machineHome)) {
+    throw new StorageError("ERR_IO", "machine home exists but is not a junction: " + machineHome);
   }
 
   let homePurged = false;
+  let homeTrash = null;
   const stickHome = homeStickPath(pkg);
   if (purgeData && fs.existsSync(stickHome)) {
+    const trashDir = path.join(STATE, "trash");
+    fs.mkdirSync(trashDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    homeTrash = path.join(trashDir, safeTask(task) + "-" + pkg + "-" + stamp + "-" + process.pid);
+    if (!inside(STATE, homeTrash)) {
+      throw new StorageError("ERR_UNSUPPORTED", "home trash path escapes state/");
+    }
     await ledgerEntry(task, {
       op: "home.purge",
       pkg,
       before: stickHome,
+      trash: homeTrash,
       after: null,
-      undo: { cap: "storage.home", op: "ensure", args: { pkg } },
+      undo: { cap: "storage.home", op: "restore", args: { pkg, from: homeTrash, to: stickHome } },
     });
-    removeDir(stickHome);
+    fs.renameSync(stickHome, homeTrash);
     homePurged = true;
   }
 
@@ -591,6 +627,7 @@ async function uninstall(args) {
     currentCleared,
     homeDetached,
     homePurged,
+    homeTrash,
   });
   return {
     pkg,
@@ -600,6 +637,7 @@ async function uninstall(args) {
     currentCleared,
     homeDetached,
     homePurged,
+    homeTrash,
     keptHome: !homePurged,
     generationSeq,
   };
@@ -811,11 +849,31 @@ async function gc(args) {
     }
   }
 
-  if (!dryRun) {
-    logInfo("storage.gc", "garbage collected", { stagingRemoved, storeRemoved, generationsRemoved, blobsRemoved, errors: errors.length });
+  // --purge moves a package home into state/trash so rollback can restore it; gc is the final owner.
+  let trashRemoved = 0;
+  const trashDir = path.join(STATE, "trash");
+  if (fs.existsSync(trashDir)) {
+    for (const name of fs.readdirSync(trashDir)) {
+      const full = path.join(trashDir, name);
+      const bytes = sizeOf(full);
+      if (!dryRun) {
+        try {
+          removeDir(full);
+        } catch (error) {
+          errors.push("trash " + name + ": " + (error.message || String(error)));
+          continue;
+        }
+      }
+      trashRemoved += 1;
+      bytesFreed += bytes;
+    }
   }
 
-  return { stagingRemoved, storeRemoved, generationsRemoved, blobsRemoved, blobsKept, bytesFreed, dryRun, keepGenerations: keep, errors };
+  if (!dryRun) {
+    logInfo("storage.gc", "garbage collected", { stagingRemoved, storeRemoved, generationsRemoved, blobsRemoved, trashRemoved, errors: errors.length });
+  }
+
+  return { stagingRemoved, storeRemoved, generationsRemoved, blobsRemoved, trashRemoved, blobsKept, bytesFreed, dryRun, keepGenerations: keep, errors };
 }
 
 
@@ -1077,7 +1135,11 @@ function writeLink(target, source) {
     return;
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.symlinkSync(path.resolve(source), target, "junction");
+  try {
+    fs.symlinkSync(path.resolve(source), target, "junction");
+  } catch (error) {
+    throw new StorageError("ERR_IO", "cannot create junction " + target + ": " + (error.message || String(error)));
+  }
 }
 
 function allowedLinkTarget(target) {
@@ -1502,6 +1564,29 @@ async function ensureHome(args) {
   return { stickPath: stick, machinePath: machine, changed: changed };
 }
 
+// Undo primitive for home.purge: the data directory is moved to state/trash (same-volume rename,
+// atomic) instead of being deleted, so rollback can put the user's files back. pd gc empties trash.
+async function restoreHome(args) {
+  const pkg = packageId(args.pkg, "home.restore package id");
+  const from = path.resolve(String(args.from || ""));
+  const stick = path.resolve(homeStickPath(pkg));
+  if (!inside(STATE, from)) {
+    throw new StorageError("ERR_UNSUPPORTED", "home.restore source must be inside state/: " + from);
+  }
+  if (path.resolve(String(args.to || stick)) !== stick) {
+    throw new StorageError("ERR_BAD_ARGS", "home.restore target does not match the package home");
+  }
+  let restored = false;
+  if (fs.existsSync(from) && !fs.existsSync(stick)) {
+    fs.mkdirSync(path.dirname(stick), { recursive: true });
+    fs.renameSync(from, stick);
+    restored = true;
+  }
+  const home = await ensureHome({ pkg });
+  logInfo("storage.home", "home directory restored", { pkg, stickPath: stick, restored });
+  return { pkg, restored, stickPath: stick, machinePath: home.machinePath };
+}
+
 function recordWiring(record) {
   return record.wiring && typeof record.wiring === "object" ? record.wiring : {};
 }
@@ -1787,8 +1872,12 @@ fs.mkdirSync(GENERATIONS, { recursive: true });
 function readSettingNumber(section, key, fallback) {
   try {
     const settings = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "settings.json"), "utf8"));
-    const value = settings && settings[section] ? settings[section][key] : null;
-    return Number.isFinite(Number(value)) ? Number(value) : fallback;
+    const sectionValue = settings && settings[section] ? settings[section][key] : undefined;
+    if (sectionValue === undefined || sectionValue === null || sectionValue === "") {
+      return fallback;
+    }
+    const value = Number(sectionValue);
+    return Number.isFinite(value) ? value : fallback;
   } catch (error) {
     return fallback;
   }
@@ -2415,6 +2504,14 @@ async function handleCall(message) {
     }
     if (capability === "storage.generation") {
       return handleGenerationCall(op, args);
+    }
+    if (capability === "storage.home") {
+      if (op === "ensure") {
+        return ensureHome(args);
+      }
+      if (op === "restore") {
+        return restoreHome(args);
+      }
     }
     throw new StorageError("ERR_UNSUPPORTED", "unknown capability " + capability + " op " + op);
   };

@@ -221,9 +221,14 @@ async function handleCommand(message) {
       return;
     }
 
+    if (result.failed > 0) {
+      const detail = (result.failures || []).map((item) => item.op + ": " + item.message).join("; ");
+      failDone("ERR_IO", "rolled back " + result.rolledBack + " entries, " + result.failed + " failed: " + detail, 1);
+      return;
+    }
     done({
-      summary: "rolled back " + result.rolledBack + " entries" + (result.failed > 0 ? ", " + result.failed + " failed" : ""),
-      metrics: { rolledBack: result.rolledBack, skipped: (result.skipped || []).length, failed: result.failed },
+      summary: "rolled back " + result.rolledBack + " entries",
+      metrics: { rolledBack: result.rolledBack, skipped: (result.skipped || []).length, failed: 0 },
     });
   } catch (error) {
     const code = error.code || "ERR_IO";

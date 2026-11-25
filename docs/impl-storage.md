@@ -27,7 +27,10 @@ tests/fixtures/storage-probe/  测试驱动：真实走 grant -> adopt -> curren
 | `storage.record` | `call` op `get` / `list` | 读包记录 |
 | `storage.current` | `call` op `set` / `get` | 挪 current 指针 |
 | `storage.uninstall` | `call` op `run` | 摘掉一个包：拆接线、清 current、删记录、可选删家目录；写账本/存档点 |
-| `storage.gc` | `call` op `run` | 清 staging 与无引用的 store 目录 |
+| `storage.gc` | `call` op `run` | 清 staging / trash / 无引用的 store 目录 |
+| `storage.wire` | `call` op `env.*` / `path.*` / `registry.*` / `launcher.*` / `link.*` / `copy.*` / `home.ensure` / `apply` / `clean` | 机器层接线 |
+| `storage.generation` | `call` op `list` / `get` / `create` / `restore` | 存档点 |
+| `storage.home` | `call` op `ensure` / `restore` | 家目录联接；restore 用于把 purge 到 trash 的数据搬回 |
 | `storage.ledger` | `call` op `begin` / `append` / `commit` / `list` | 记账 |
 
 内核按**能力名**找提供者（spec 5.6），不认扩展名；回复按 `call` 的 id 或任务 id 路由回发起方。
@@ -105,10 +108,14 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 
 `storage.uninstall`（`call` op `run`）由 pkgmgr 的 `pd remove` / `pd upgrade` 调用：
 
-- 先校验记录存在，再按记录逆序拆线（`restoreWiring`）、清 current 指针、拆家目录联接头；
-- `--purge` 时连盘上 `home<包>` 的用户数据一起删；默认只拆机器接头、保留数据；
+- 先校验记录存在且 id 与文件名一致（不一致 → `ERR_PKG_INVALID`），任务号必须非空；再按记录逐项拆线
+  （`restoreWiring`）、清 current 指针、拆家目录联接头；
+- 默认只拆机器接头、保留 `home<包>` 数据；机器侧联接头必须指向本包的 `home<包>`，
+  指向别处或普通目录 → `ERR_IO`（不会静默删除别人的联接）；
+- `--purge` 把 `home<包>` rename 到 `state	rash...`（同卷原子 rename），账本 `home.purge` 记 trash 路径，
+  undo 是 `storage.home restore`；`pd gc` 最终删除 trash，gc 之后数据不可恢复；
 - 删记录；`skipGeneration:false` 时写一个存档点（升级流程传 `true`，由新装版本统一写）；
-- 所有改动**先写账本、带 `undo`**，失败可被 `rollback.run` 整体撤回；
+- 所有改动**先写账本、带 `undo`**；rollback 部分失败会按失败上报，不再静默成功；
 - `store` 目录不在这里删，留给 `gc` 按引用判断。
 
 ## 8. gc
@@ -144,14 +151,14 @@ storage 自己会写的条目：
 | 写包记录 | `record.write`（before = 旧记录或 null） | `{cap:"storage.record", op:"write"}`，before 为 null 时 `op:"delete"` |
 | 清 current | `current.clear`（before = 旧目标） | `{cap:"storage.current", op:"set", args:{pkg, storePath}}` |
 | 拆家目录联接头 | `home.unlink`（before = 目标） | `{cap:"storage.home", op:"ensure", args:{pkg}}` |
-| 删家目录数据 | `home.purge`（before = 路径） | `{cap:"storage.home", op:"ensure", args:{pkg}}` |
+| 删除家目录数据（移到 trash） | `home.purge`（before = home 路径，trash = 目标） | `{cap:"storage.home", op:"restore", args:{pkg, from, to}}` |
 | 删包记录 | `record.delete`（before = 旧记录） | `{cap:"storage.record", op:"write", args:{record}}` |
 
 ### 9.2 执行撤销的原语
 
 storage 提供两组能力，供 `rollback` 扩展调用：
 
-- `storage.current.set` / `clear`、`storage.record.write` / `delete`；
+- `storage.current.set` / `clear`、`storage.record.write` / `delete`、`storage.home.ensure` / `restore`；
 - `storage.wire.*`（待接线层落地）：`path.set` / `env.set` / `registry.set` / `launcher.remove`，
   全部是“设成这个值”的幂等操作，正向接线和撤销共用。
 

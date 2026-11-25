@@ -54,14 +54,17 @@ def done_of(stdout):
 
 
 def kill_leftovers(root):
+    """Stop only this test root's kernel/extensions. Match both the absolute marker and the exact
+    --root argument, otherwise kernels started with a relative root survive and poison later runs."""
     if os.name != "nt":
         return
     marker = os.path.abspath(root).replace("'", "''")
+    root_arg = str(root).replace("'", "''")
     script = (
-        "$marker='" + marker + "'; "
+        "$marker='" + marker + "'; $rootArg='" + root_arg + "'; "
         "Get-CimInstance Win32_Process | Where-Object { "
         "($_.Name -eq 'node.exe' -or $_.Name -eq 'dotnet.exe' -or $_.Name -eq 'pd-kernel.exe') -and $_.CommandLine -and "
-        "($_.CommandLine -like ('*' + $marker + '*')) "
+        "(($_.CommandLine -like ('*' + $marker + '*')) -or ($_.CommandLine -like ('*--root*' + $rootArg + '*'))) "
         "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
     )
     subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True)

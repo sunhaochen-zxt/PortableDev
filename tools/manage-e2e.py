@@ -52,21 +52,26 @@ def done_of(stdout):
 
 
 def kill_leftovers(root):
+    """Stop only this test root's kernel/extensions. Match both the absolute marker and the exact
+    --root argument, otherwise kernels started with a relative root survive and poison later runs."""
     if os.name != "nt":
         return
     marker = os.path.abspath(root).replace("'", "''")
+    root_arg = str(root).replace("'", "''")
     script = (
-        "$marker='" + marker + "'; "
+        "$marker='" + marker + "'; $rootArg='" + root_arg + "'; "
         "Get-CimInstance Win32_Process | Where-Object { "
         "($_.Name -eq 'node.exe' -or $_.Name -eq 'dotnet.exe' -or $_.Name -eq 'pd-kernel.exe') -and $_.CommandLine -and "
-        "($_.CommandLine -like ('*' + $marker + '*')) "
+        "(($_.CommandLine -like ('*' + $marker + '*')) -or ($_.CommandLine -like ('*--root*' + $rootArg + '*'))) "
         "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
     )
     subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True)
 
 
-def make_pkg(path, pid, version, body):
+def make_pkg(path, pid, version, body, extra=None):
     manifest = {"schema": 1, "id": pid, "version": version, "platform": "win-x64"}
+    if extra:
+        manifest.update(extra)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("package.json", json.dumps(manifest))
         archive.writestr("files/bin/" + pid + ".txt", body)
@@ -91,6 +96,16 @@ def prepare(root):
         os.remove(os.path.join(root, "config", "sources.json"))
     except OSError:
         pass
+    # Isolate this run from other suites/leftover kernels on the same volume: a random persisted
+    # stick id gives this root its own pipe/mutex, and fake wire mode keeps machine state virtual.
+    wire_dir = os.path.join(root, "state", "wire")
+    os.makedirs(wire_dir, exist_ok=True)
+    with open(os.path.join(wire_dir, "fake-mode"), "w", encoding="utf-8") as handle:
+        handle.write("1\n")
+    os.makedirs(os.path.join(root, "state"), exist_ok=True)
+    with open(os.path.join(root, "state", "stick.json"), "w", encoding="utf-8") as handle:
+        json.dump({"schema": 1, "stickId": "pd-" + os.urandom(6).hex(), "source": "manual",
+                   "volumeSerial": "", "label": ""}, handle)
 
 
 def start_kernel(root):
@@ -100,6 +115,10 @@ def start_kernel(root):
     while time.time() < deadline:
         probe = pd(root, "version", timeout=15)
         if probe.returncode == 0:
+            # A stale kernel from an earlier run can answer the probe while our process exits busy.
+            time.sleep(0.4)
+            if process.poll() is not None:
+                raise SystemExit("kernel exited right after a successful probe (stale kernel on this root?)")
             return process, log
         if process.poll() is not None:
             raise SystemExit("kernel exited during startup")
@@ -136,6 +155,13 @@ def generation_count(root):
     return len([name for name in os.listdir(directory) if name.endswith(".json")])
 
 
+def fake_state(root):
+    path = os.path.join(root, "state", "wire", "fake.json")
+    if not os.path.isfile(path):
+        return {"path": "", "env": {}, "registry": {}, "launchers": {}, "links": {}, "copies": {}}
+    return json.load(open(path, encoding="utf-8"))
+
+
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else ".run"
     kill_leftovers(root)
@@ -148,6 +174,19 @@ def main():
     make_pkg(os.path.join(work, "demo-1.0.0.pdpkg"), "demo", "1.0.0", "demo 1")
     make_pkg(os.path.join(work, "demo-2.0.0.pdpkg"), "demo", "2.0.0", "demo 2")
     make_pkg(os.path.join(work, "other-1.0.0.pdpkg"), "other", "1.0.0", "other 1")
+    # Wiring/home fixture (fake machine: apply creates a virtual home junction).
+    make_pkg(os.path.join(work, "wiredhome-1.0.0.pdpkg"), "wiredhome", "1.0.0", "wired home", {
+        "path": ["bin"],
+        "env": {"WIRED_HOME": "{{HOME}}"},
+        "registry": [{"hive": "HKCU", "key": "Software\\PortableDevManage", "name": "Mark",
+                      "type": "REG_SZ", "value": "1"}],
+        "launch": [{"name": "wiredhome", "exe": "bin\\wiredhome.txt"}],
+    })
+    # flaky 2.0.0 fails its assertions, to exercise upgrade install-failure rollback.
+    make_pkg(os.path.join(work, "flaky-1.0.0.pdpkg"), "flaky", "1.0.0", "flaky 1")
+    make_pkg(os.path.join(work, "flaky-2.0.0.pdpkg"), "flaky", "2.0.0", "flaky 2", {
+        "asserts": [{"kind": "exists", "path": "bin/absent.txt"}],
+    })
 
     kernel, log = start_kernel(root)
     try:
@@ -204,6 +243,7 @@ def main():
         check("upgrade moved the current pointer", upgraded_target != baseline_target and os.path.normcase(upgraded_target) == os.path.normcase(os.path.realpath(record(root, "demo")["storePath"])),
               (baseline_target, upgraded_target))
         check("upgrade reports one package", metrics.get("upgraded") == 1 and metrics.get("failed") == 0, metrics)
+        check("upgrade exposes its audit task", metrics.get("packages") and metrics["packages"][0].get("task"), metrics)
         check("upgrade wrote exactly one generation", generation_count(root) == generations + 1, (generations, generation_count(root)))
         check("old store directory is kept until gc", os.path.isdir(baseline["storePath"]), baseline["storePath"])
 
@@ -242,10 +282,90 @@ def main():
         check("remove cleared the record", record(root, "demo") is None, record(root, "demo"))
         check("remove cleared the current pointer", current_target(root, "demo") is None, current_target(root, "demo"))
         check("remove reports the package", metrics.get("removed") and metrics["removed"][0].get("package") == "demo", metrics)
+        check("remove exposes its audit task", metrics.get("removed") and metrics["removed"][0].get("task"), metrics)
 
         result = pd(root, "--json", "list")
         done = done_of(result.stdout)
         check("list is empty after removals", result.returncode == 0 and (done or {}).get("metrics", {}).get("packages") == [], done)
+
+
+        print("upgrade install-failure rollback")
+        result = pd(root, "--json", "install", "flaky@1.0.0", "--source", "fixtures")
+        check("install flaky 1.0.0", result.returncode == 0 and record(root, "flaky").get("version") == "1.0.0",
+              (result.returncode, result.stdout[-300:]))
+        flaky_target = current_target(root, "flaky")
+        flaky_gens = generation_count(root)
+        result = pd(root, "--json", "upgrade", "flaky")
+        done = done_of(result.stdout)
+        check("failing upgrade exits 12", result.returncode == 12, (result.returncode, result.stdout[-400:]))
+        check("failed upgrade keeps the old version", record(root, "flaky").get("version") == "1.0.0", record(root, "flaky"))
+        check("failed upgrade keeps the current pointer", current_target(root, "flaky") == flaky_target,
+              (flaky_target, current_target(root, "flaky")))
+        check("failed upgrade writes no generation", generation_count(root) == flaky_gens, (flaky_gens, generation_count(root)))
+        check("failed upgrade rollback is not partial", "rollback partial" not in str((done or {}).get("error")), done)
+        result = pd(root, "--json", "remove", "flaky")
+        check("remove flaky", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
+        print("home package: remove keeps data, purge is rollback-able")
+        result = pd(root, "--json", "install", "wiredhome@1.0.0", "--source", "fixtures")
+        check("install wiredhome", result.returncode == 0 and record(root, "wiredhome") is not None,
+              (result.returncode, result.stdout[-300:]))
+        stick_home = os.path.join(root, "home", "wiredhome")
+        check("stick home created", os.path.isdir(stick_home), stick_home)
+        home_suffix = os.path.normcase(os.sep + "home" + os.sep + "wiredhome")
+        links = [os.path.normcase(key) for key in (fake_state(root).get("links") or {})]
+        check("fake machine home junction recorded", any(key.endswith(home_suffix) for key in links), links)
+        with open(os.path.join(stick_home, "user.txt"), "w", encoding="utf-8") as handle:
+            handle.write("keep me\n")
+
+        result = pd(root, "--json", "remove", "wiredhome")
+        check("remove home package exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("remove default keeps stick home", os.path.isfile(os.path.join(stick_home, "user.txt")), stick_home)
+        links = [os.path.normcase(key) for key in (fake_state(root).get("links") or {})]
+        check("remove default detaches the home junction", not any(key.endswith(home_suffix) for key in links), links)
+
+        result = pd(root, "--json", "install", "wiredhome@1.0.0", "--source", "fixtures")
+        check("reinstall wiredhome", result.returncode == 0 and record(root, "wiredhome") is not None,
+              (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "remove", "wiredhome", "--purge")
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("remove --purge home package exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("--purge moved the stick home away", not os.path.exists(stick_home), stick_home)
+        trash = (metrics.get("removed") or [{}])[0].get("homeTrash")
+        check("--purge keeps the data in state/trash", trash and os.path.isdir(trash), trash)
+        task = (metrics.get("removed") or [{}])[0].get("task")
+        check("remove --purge exposes its audit task", bool(task), metrics)
+
+        result = pd(root, "--json", "rollback", "--task", task or "missing")
+        check("rollback of purge exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("rollback restored the record", record(root, "wiredhome") is not None, record(root, "wiredhome"))
+        check("rollback restored the home data", os.path.isfile(os.path.join(stick_home, "user.txt")), stick_home)
+        check("rollback restored the current pointer", current_target(root, "wiredhome") is not None,
+              current_target(root, "wiredhome"))
+        links = [os.path.normcase(key) for key in (fake_state(root).get("links") or {})]
+        check("rollback restored the home junction", any(key.endswith(home_suffix) for key in links), links)
+        result = pd(root, "--json", "remove", "wiredhome", "--purge")
+        check("cleanup wiredhome", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
+        print("argument edge cases")
+        result = pd(root, "--json", "remove", "nosuchpkg", "--dry-run")
+        check("remove --dry-run of a missing package exits 20", result.returncode == 20, (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "upgrade", "demo")
+        check("upgrade of a missing package on an empty set exits 20", result.returncode == 20, (result.returncode, result.stdout[-300:]))
+
+        print("partial settings must not collapse generation retention")
+        with open(os.path.join(root, "config", "settings.json"), "w", encoding="utf-8") as handle:
+            json.dump({"install": {"maxConcurrent": 2}}, handle)
+        base_gens = generation_count(root)
+        check("install under partial settings", pd(root, "--json", "install", "demo@1.0.0", "--source", "fixtures").returncode == 0)
+        check("second install under partial settings", pd(root, "--json", "install", "other@1.0.0", "--source", "fixtures").returncode == 0)
+        result = pd(root, "--json", "upgrade", "demo", "--to", "1.0.0")
+        check("--to reinstall under partial settings", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("partial settings keeps more than one generation", generation_count(root) >= base_gens + 3,
+              (base_gens, generation_count(root)))
+        pd(root, "--json", "remove", "demo", "--purge")
+        pd(root, "--json", "remove", "other", "--purge")
 
         result = pd(root, "--json", "remove", "demo", "--purge", "--keep-data")
         check("--purge and --keep-data conflict is 2", result.returncode == 2, (result.returncode, result.stdout[-300:]))
