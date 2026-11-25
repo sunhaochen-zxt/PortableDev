@@ -1,6 +1,6 @@
 # 存储扩展实现说明（storage）
 
-> 状态：可用。租界、收编、记录、current 指针、gc、账本、崩溃恢复均已跑通端到端。
+> 状态：可用。租界、收编、记录、current 指针、卸载、gc、账本、崩溃恢复均已跑通端到端。
 > 相关文档：[architecture.md](architecture.md) 4.4 / 4.6 / 9 / 11.2、[spec.md](spec.md) 5.4 / 5.6、[kernel.md](kernel.md) 5。
 
 ---
@@ -26,6 +26,7 @@ tests/fixtures/storage-probe/  测试驱动：真实走 grant -> adopt -> curren
 | `storage.adopt` | `call` op `commit` / `abort` | 收编 staging 目录进 store，或丢弃 |
 | `storage.record` | `call` op `get` / `list` | 读包记录 |
 | `storage.current` | `call` op `set` / `get` | 挪 current 指针 |
+| `storage.uninstall` | `call` op `run` | 摘掉一个包：拆接线、清 current、删记录、可选删家目录；写账本/存档点 |
 | `storage.gc` | `call` op `run` | 清 staging 与无引用的 store 目录 |
 | `storage.ledger` | `call` op `begin` / `append` / `commit` / `list` | 记账 |
 
@@ -97,8 +98,18 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 
 - `current\\<包名>` 是 Windows 目录联接（junction），指向 `store\\...`；
 - 升级 = 换一个 store 目录 + 挪联接，PATH 里写的 `current\\<包名>` 不变（架构 7）；
-- 替换前先删旧联接（`rmdir`，只删链接不删目标），再 `mklink /J`；
+- 替换前先删旧联接（只删链接不删目标），再用 `fs.symlinkSync(target, link, "junction")` 建新联接；
 - 删除联接**不能用递归删除**，否则可能把目标内容一起带走——代码里单独走 `removeLink`。
+
+### 7.1 卸载一个包（storage.uninstall）
+
+`storage.uninstall`（`call` op `run`）由 pkgmgr 的 `pd remove` / `pd upgrade` 调用：
+
+- 先校验记录存在，再按记录逆序拆线（`restoreWiring`）、清 current 指针、拆家目录联接头；
+- `--purge` 时连盘上 `home<包>` 的用户数据一起删；默认只拆机器接头、保留数据；
+- 删记录；`skipGeneration:false` 时写一个存档点（升级流程传 `true`，由新装版本统一写）；
+- 所有改动**先写账本、带 `undo`**，失败可被 `rollback.run` 整体撤回；
+- `store` 目录不在这里删，留给 `gc` 按引用判断。
 
 ## 8. gc
 
@@ -131,6 +142,10 @@ storage 自己会写的条目：
 |---|---|---|
 | 挪 `current\<包>` | `current.set`（before = 旧目标或 null） | `{cap:"storage.current", op:"set", args:{pkg, storePath}}`，before 为 null 时 `op:"clear"` |
 | 写包记录 | `record.write`（before = 旧记录或 null） | `{cap:"storage.record", op:"write"}`，before 为 null 时 `op:"delete"` |
+| 清 current | `current.clear`（before = 旧目标） | `{cap:"storage.current", op:"set", args:{pkg, storePath}}` |
+| 拆家目录联接头 | `home.unlink`（before = 目标） | `{cap:"storage.home", op:"ensure", args:{pkg}}` |
+| 删家目录数据 | `home.purge`（before = 路径） | `{cap:"storage.home", op:"ensure", args:{pkg}}` |
+| 删包记录 | `record.delete`（before = 旧记录） | `{cap:"storage.record", op:"write", args:{record}}` |
 
 ### 9.2 执行撤销的原语
 

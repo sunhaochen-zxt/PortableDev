@@ -52,6 +52,11 @@
       "name": "storage.home",
       "version": 1,
       "mutates": true
+    },
+    {
+      "name": "storage.uninstall",
+      "version": 1,
+      "mutates": true
     }
   ],
   "commands": [

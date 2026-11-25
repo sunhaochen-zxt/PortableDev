@@ -113,7 +113,7 @@ pd [全局开关] <命令> [参数...]
 | `pd remove <包>` | 卸载 | **是** | 能 | `--purge` `--keep-data` `--dry-run` | 2/3/4/8/10/20 |
 | `pd upgrade [包...]` | 升级 | **是** | 需缓存 | `--all` `--dry-run` `--to <版本>` | 2/4/8/10/11/12/15/20/22/23 |
 | `pd rollback [目标]` | 回滚到某个存档点 | **是** | 能 | `--to <序号>` `--list` `--dry-run` | 2/3/4/8/10/20 |
-| `pd list` / `ls` | 已装列表 | 否 | 能 | `--outdated` `--json` `--all` | — |
+| `pd list` / `ls` | 已装列表 | 否 | 能 | `--outdated` `--json` | — |
 | `pd info <包>` | 包详情 | 否 | 能* | `--versions` `--json` | 20 |
 | `pd search <词>` | 搜索源 | 否 | 能* | `--source` `--limit` `--installed` | 2/15 |
 | `pd outdated` | 有更新的包 | 否 | 需缓存 | `--json` | 15 |
@@ -227,26 +227,56 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
   多源优先级、yanked、离线缓存、`--source`/`--pin`/`--refresh`/`--offline`）；
 - 支持：包脚本（受限请求协议；本地默认跑、网络源需 `--allow-scripts`，`--no-scripts` 优先）、
   PATH/环境变量/HKCU/HKLM/启动器接线、`data.link`/`data.copy`、`{{HOME}}` 家目录联接；
+- 支持：`pd upgrade` / `pd remove` / `pd list` 生命周期命令（见 5.2）；
 - 未支持：`scoop` 源、依赖递归安装、`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
 - 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`）。
 
-### 5.2 `pd upgrade`
+### 5.2 `pd upgrade` / `pd remove` / `pd list`
+
+三条命令都基于“记录 + 存档点”工作：**每个包一个审计任务**，批量时某包失败只回滚该包，
+其他包继续，最后汇总（退出码取首个错误的映射）。
+
+#### 升级
 
 ```
 pd upgrade [包...] [--all] [--to <版本>] [--dry-run]
 ```
 
-顺序：
+1. 读已装记录（`--all` 选全部，否则按包名；名字没装过 → 20）；
+2. 从源索引解析目标版本：不给 `--to` 时取最新且**只升不降**；`--to` 是显式目标，
+   可升可降、也可同版本重装；`--to` 必须给出包名（不能与 `--all` 同用）；
+3. 没有变化就跳过（打印 “up to date”）；
+4. 真跑：先 `storage.uninstall` **只摘旧版本**——拆接线、清 current、删记录，
+   但**不删 store 目录、不删家目录、不写存档点**；
+5. 再复用 `pd install` 的完整流程装新版本（staging → 脚本 → 断言 → 收编 → 接线）；
+6. 成功后写一个存档点；失败时 `rollback.run` 把旧版本的记录、current 和接线撤回来。
 
-1. 解析新版本（源索引）；
-2. 下载（或从缓存取）；
-3. 在 staging 里装好、跑脚本、断言；
-4. 收编进 store（新目录，旧的不动）；
-5. 挪 `current` 指针 → 新版本立即生效；
-6. 激活断言；
-7. 存档点。
+下载/解包/断言/脚本任何一步失败都只影响该包。**旧版本的 store 目录保留到 `pd gc`**；
+家目录数据升级后继续使用。`--dry-run` 只打印 包/当前/目标/动作 计划；解析失败或目标版本不存在 → 20，记录不动。
 
-**旧版本保留**，直到 `pd gc`。失败时指针不动，环境保持原样。
+#### 卸载
+
+```
+pd remove <包>... [--purge] [--keep-data] [--dry-run]
+```
+
+- 默认（= `--keep-data`）：拆机器层接线、清 current、删记录；**盘上 `home\<包>` 保留**，
+  重装时接着用；
+- `--purge`：连 `home\<包>` 一起删；与 `--keep-data` 同时给 → 2；
+- store 目录不立即删（留给 `pd gc` 判断是否还有别的引用）；
+- 包不存在 → 20；部分不存在时其余照常卸载，汇总里标 `not installed: ...`；
+- `--dry-run` 只打印 包/版本/家目录/动作 计划；每个包成功后写存档点，失败时 `rollback.run` 撤回该包。
+
+#### 列表
+
+```
+pd list [--outdated] [--json]
+```
+
+- 表：包 / 版本 / 最新 / current（`current\<包>` 指针是否存在）；
+- `--outdated` 用**本地索引缓存**解析每个包的最新版（不联网刷新；缓存缺失显示 `?`），
+  并统计 outdated 数；
+- `--json` 的 metrics：`{packages:[{package,version,latest,current,storePath}],outdated}`。
 
 ### 5.3 `pd rollback`
 

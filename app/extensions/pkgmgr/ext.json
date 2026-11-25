@@ -19,6 +19,9 @@
     "storage.adopt",
     "storage.current",
     "storage.ledger",
+    "storage.record",
+    "storage.uninstall",
+    "storage.wire",
     "download.fetch",
     "unpack.extract",
     "rollback.run"
@@ -34,6 +37,37 @@
       "parallel": false,
       "summary": "install a package from a source, a .pdpkg, a directory or a URL",
       "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>] [--source <源>] [--force] [--offline] [--refresh]"
+    },
+    {
+      "name": "remove",
+      "aliases": [
+        "rm",
+        "uninstall"
+      ],
+      "mutates": true,
+      "parallel": false,
+      "summary": "remove installed packages and their machine wiring",
+      "usage": "pd remove <包>... [--purge] [--keep-data] [--dry-run]"
+    },
+    {
+      "name": "upgrade",
+      "aliases": [
+        "up"
+      ],
+      "mutates": true,
+      "parallel": false,
+      "summary": "upgrade installed packages to the newest version a source offers",
+      "usage": "pd upgrade [包...] [--all] [--dry-run] [--to <版本>]"
+    },
+    {
+      "name": "list",
+      "aliases": [
+        "ls"
+      ],
+      "mutates": false,
+      "parallel": true,
+      "summary": "list installed packages",
+      "usage": "pd list [--outdated] [--json]"
     },
     {
       "name": "fetch",

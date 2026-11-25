@@ -1,7 +1,8 @@
 # 包管理实现说明（pkgmgr / download / unpack / sources）
 
 > 状态：可用。四种来源（`.pdpkg`、目录、URL、**源索引按包名**）都能装到 store 并建 current 指针；
-> 失败自动回滚；包脚本走受限请求协议；家目录/接线/HKLM 由 storage 执行。
+> `pd upgrade` / `pd remove` / `pd list` 已实现；失败自动回滚；包脚本走受限请求协议；
+> 家目录/接线/HKLM 由 storage 执行。
 > 相关文档：[commands.md](commands.md) 5.1、[package-spec.md](package-spec.md)、[index-spec.md](index-spec.md)、
 > [impl-storage.md](impl-storage.md)、[impl-rollback.md](impl-rollback.md)、[impl-wire.md](impl-wire.md)。
 
@@ -11,7 +12,7 @@
 
 | 扩展/模块 | 职责 | 不做什么 |
 |---|---|---|
-| `pkgmgr` | 编排安装流程、读说明书、跑断言与包脚本、决定失败回滚 | 不直接碰 store/租界（都经 storage） |
+| `pkgmgr` | 编排安装/升级/卸载/列表、读说明书、跑断言与包脚本、决定失败回滚 | 不直接碰 store/租界（都经 storage） |
 | `pkgmgr/sources.js` | `config/sources.json`、索引缓存（`state/sources/<源>`）、版本范围解析 | 不碰 store |
 | `pkgmgr/scripts.js` | 受限脚本协议（stdout 请求 / stdin 回执）、超时与进程树清理 | 不直连内核 |
 | `download` | URL → blob（带哈希）或任意 URL → 指定路径（`get`，供索引/清单） | 不安装、不解压 |
@@ -39,6 +40,19 @@ pd install <目标>
 ```
 
 **路径基准**：相对路径按**调用方 shell 的 cwd** 解析（`req.ctx.cwd`）。
+
+### 2.1 升级 / 卸载 / 列表
+
+- `pd upgrade`：先 `storage.record.list` → 源解析目标版本（`--to` 可显式降级，否则只升）；
+  每个包先 `storage.uninstall` **只摘旧版本**（`skipGeneration:true`，保留 store 目录和家目录数据），
+  再复用 `install()` 装新版本；两步共用同一个审计任务 `<任务号>-up-<包>`，
+  安装失败由 `install` 自己的 catch 调 `rollback.run` 把 uninstall 撤回来。
+- `pd remove`：调 `storage.uninstall`（默认保留家目录，`--purge` 连 `home\<包>` 一起删；
+  `skipGeneration:false`），每个包一个审计任务 `<任务号>-rm-<包>`，失败时 `rollback.run`。
+- `pd list`：读记录 + 检查 current 指针；`--outdated` 只读本地索引缓存解析最新版，不联网刷新。
+- 批量语义：一个包失败不影响其他包；最后汇总，退出码取第一个失败的错误映射。
+- `install(message, options)` 支持注入 `taskId` / `io`（默认 `commandIo(message)`），
+  这样升级能在同一审计任务里跑完整安装流程并转发事件。
 
 ## 3. 源与索引（index-spec）
 
@@ -106,6 +120,7 @@ pd install <目标>
 | `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
+| `tools/manage-e2e.py` | 35 | install/upgrade/remove/list、`--to` 升降级、`--all`、`--dry-run`、`--purge`/`--keep-data`、记录/current/存档点、旧 store 保留、错码 |
 
 运行：
 
@@ -115,6 +130,7 @@ DN="Z:/PortableDev/tools/dotnet-sdk/8.0.426/dotnet.exe"
 python -u tools/pkg-e2e.py .run
 python -u tools/source-e2e.py .run
 python -u tools/script-e2e.py .run
+python -u tools/manage-e2e.py .run-manage
 ```
 
 ## 9. 还没做的
@@ -126,4 +142,4 @@ python -u tools/script-e2e.py .run
 | 更多解包 | `7z` / `msi` |
 | 包脚本 Job Object | 现在只有超时 + 进程树杀，没有内存/CPU/子进程数配额 |
 | 提权脚本 | `script.elevated:true` 未实现（需要提权子进程 + 回执 IPC） |
-| 升级 / 卸载 | `pd upgrade` / `pd remove` 还没有 |
+| 批量事务 | 升级/卸载是逐包任务（失败只回滚该包），没有“整批全成功才生效”的事务语义 |

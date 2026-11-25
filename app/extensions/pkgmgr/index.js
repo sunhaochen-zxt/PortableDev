@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { connect, ready } = require("./protocol");
-const { createSourceManager } = require("./sources");
+const { createSourceManager, compareVersions } = require("./sources");
 const { runScript } = require("./scripts");
 
 const ROOT = process.env.PD_ROOT || ".";
@@ -250,14 +250,18 @@ function assertFilesExist(root, asserts) {
   }
 }
 
-async function install(message) {
+async function install(message, options) {
   const id = message.id;
+  const opts = options || {};
+  // The audit task can differ from the kernel task: a batch (pd upgrade) must roll back one package
+  // without breaking the grant/prompt routing that the kernel still keys by the outer task id.
+  const taskId = opts.taskId || id;
+  const io = opts.io || commandIo(message);
   const argv = (message.data && message.data.argv) || [];
   const { flags, positional } = parseFlags(argv);
-  let seq = 0;
-  const event = (type, data) => send({ v: 1, kind: "evt", id, seq: ++seq, data: Object.assign({ type }, data) });
-  const done = (payload) => send({ v: 1, kind: "evt", id, seq: ++seq, data: Object.assign({ type: "done", ok: true, exitCode: 0 }, payload) });
-  const fail = (error) => send({ v: 1, kind: "evt", id, seq: ++seq, data: { type: "done", ok: false, exitCode: error.exitCode || 1, error: { code: error.code || "ERR_INTERNAL", message: error.message || String(error) } } });
+  const event = (type, data) => io.event(type, data);
+  const done = (payload) => io.done(payload);
+  const fail = (error) => io.fail(error);
 
   const target = positional[0];
   // Relative paths come from the caller's shell, not from this process (spec 3.5 context snapshot).
@@ -276,7 +280,7 @@ async function install(message) {
     const staging = grantPath;
     grantPath = null;
     try {
-      await callCapability("storage.adopt", "abort", { task: id, stagingPath: staging });
+      await callCapability("storage.adopt", "abort", { task: taskId, stagingPath: staging });
     } catch (error) {
       event("log", { level: "warn", msg: "grant cleanup failed: " + (error.message || String(error)) });
     }
@@ -434,7 +438,7 @@ async function install(message) {
       scriptRoot: kind === "dir" ? dirRoot : pkgRoot,
       pkgId: pkgId,
       version: version,
-      task: id,
+      task: taskId,
       flags: flags,
       settings: settings,
       root: ROOT,
@@ -457,7 +461,7 @@ async function install(message) {
 
     event("step", { stepId: "adopt", title: "adopt", state: "running" });
     const commit = await callCapability("storage.adopt", "commit", {
-      task: id,
+      task: taskId,
       pkg: pkgId,
       version,
       stagingPath: contentRoot,
@@ -469,19 +473,19 @@ async function install(message) {
 
     for (const pending of scriptResult.pendingLinks || []) {
       await callCapability("storage.wire", "link.create", {
-        task: id,
+        task: taskId,
         source: path.join(commit.storePath, pending.relative),
         target: pending.target,
       });
     }
 
     event("step", { stepId: "wire", title: "wire", state: "running" });
-    const current = await callCapability("storage.current", "set", { task: id, pkg: pkgId, storePath: commit.storePath });
-    const wired = await callCapability("storage.wire", "apply", { task: id, only: pkgId });
+    const current = await callCapability("storage.current", "set", { task: taskId, pkg: pkgId, storePath: commit.storePath });
+    const wired = await callCapability("storage.wire", "apply", { task: taskId, only: pkgId });
     event("step", { stepId: "wire", title: "wire", state: "done" });
 
     try {
-      await callCapability("storage.ledger", "commit", { task: id });
+      await callCapability("storage.ledger", "commit", { task: taskId });
     } catch (error) {
       event("log", { level: "warn", msg: "ledger commit failed: " + (error.message || String(error)) });
     }
@@ -499,12 +503,12 @@ async function install(message) {
         wiringChanges: wired.changed,
         source: resolvedPackage ? resolvedPackage.source : null,
         indexStale: resolvedPackage ? resolvedPackage.stale : false,
-        task: id,
+        task: taskId,
       },
     });
   } catch (error) {
     try {
-      await callCapability("rollback.run", "run", { task: id });
+      await callCapability("rollback.run", "run", { task: taskId });
     } catch (rollbackError) {
       event("log", { level: "warn", msg: "rollback failed: " + (rollbackError.message || String(rollbackError)) });
     }
@@ -875,6 +879,351 @@ async function fetchCommand(message) {
   }
 }
 
+// Runs install() as a sub-step of a batch while forwarding its progress to the outer task.
+function runInstall(innerMessage, taskId, onEvent) {
+  return new Promise((resolve, reject) => {
+    const io = {
+      event: (type, data) => {
+        if (onEvent) {
+          onEvent(type, data);
+        }
+      },
+      done: (payload) => resolve(payload || {}),
+      fail: (error) => reject(error),
+    };
+    try {
+      const pending = install(innerMessage, { taskId: taskId, io: io });
+      if (pending && typeof pending.then === "function") {
+        pending.catch(reject);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function sortedRecords(items) {
+  return (items || []).slice().sort((left, right) => String(left.id).localeCompare(String(right.id)));
+}
+
+async function upgradeCommand(message) {
+  const io = commandIo(message);
+  const { flags, positional } = commandContext(message);
+  const manager = sources();
+  try {
+    const installed = sortedRecords((await callCapability("storage.record", "list", {})).items);
+    if (installed.length === 0) {
+      io.done({ summary: "no packages installed", metrics: { upgraded: 0, skipped: 0, failed: 0, packages: [] } });
+      return;
+    }
+
+    let selected;
+    if (flags.all === true) {
+      selected = installed;
+    } else if (positional.length > 0) {
+      selected = positional.map((name) => {
+        const pkg = validPackageId(name);
+        const found = installed.find((record) => record.id === pkg);
+        if (!found) {
+          throw new PkgError("ERR_PKG_NOT_FOUND", pkg + " is not installed", 20);
+        }
+        return found;
+      });
+    } else {
+      io.fail(new PkgError("ERR_BAD_ARGS", "upgrade needs package names or --all", 2));
+      return;
+    }
+
+    const to = flags.to === undefined ? null : validVersion(flags.to);
+    if (to !== null && flags.all === true) {
+      io.fail(new PkgError("ERR_BAD_ARGS", "--to needs explicit package names", 2));
+      return;
+    }
+
+    const plan = [];
+    for (const record of selected) {
+      const targetRef = to === null ? record.id : record.id + "@" + to;
+      try {
+        const resolved = await manager.resolve(targetRef, flags);
+        const order = compareVersions(resolved.version, record.version);
+        // --to is an explicit pin, so it may also downgrade; without it only newer versions count.
+        const wanted = to !== null ? order !== 0 : order > 0;
+        plan.push({ record: record, resolved: resolved, action: wanted ? "upgrade" : "skip" });
+      } catch (error) {
+        plan.push({ record: record, resolved: null, error: error, action: "fail" });
+      }
+    }
+
+    if (flags["dry-run"] === true) {
+      const rows = plan.map((item) => [
+        item.record.id,
+        item.record.version,
+        item.resolved ? item.resolved.version : "-",
+        item.error ? "error: " + (item.error.code || "ERR_INTERNAL") : item.action,
+      ]);
+      try {
+        await io.event("table", {
+          title: "upgrade plan",
+          columns: [
+            { key: "package", title: "包" },
+            { key: "current", title: "当前" },
+            { key: "target", title: "目标" },
+            { key: "action", title: "动作" },
+          ],
+          rows: rows,
+        });
+      } catch (error) {
+        // table rendering is best effort
+      }
+      io.done({
+        summary: "dry-run: " + plan.filter((item) => item.action === "upgrade").length + " upgrade(s), " +
+          plan.filter((item) => item.action === "skip").length + " up to date, " +
+          plan.filter((item) => item.action === "fail").length + " error(s)",
+        metrics: {
+          dryRun: true,
+          packages: plan.map((item) => ({
+            package: item.record.id,
+            current: item.record.version,
+            target: item.resolved ? item.resolved.version : null,
+            action: item.action,
+            error: item.error ? { code: item.error.code || "ERR_INTERNAL", message: item.error.message || String(item.error) } : null,
+          })),
+        },
+      });
+      return;
+    }
+
+    const upgraded = [];
+    const skipped = [];
+    const failed = [];
+    const ctx = (message.data && message.data.ctx) || {};
+    for (const item of plan) {
+      if (item.action === "fail") {
+        failed.push({ package: item.record.id, code: (item.error && item.error.code) || "ERR_INTERNAL", message: (item.error && item.error.message) || String(item.error) });
+        continue;
+      }
+      if (item.action === "skip") {
+        skipped.push(item.record.id);
+        io.event("log", { level: "info", msg: item.record.id + " " + item.record.version + " is up to date" });
+        continue;
+      }
+
+      const pkg = item.record.id;
+      // One audit task per package: uninstall and install share it so a failed upgrade can roll back
+      // to the previous version without touching other packages in the batch.
+      const taskId = String(message.id) + "-up-" + pkg;
+      io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "running" });
+      try {
+        await callCapability("storage.uninstall", "run", {
+          task: taskId, pkg: pkg, purgeData: false, skipGeneration: true,
+        });
+        const argv = [pkg + "@" + item.resolved.version, "--source", item.resolved.source.name];
+        if (flags.offline === true) {
+          argv.push("--offline");
+        }
+        const metrics = await runInstall(
+          { id: message.id, data: { argv: argv, ctx: ctx, cmd: "install" } },
+          taskId,
+          (type, data) => {
+            if (type === "step") {
+              io.event("step", { stepId: "up-" + pkg + "-" + (data.stepId || "step"), title: data.title, state: data.state });
+              return;
+            }
+            if (type === "kv" || type === "table") {
+              return;
+            }
+            io.event(type, data);
+          },
+        );
+        upgraded.push({ package: pkg, from: item.record.version, to: item.resolved.version, storePath: metrics.storePath || null });
+        io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "done" });
+      } catch (error) {
+        failed.push({ package: pkg, code: error.code || "ERR_INTERNAL", message: error.message || String(error) });
+        io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "failed" });
+        io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) });
+      }
+    }
+
+    const summary = upgraded.length + " upgraded, " + skipped.length + " up to date, " + failed.length + " failed";
+    if (failed.length > 0) {
+      const head = failed[0];
+      io.fail(new PkgError(head.code, summary + ": " + failed.map((item) => item.package + " (" + item.message + ")").join("; "), exitForCode(head.code)));
+      return;
+    }
+    io.done({
+      summary: summary,
+      metrics: { upgraded: upgraded.length, skipped: skipped.length, failed: 0, packages: upgraded, skippedPackages: skipped },
+    });
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
+async function removeCommand(message) {
+  const io = commandIo(message);
+  const { flags, positional } = commandContext(message);
+  if (flags.purge === true && flags["keep-data"] === true) {
+    io.fail(new PkgError("ERR_BAD_ARGS", "--purge and --keep-data are mutually exclusive", 2));
+    return;
+  }
+  if (positional.length === 0) {
+    io.fail(new PkgError("ERR_BAD_ARGS", "remove needs at least one package name", 2));
+    return;
+  }
+  const dryRun = flags["dry-run"] === true;
+  const purgeData = flags.purge === true;
+  try {
+    const targets = [];
+    const missing = [];
+    for (const name of positional) {
+      const pkg = validPackageId(name);
+      try {
+        const record = await callCapability("storage.record", "get", { pkg: pkg });
+        targets.push({ pkg: pkg, record: record });
+      } catch (error) {
+        if (error.code === "ERR_PKG_NOT_FOUND") {
+          missing.push(pkg);
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (dryRun) {
+      const rows = targets.map((item) => [item.pkg, item.record.version, purgeData ? "删除数据" : "保留数据", "would remove"]);
+      try {
+        await io.event("table", {
+          title: "remove plan",
+          columns: [
+            { key: "package", title: "包" },
+            { key: "version", title: "版本" },
+            { key: "data", title: "家目录" },
+            { key: "action", title: "动作" },
+          ],
+          rows: rows,
+        });
+      } catch (error) {
+        // table rendering is best effort
+      }
+      io.done({
+        summary: "dry-run: would remove " + targets.length + " package(s)" + (missing.length ? ", missing: " + missing.join(",") : "") +
+          (purgeData ? " (purge data)" : " (keep data)"),
+        metrics: {
+          dryRun: true,
+          purgeData: purgeData,
+          packages: targets.map((item) => ({ package: item.pkg, version: item.record.version })),
+          missing: missing,
+        },
+      });
+      return;
+    }
+
+    const removed = [];
+    const failed = [];
+    for (const item of targets) {
+      const taskId = String(message.id) + "-rm-" + item.pkg;
+      io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "running" });
+      try {
+        const result = await callCapability("storage.uninstall", "run", {
+          task: taskId, pkg: item.pkg, purgeData: purgeData, skipGeneration: false,
+        });
+        removed.push({ package: item.pkg, version: item.record.version, homePurged: result.homePurged === true });
+        io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "done" });
+      } catch (error) {
+        failed.push({ package: item.pkg, code: error.code || "ERR_INTERNAL", message: error.message || String(error) });
+        io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "failed" });
+        try {
+          await callCapability("rollback.run", "run", { task: taskId });
+        } catch (rollbackError) {
+          io.event("log", { level: "warn", msg: "rollback failed: " + (rollbackError.message || String(rollbackError)) });
+        }
+      }
+    }
+
+    const parts = [];
+    if (removed.length > 0) {
+      parts.push("removed " + removed.map((item) => item.package).join(","));
+    }
+    if (missing.length > 0) {
+      parts.push("not installed: " + missing.join(","));
+    }
+    if (failed.length > 0) {
+      parts.push("failed: " + failed.map((item) => item.package + " (" + item.message + ")").join("; "));
+    }
+    if (failed.length > 0) {
+      io.fail(new PkgError(failed[0].code, parts.join("; "), exitForCode(failed[0].code)));
+      return;
+    }
+    if (removed.length === 0 && missing.length > 0) {
+      io.fail(new PkgError("ERR_PKG_NOT_FOUND", parts.join("; "), 20));
+      return;
+    }
+    io.done({
+      summary: parts.join("; "),
+      metrics: { removed: removed, missing: missing, purgeData: purgeData },
+    });
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
+async function listCommand(message) {
+  const io = commandIo(message);
+  const { flags } = commandContext(message);
+  try {
+    const records = sortedRecords((await callCapability("storage.record", "list", {})).items);
+    if (records.length === 0) {
+      io.done({ summary: "no packages installed", metrics: { packages: [] } });
+      return;
+    }
+
+    const latest = {};
+    if (flags.outdated === true) {
+      for (const record of records) {
+        try {
+          const resolved = await sources().resolve(record.id, { offline: true });
+          if (compareVersions(resolved.version, record.version) > 0) {
+            latest[record.id] = resolved.version;
+          }
+        } catch (error) {
+          latest[record.id] = null;
+        }
+      }
+    }
+
+    const rows = [];
+    const packages = [];
+    for (const record of records) {
+      const current = fs.existsSync(path.join(ROOT, "current", record.id));
+      const newer = Object.prototype.hasOwnProperty.call(latest, record.id) ? latest[record.id] : undefined;
+      rows.push([record.id, record.version, newer === undefined ? "-" : (newer === null ? "?" : newer), current ? "yes" : "missing"]);
+      packages.push({ package: record.id, version: record.version, latest: newer === undefined ? null : newer, current: current, storePath: record.storePath });
+    }
+
+    const outdatedCount = packages.filter((item) => item.latest !== null).length;
+    try {
+      await io.event("table", {
+        title: "installed packages" + (flags.outdated === true ? " (outdated)" : ""),
+        columns: [
+          { key: "package", title: "包" },
+          { key: "version", title: "版本" },
+          { key: "latest", title: "最新" },
+          { key: "current", title: "current" },
+        ],
+        rows: rows,
+      });
+    } catch (error) {
+      // table rendering is best effort
+    }
+    io.done({
+      summary: packages.length + " package(s)" + (flags.outdated === true ? ", " + outdatedCount + " outdated" : ""),
+      metrics: { packages: packages, outdated: outdatedCount },
+    });
+  } catch (error) {
+    io.fail(error);
+  }
+}
+
 connect({
   onMessage(message, outbound) {
     send = outbound;
@@ -921,6 +1270,12 @@ connect({
       const command = (message.data && message.data.cmd) || argv[0] || "";
       if (command === "install") {
         install(message);
+      } else if (command === "remove") {
+        removeCommand(message);
+      } else if (command === "upgrade") {
+        upgradeCommand(message);
+      } else if (command === "list" || command === "ls") {
+        listCommand(message);
       } else if (command === "source") {
         sourceCommand(message);
       } else if (command === "index") {

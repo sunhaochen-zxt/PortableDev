@@ -37,15 +37,17 @@ dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Deb
 套件会自己拉起/停止内核，必须串行跑（先删 `.run/state/lock.json`）：
 
 ```bash
-dotnet tests/PortableDev.Core.Runner/bin/Debug/net8.0/PortableDev.Core.Runner.dll   # 18
+dotnet tests/PortableDev.Core.Runner/bin/Debug/net8.0/PortableDev.Core.Runner.dll   # 21
 python -u tools/e2e.py .run                                                        # 51（带日志提供者 61）
-PD_LOG_FIXTURE=log-ext python -u tools/storage-e2e.py .run                          # 60
+PD_LOG_FIXTURE=log-ext python -u tools/storage-e2e.py .run                          # 62
+PD_LOG_FIXTURE=log-alt python -u tools/storage-e2e.py .run                          # 62（换日志实现）
 python -u tools/pkg-e2e.py .run                                                     # 37
-python -u tools/pd-e2e.py .run                                                      # 29
-python -u tools/wire-e2e.py .run                                                    # 28
+python -u tools/pd-e2e.py .run                                                      # 31
+python -u tools/wire-e2e.py .run                                                    # 43
 python -u tools/generation-e2e.py .run                                              # 29
 python -u tools/source-e2e.py .run                                                   # 34
 python -u tools/script-e2e.py .run                                                   # 22
+python -u tools/manage-e2e.py .run-manage                                            # 35
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

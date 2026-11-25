@@ -511,6 +511,100 @@ function currentClear(args) {
   return { cleared: true };
 }
 
+// Uninstall is the mirror of install: wiring, current pointer, home junction and record go away inside
+// one audited task, so rollback can put the package back exactly as it was. Store content is left in
+// place on purpose; pd gc collects it once neither a record nor a generation references it.
+async function uninstall(args) {
+  const task = args.task == null ? null : String(args.task);
+  const pkg = packageId(args.pkg, "uninstall package id");
+  const purgeData = args.purgeData === true;
+  const skipGeneration = args.skipGeneration === true;
+  const record = recordGet({ pkg });
+
+  await ensureBegin(task, pkg);
+
+  const wiringChanges = await restoreWiring(record, task);
+
+  let currentCleared = false;
+  const link = path.join(CURRENT, pkg);
+  if (readLink(link) !== null) {
+    await ledgerEntry(task, {
+      op: "current.clear",
+      pkg,
+      before: record.storePath,
+      after: null,
+      undo: { cap: "storage.current", op: "set", args: { pkg, storePath: record.storePath } },
+    });
+    if (!removeLink(link)) {
+      throw new StorageError("ERR_IO", "cannot remove the current link: " + link);
+    }
+    currentCleared = true;
+  }
+
+  // Keep the user's files by default; only the machine-side junction is detached so the package is
+  // gone from PATH/launchers. --purge additionally removes the stick-side home directory.
+  let homeDetached = false;
+  const machineHome = homeMachinePath(pkg);
+  if (readLinkTarget(machineHome) !== null) {
+    await ledgerEntry(task, {
+      op: "home.unlink",
+      pkg,
+      before: machineHome,
+      after: null,
+      undo: { cap: "storage.home", op: "ensure", args: { pkg } },
+    });
+    if (!removeLink(machineHome)) {
+      throw new StorageError("ERR_IO", "cannot remove the home junction: " + machineHome);
+    }
+    homeDetached = true;
+  }
+
+  let homePurged = false;
+  const stickHome = homeStickPath(pkg);
+  if (purgeData && fs.existsSync(stickHome)) {
+    await ledgerEntry(task, {
+      op: "home.purge",
+      pkg,
+      before: stickHome,
+      after: null,
+      undo: { cap: "storage.home", op: "ensure", args: { pkg } },
+    });
+    removeDir(stickHome);
+    homePurged = true;
+  }
+
+  await ledgerEntry(task, {
+    op: "record.delete",
+    pkg,
+    before: { id: record.id, version: record.version, storePath: record.storePath },
+    after: null,
+    undo: { cap: "storage.record", op: "write", args: { record } },
+  });
+  recordDelete({ pkg });
+
+  const generationSeq = skipGeneration ? null : writeGeneration(readAllRecords());
+  logInfo("storage.uninstall", "package uninstalled", {
+    pkg,
+    version: record.version,
+    purgeData,
+    wiringChanges,
+    currentCleared,
+    homeDetached,
+    homePurged,
+  });
+  return {
+    pkg,
+    version: record.version,
+    storePath: record.storePath,
+    wiringChanges,
+    currentCleared,
+    homeDetached,
+    homePurged,
+    keptHome: !homePurged,
+    generationSeq,
+  };
+}
+
 function referencedStores() {
   const referenced = new Set();
   for (const record of Object.values(readAllRecords())) {
@@ -2307,6 +2401,9 @@ async function handleCall(message) {
     if (capability === "storage.current" && op === "clear") {
       return currentClear(args);
     }
+    if (capability === "storage.uninstall" && op === "run") {
+      return uninstall(args);
+    }
     if (capability === "storage.gc" && op === "run") {
       return gc(args);
     }
@@ -2344,6 +2441,7 @@ const link = connect({
         { name: "storage.wire", version: 1, mutates: true },
         { name: "storage.generation", version: 1, mutates: true },
         { name: "storage.home", version: 1, mutates: true },
+        { name: "storage.uninstall", version: 1, mutates: true },
       ]);
       return;
     }
