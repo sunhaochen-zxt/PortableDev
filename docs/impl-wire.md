@@ -83,6 +83,8 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
 | `pd clean` | 退出码 0、PATH/环境变量/注册表/启动器/联接全部消失 |
 | 再 `apply` | 全部恢复 |
 | 真实机器 | 环境变量真的写进用户环境，`clean` 后真的消失 |
+| HKCU 走助手 | `tools/registry-e2e.py` 12 项：部署助手到测试盘后，装/clean/remove 的 HKCU 写入与还原全部经过 pd-elevate 的 --no-elevate 模式（本机 `reg.exe` 被策略禁用也能跑） |
+| HKCU 走助手 | `tools/registry-e2e.py` 12 项：部署助手到测试盘后，装/clean/remove 的 HKCU 写入与还原全部经过 `pd-elevate --no-elevate`（本机 `reg.exe` 被策略禁用也能跑） |
 
 ## 7. 还没做的
 
@@ -99,6 +101,10 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
 - HKLM 写入、以及稳定根/用户目录之外的 `link`/`copy` 目标，由 `src/PortableDev.Elevate`
   的 `pd-elevate` 助手执行：一次请求文件列出一批 op，结果文件回传每个 op 的 `before`；
   非管理员时助手用 `runas` 自重启（UAC），取消则整批失败；
+- **HKCU 读写也优先走同一助手**（--no-elevate，不需要 UAC）：机器上 `reg.exe` 被策略禁用时仍能读写
+  HKCU；只有助手不存在/起不来时才回退 `reg.exe`；
+- 部署要保证 `dotnet` 在扩展的 PATH 上（或用自包含发布），并同时放 `pd-elevate.runtimeconfig.json` /
+  `pd-elevate.deps.json`（只放 dll 会报 hostpolicy 缺失）；
 - **部署**：把构建出的 `pd-elevate.exe`（或 `pd-elevate.dll` + `dotnet`）放到
   `<盘>\app\tools\`；storage 按这个路径查找，找不到时 HKLM/盘外写入返回 `ERR_UNSUPPORTED`；
 - **测试**：`state\wire\fake-mode` 下 HKLM/link/copy 全部走 fake 状态，不需要 UAC；

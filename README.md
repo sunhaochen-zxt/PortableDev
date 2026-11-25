@@ -12,7 +12,7 @@ V2 是一次微内核重写（V1 在仓库 `main`）：内核只做协议与调�
 src/PortableDev.Core        协议帧/信封、配置、身份、日志契约、扩展清单
 src/PortableDev.Kernel      pd-kernel：管道、派发、监督器、恢复、单实例锁
 src/PortableDev.Shell       pd.exe：参数、连接、事件渲染、退出码
-src/PortableDev.Elevate      pd-elevate：HKLM / 盘外路径的 UAC 批次助手
+src/PortableDev.Elevate      pd-elevate：HKLM / HKCU / 盘外路径的提权批次助手
 app/extensions/             storage / rollback / log / download / unpack / pkgmgr
                             （pkgmgr 内含 sources.js 索引解析、scripts.js 受限脚本协议）
 tests/PortableDev.Core.Runner  单元测试（21 项）
@@ -27,6 +27,7 @@ docs/                       规范与实现说明（architecture / spec / comman
 ```bash
 dotnet build src/PortableDev.Kernel/PortableDev.Kernel.csproj -c Debug --no-incremental
 dotnet build src/PortableDev.Shell/pd.csproj -c Debug --no-incremental
+dotnet build src/PortableDev.Elevate/PortableDev.Elevate.csproj -c Debug --no-incremental
 dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Debug --no-incremental
 ```
 
@@ -48,6 +49,7 @@ python -u tools/generation-e2e.py .run                                          
 python -u tools/source-e2e.py .run                                                   # 34
 python -u tools/script-e2e.py .run                                                   # 22
 python -u tools/manage-e2e.py .run-manage                                            # 93
+python -u tools/registry-e2e.py .run-registry                                        # 12（HKCU 走 pd-elevate）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

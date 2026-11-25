@@ -932,7 +932,13 @@ function elevateHelperCommand() {
   return null;
 }
 
-function runElevated(ops) {
+function helperAvailable() {
+  return elevateHelperCommand() !== null;
+}
+
+// Runs one batch through pd-elevate. noElevate=true is used for HKCU reads/writes: those never need
+// UAC, and going through the helper avoids depending on reg.exe being enabled on the machine.
+function runHelper(ops, noElevate) {
   const command = elevateHelperCommand();
   if (!command) {
     throw new StorageError("ERR_UNSUPPORTED",
@@ -946,33 +952,62 @@ function runElevated(ops) {
   const requestPath = path.join(dir, base + ".json");
   const resultPath = path.join(dir, base + ".result.json");
   writeJson(requestPath, { schema: 1, result: resultPath, ops: ops });
-  let result;
+  let spawnError = null;
   try {
-    execFileSync(command[0], command.slice(1).concat([requestPath]), {
-      stdio: "ignore",
+    const args = command.slice(1).concat([requestPath]);
+    if (noElevate) {
+      args.push("--no-elevate");
+    }
+    execFileSync(command[0], args, {
+      stdio: ["ignore", "pipe", "pipe"],
       timeout: 300000,
       windowsHide: true,
     });
   } catch (error) {
-    throw new StorageError("ERR_IO", "elevation failed or was cancelled: " + (error.message || String(error)));
+    spawnError = error;
   } finally {
     fs.rmSync(requestPath, { force: true });
   }
 
+  let result = null;
   try {
     result = readJson(resultPath);
   } catch (error) {
-    throw new StorageError("ERR_IO", "elevation helper produced no result (cancelled?)");
+    result = null;
   } finally {
     fs.rmSync(resultPath, { force: true });
   }
 
-  if (!result || result.ok !== true) {
-    const failure = (result && result.error) || {};
-    throw new StorageError(failure.code || "ERR_IO", failure.message || "elevation failed");
+  if (result && result.ok !== true) {
+    const failure = result.error || {};
+    const first = (result.results || []).find((item) => item && item.ok === false) || null;
+    const detail = first && first.error ? first.error.code + ": " + first.error.message : "";
+    throw new StorageError(failure.code || "ERR_IO",
+      (failure.message || "elevation failed") + (detail ? " (" + detail + ")" : ""));
+  }
+
+  if (spawnError) {
+    if (spawnError.code === "ENOENT") {
+      throw new StorageError("ERR_UNSUPPORTED", "elevation helper cannot start: " + (spawnError.message || String(spawnError)));
+    }
+    const stderr = spawnError.stderr ? String(spawnError.stderr).trim() : "";
+    throw new StorageError("ERR_IO", "elevation failed or was cancelled: " + (spawnError.message || String(spawnError)) +
+      (stderr ? " | " + stderr : ""));
+  }
+
+  if (!result) {
+    throw new StorageError("ERR_IO", "elevation helper produced no result (cancelled?)");
   }
 
   return result.results || [];
+}
+
+function runElevated(ops) {
+  return runHelper(ops, false);
+}
+
+function runHelperDirect(ops) {
+  return runHelper(ops, true);
 }
 
 function stableRoot() {
@@ -1067,6 +1102,23 @@ function readRegistry(entry) {
     const fake = readFake();
     return Object.prototype.hasOwnProperty.call(fake.registry, registryId(entry)) ? fake.registry[registryId(entry)] : null;
   }
+  if (helperAvailable()) {
+    try {
+      const results = runHelperDirect([{
+        op: "registry.get",
+        hive: String(entry.hive || "HKCU"),
+        key: String(entry.key || ""),
+        name: String(entry.name || ""),
+      }]);
+      const before = results[0] && results[0].before;
+      if (!before || before.value === undefined || before.value === null) {
+        return null;
+      }
+      return { type: String(before.type || "REG_SZ"), value: String(before.value) };
+    } catch (error) {
+      // fall through to reg.exe for environments where the helper cannot run
+    }
+  }
   const full = String(entry.hive) + "\\" + String(entry.key);
   const args = ["query", full];
   if (entry.name) {
@@ -1096,6 +1148,27 @@ function writeRegistry(entry, value) {
     }
     writeFake(fake);
     return;
+  }
+  if (helperAvailable()) {
+    try {
+      const op = value === null
+        ? { op: "registry.delete", hive: String(entry.hive || "HKCU"), key: String(entry.key || ""), name: String(entry.name || "") }
+        : {
+            op: "registry.set",
+            hive: String(entry.hive || "HKCU"),
+            key: String(entry.key || ""),
+            name: String(entry.name || ""),
+            type: String(value.type || "REG_SZ"),
+            value: String(value.value),
+          };
+      runHelperDirect([op]);
+      return;
+    } catch (error) {
+      if (!(error instanceof StorageError) || error.code !== "ERR_UNSUPPORTED") {
+        throw error;
+      }
+      // helper is present but cannot start; fall back to reg.exe
+    }
   }
   const full = String(entry.hive) + "\\" + String(entry.key);
   const args = value === null

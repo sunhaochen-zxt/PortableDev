@@ -14,17 +14,22 @@ internal static class Program
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("usage: pd-elevate <request.json> [--fake <state.json>]");
+            Console.Error.WriteLine("usage: pd-elevate <request.json> [--fake <state.json>] [--no-elevate]");
             return 2;
         }
 
         var requestPath = args[0];
         string? fakePath = null;
-        for (var index = 1; index < args.Length - 1; index++)
+        var noElevate = false;
+        for (var index = 1; index < args.Length; index++)
         {
-            if (args[index] == "--fake")
+            if (args[index] == "--fake" && index + 1 < args.Length)
             {
-                fakePath = args[index + 1];
+                fakePath = args[++index];
+            }
+            else if (args[index] == "--no-elevate")
+            {
+                noElevate = true;
             }
         }
 
@@ -42,7 +47,7 @@ internal static class Program
 
         var resultPath = request["result"]?.GetValue<string>() ?? Path.ChangeExtension(requestPath, ".result.json");
 
-        if (fakePath is null && !IsAdministrator())
+        if (fakePath is null && !noElevate && !IsAdministrator())
         {
             // Relaunch ourselves with UAC. When we were started as "dotnet pd-elevate.dll ..." the
             // relaunch must keep the dll path, otherwise "runas dotnet request.json" would fail.
@@ -145,6 +150,11 @@ internal static class Program
             return null;
         }
 
+        if (!key.GetValueNames().Any(candidate => string.Equals(candidate, valueName, StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
         var kind = key.GetValueKind(valueName);
         if (kind == RegistryValueKind.Unknown)
         {
@@ -153,7 +163,7 @@ internal static class Program
 
         return new JsonObject
         {
-            ["type"] = kind.ToString().ToUpperInvariant(),
+            ["type"] = KindName(kind),
             ["value"] = key.GetValue(valueName)?.ToString() ?? "",
         };
     }
@@ -209,6 +219,17 @@ internal static class Program
             _ => throw new InvalidOperationException("unsupported hive: " + hive),
         };
     }
+
+    private static string KindName(RegistryValueKind kind) => kind switch
+    {
+        RegistryValueKind.String => "REG_SZ",
+        RegistryValueKind.ExpandString => "REG_EXPAND_SZ",
+        RegistryValueKind.DWord => "REG_DWORD",
+        RegistryValueKind.QWord => "REG_QWORD",
+        RegistryValueKind.MultiString => "REG_MULTI_SZ",
+        RegistryValueKind.Binary => "REG_BINARY",
+        _ => "REG_SZ",
+    };
 
     private static RegistryValueKind ParseKind(string? text) => (text ?? "REG_SZ").ToUpperInvariant() switch
     {
