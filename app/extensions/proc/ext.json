@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "name": "proc",
+  "version": "0.0.1",
+  "title": "Process manager",
+  "entry": "proc.dll",
+  "interpreter": "dotnet",
+  "requiresKernel": ">=1",
+  "provides": [
+    { "name": "proc.spawn", "version": 1, "mutates": true },
+    { "name": "proc.snapshot", "version": 1, "mutates": false },
+    { "name": "proc.kill", "version": 1, "mutates": true },
+    { "name": "proc.system", "version": 1, "mutates": false }
+  ],
+  "commands": [
+    {
+      "name": "proc",
+      "mutates": true,
+      "parallel": false,
+      "summary": "list, inspect and end managed processes",
+      "usage": "pd proc list | info <pid> | kill <pid>"
+    }
+  ],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "60s",
+    "stopTimeout": "3s",
+    "restart": "on-crash",
+    "maxRestarts": 2
+  }
+}

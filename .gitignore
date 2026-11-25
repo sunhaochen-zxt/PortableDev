@@ -5,14 +5,21 @@ obj/
 .vs/
 
 # runtime/test artifacts
-.run/
-.run-fresh/
+.run*/
 run-*/
 probe.out
 *.out
+.probe-helper/
 
 # internal QA artifacts (audit reports are kept outside the repository)
 audit/
+
+# proc extension build output (app/extensions/proc/ext.json is tracked)
+app/extensions/proc/proc.dll
+app/extensions/proc/proc.deps.json
+app/extensions/proc/proc.runtimeconfig.json
+app/extensions/proc/PortableDev.Proc.dll
+app/extensions/proc/PortableDev.Core.dll
 
 # node
 node_modules/

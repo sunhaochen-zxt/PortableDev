@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PortableDev.Proc</RootNamespace>
+    <AssemblyName>PortableDev.Proc</AssemblyName>
+  </PropertyGroup>
+
+</Project>

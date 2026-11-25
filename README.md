@@ -16,6 +16,7 @@ src/PortableDev.Elevate      pd-elevate：HKLM / HKCU / 盘外路径的提权批
 src/PortableDev.Job          pd-job：包脚本的 Job Object 隔离（内存/进程数/随任务结束）
 app/extensions/             storage / rollback / log / download / unpack / pkgmgr
                             （pkgmgr 内含 sources.js 索引解析、scripts.js 受限脚本协议）
+                            proc（.NET，进程管理；构建时由 PortableDev.ProcExt 复制到 app/extensions/proc）
 tests/PortableDev.Core.Runner  单元测试（21 项）
 tools/                      e2e 驱动 + 文档一致性检查
 docs/                       规范与实现说明（architecture / spec / commands / …）
@@ -30,6 +31,8 @@ dotnet build src/PortableDev.Kernel/PortableDev.Kernel.csproj -c Debug --no-incr
 dotnet build src/PortableDev.Shell/pd.csproj -c Debug --no-incremental
 dotnet build src/PortableDev.Elevate/PortableDev.Elevate.csproj -c Debug --no-incremental
 dotnet build src/PortableDev.Job/PortableDev.Job.csproj -c Debug --no-incremental
+dotnet build src/PortableDev.Proc/PortableDev.Proc.csproj -c Debug --no-incremental
+dotnet build src/PortableDev.ProcExt/PortableDev.ProcExt.csproj -c Debug --no-incremental
 dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Debug --no-incremental
 ```
 
@@ -53,6 +56,8 @@ python -u tools/script-e2e.py .run                                              
 python -u tools/manage-e2e.py .run-manage                                            # 93
 python -u tools/registry-e2e.py .run-registry                                        # 12（HKCU 走 pd-elevate）
 python -u tools/job-e2e.py .run-job                                                  # 12（脚本 Job Object）
+dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
+python -u tools/proc-e2e.py                                                          # 20（proc 扩展 + pkgmgr 接入）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```
@@ -60,7 +65,8 @@ python tools/check_docs.py docs                                                 
 ## 设计文档
 
 从 [docs/architecture.md](docs/architecture.md) 开始；协议见 [docs/spec.md](docs/spec.md)，
-命令面/退出码见 [docs/commands.md](docs/commands.md)，各实现细节在 `docs/impl-*.md`。
+命令面/退出码见 [docs/commands.md](docs/commands.md)，进程模型见 [docs/proc.md](docs/proc.md)，
+各实现细节在 `docs/impl-*.md`。
 
 ## 许可
 

@@ -89,7 +89,7 @@ pd [全局开关] <命令> [参数...]
 > **实现状态（2026-11-25）**：本节是目标命令面。已注册命令：`version` / `help` / `complete` /
 > `kernel status|ps|ext list|restart|stop|log` / `config list|get|set|unset` / `log` /
 > `install` / `remove` / `upgrade` / `list` / `rollback` / `apply` / `clean` / `gc` /
-> `source` / `index` / `search` / `fetch`。
+> `source` / `index` / `search` / `fetch` / `proc`。
 >
 > **未实现（2026-11-25）**：`run` / `shell` / `ext` / `doctor` / `recover` / `outdated` /
 > `info` / `ui` / `env` / `selftest` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
@@ -163,7 +163,7 @@ pd [全局开关] <命令> [参数...]
 
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
-| `pd run <包> [参数...]` | 用该包的环境启动程序 | 否 | 能 | `--` 分隔 `--propagate` | 20/1 |
+| `pd run <包> [参数...]` | 用该包的环境启动程序 | 否 | 能 | `--` 分隔 `--propagate` `--detach` | 20/1 |
 | `pd shell` | 开一个环境齐备的终端 | 否 | 能 | `--profile msvc` `cmd` `--propagate` | 4 |
 | `pd bundle export` | 导出环境清单 | 否 | 能 | `--out` `--lock` | 3 |
 | `pd bundle install <文件>` | 按清单装 | **是** | 见 5.1 | `--from-dir` `--dry-run` | 同 install |
@@ -190,6 +190,18 @@ pd [全局开关] <命令> [参数...]
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
 | `pd ui pages` | 列出所有页面（给窗口壳用） | 否 | 能 | `--json` | 3 |
+
+### 4.10 进程
+
+完整语义见 [proc.md](proc.md)。这些命令由 `proc` 扩展提供；**扩展进程不在这里**，用 `pd kernel ps` 看。
+进程有 `level`：`0` 普通、`1` 需要管理员、`2` 关键（结束它可能导致蓝屏/重启）。
+
+| 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
+|---|---|---|---|---|---|
+| `pd proc list` | 受管进程列表 | 否 | 能 | `--kind` `--json` | — |
+| `pd proc info <pid\|id>` | 一个进程的详情 | 否 | 能 | `--json` | 2/20 |
+| `pd proc kill <pid>` | 结束进程（受管或系统） | **是** | 能 | `--tree` `--elevated` `--force-critical` `--yes` | 2/8/11/20/25 |
+| `pd proc system` | 整机进程枚举 | 否 | 能 | `--elevated` `--filter` `--json` | 2/8 |
 
 ---
 
@@ -426,6 +438,8 @@ local/mytool@0.1.0
 - **`run` 的退出码属于 `pd` 自己的空间**（见第 3 节）：启动失败 `20`/`1`，被启动程序非 0 → `1`；
 - 被启动程序的真实退出码放 `done.metrics.childExitCode`（`--json` 可见）；需要让 shell 拿到它，
   显式加 `--propagate`（此时退出码 = 子进程退出码，`pd` 不再附加语义）；
+- `--detach`：子进程不进壳的 job，终端关闭 / 壳退出 / 内核停止都不影响它；只对后台程序有意义
+  （交互式程序不要用：detach 后没有终端），细节见 [proc.md](proc.md) 第 9 节；
 - `shell`：开一个终端，PATH 指向稳定根，可选 `--profile msvc` 附加变量；
 - `shell` 同理：默认退出码属于 `pd` 的空间；加 `--propagate` 才是终端里那条命令的退出码。
 
@@ -496,6 +510,23 @@ pd ext rollback <名字>
 
 ---
 
+### 5.18 `pd proc`
+
+低频但危险的一组命令：受管进程的查看与结束、整台机器的进程枚举（显式提权）。完整语义见 [proc.md](proc.md)。
+
+```
+pd proc list [--kind extension|script|run|detached] [--json]
+pd proc info <pid|id> [--json]
+pd proc kill <pid> [--tree] [--elevated] [--force-critical] [--yes]
+pd proc system [--filter <词>] [--elevated] [--json]
+```
+
+- 每个进程带 `level`：`0` 普通、`1` 需要管理员、`2` 关键；
+- 结束 `level 1` 必须 `--elevated`（一次 UAC，取消 → 8）；`level 2` 还必须 `--force-critical`（缺 → 11）；
+- 文本模式的警告由壳按等级生成（机制层只回数字）；**不再额外确认**，`--force-critical` 就是确认（`--json` 模式同样要求它）；
+- 硬拒绝：pid 0/4、PD 自己的祖先链，以及受保护进程（`ERR_PROC_PROTECTED`，即使提权也杀不掉）；
+- `pd proc system` 目前**未实现**（期 3：系统级枚举 + 不弹 UAC 的只读档 + 一次性提权实例）；届时字段含 `user` / `commandLine`，未提权是 best-effort（拿不到就是 `null`），`--elevated` 才完整、且才能结束别的用户的进程；
+
 ## 6. 输出约定
 
 ### 6.1 文本模式
@@ -532,10 +563,10 @@ pd ext rollback <名字>
 | 4 | `ERR_ENV`、`ERR_PROTOCOL` |
 | 8 | `ERR_ELEVATION` |
 | 10 | `ERR_BUSY` |
-| 11 | `ERR_UNSUPPORTED`、`ERR_PKG_PLATFORM` |
+| 11 | `ERR_UNSUPPORTED`、`ERR_PKG_PLATFORM`、`ERR_PROC_PROTECTED` |
 | 12 | `ERR_ASSERT` |
 | 15 | `ERR_SOURCE_UNREACHABLE`、`ERR_NET` |
-| 20 | `ERR_PKG_NOT_FOUND`、`ERR_EXT_MISSING` |
+| 20 | `ERR_PKG_NOT_FOUND`、`ERR_EXT_MISSING`、`ERR_PROC_NOT_FOUND` |
 | 21 | `ERR_PKG_AMBIGUOUS` |
 | 22 | `ERR_PKG_YANKED` |
 | 23 | `ERR_OFFLINE_MISS` |

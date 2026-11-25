@@ -13,6 +13,7 @@ public sealed class SessionRegistry
     private readonly ConcurrentDictionary<string, Dispatch.TaskContext> _tasks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Dispatch.TaskContext> _extensionTasks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _extSubscribers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, IMessageSink>> _topicSubscribers = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _extensions = new(StringComparer.Ordinal);
 
     public int ConnectionCount => _sinks.Count;
@@ -29,6 +30,15 @@ public sealed class SessionRegistry
         _sinks.TryRemove(sessionId, out _);
         _extensions.TryRemove(sessionId, out _);
         _extSubscribers.TryRemove(sessionId, out _);
+        foreach (var (topic, subscribers) in _topicSubscribers)
+        {
+            subscribers.TryRemove(sessionId, out _);
+            if (subscribers.IsEmpty)
+            {
+                _topicSubscribers.TryRemove(topic, out _);
+            }
+        }
+
         foreach (var (taskId, owners) in _subscribers)
         {
             owners.TryRemove(sessionId, out _);
@@ -98,6 +108,34 @@ public sealed class SessionRegistry
     public void SubscribeExtensions(string sessionId) => _extSubscribers[sessionId] = true;
 
     public void UnsubscribeExtensions(string sessionId) => _extSubscribers.TryRemove(sessionId, out _);
+
+    public void SubscribeTopic(string topic, string sessionId, IMessageSink sink)
+    {
+        var subscribers = _topicSubscribers.GetOrAdd(topic, _ => new ConcurrentDictionary<string, IMessageSink>(StringComparer.Ordinal));
+        subscribers[sessionId] = sink;
+    }
+
+    public void UnsubscribeTopic(string topic, string sessionId)
+    {
+        if (_topicSubscribers.TryGetValue(topic, out var subscribers))
+        {
+            subscribers.TryRemove(sessionId, out _);
+        }
+    }
+
+    /// <summary>Sends a topic event (spec 4.9) to every session subscribed to that topic.</summary>
+    public async Task PublishTopicAsync(string topic, Envelope envelope)
+    {
+        if (!_topicSubscribers.TryGetValue(topic, out var subscribers))
+        {
+            return;
+        }
+
+        foreach (var (_, sink) in subscribers)
+        {
+            await SafeSendAsync(sink, envelope).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>Sends one task event to the owner and every subscriber; a `done` event settles the task.</summary>
     public async Task PublishAsync(string taskId, Envelope envelope)

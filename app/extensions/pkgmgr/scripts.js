@@ -28,6 +28,66 @@ function jobHelperCommand(root) {
   return null;
 }
 
+// Creates the three named pipes the proc extension will hand to the child. The facade mimics the
+// parts of a ChildProcess the request loop uses (stdin/stdout/stderr streams and an "exit" event).
+function createProcPipeSet() {
+  const net = require("net");
+  const { PassThrough } = require("stream");
+  const { EventEmitter } = require("events");
+  const BS = String.fromCharCode(92);
+  const prefix = BS + BS + "." + BS + "pipe" + BS;
+  const suffix = String(process.pid) + "-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6).toString(36);
+  const names = {
+    stdin: "pd-script-" + suffix + "-in",
+    stdout: "pd-script-" + suffix + "-out",
+    stderr: "pd-script-" + suffix + "-err",
+  };
+  const stdinStream = new PassThrough();
+  const stdoutStream = new PassThrough();
+  const stderrStream = new PassThrough();
+  const sockets = [];
+  const ignore = () => {};
+  const socketsIn = (socket, wire) => {
+    sockets.push(socket);
+    socket.on("error", ignore);
+    wire(socket);
+  };
+  const servers = [
+    net.createServer((socket) => socketsIn(socket, (s) => stdinStream.pipe(s))),
+    net.createServer((socket) => socketsIn(socket, (s) => s.pipe(stdoutStream))),
+    net.createServer((socket) => socketsIn(socket, (s) => s.pipe(stderrStream))),
+  ];
+  const child = new EventEmitter();
+  child.stdin = stdinStream;
+  child.stdout = stdoutStream;
+  child.stderr = stderrStream;
+  child.pid = 0;
+  child.kill = ignore;
+
+  const ready = () => Promise.all(servers.map((server, index) => new Promise((resolve, reject) => {
+    const onError = (error) => reject(error);
+    server.once("error", onError);
+    server.listen(prefix + [names.stdin, names.stdout, names.stderr][index], () => {
+      server.removeListener("error", onError);
+      resolve();
+    });
+  })));
+
+  const close = () => {
+    for (const server of servers) {
+      try { server.close(); } catch (error) { /* already closed */ }
+    }
+    for (const socket of sockets) {
+      try { socket.destroy(); } catch (error) { /* already gone */ }
+    }
+    stdinStream.destroy();
+    stdoutStream.destroy();
+    stderrStream.destroy();
+  };
+
+  return { names, child, ready, close };
+}
+
 function ScriptError(code, message, exitCode) {
   this.code = code;
   this.message = message;
@@ -227,40 +287,90 @@ async function runScript(options) {
   environment.PD_KERNEL_ABI = process.env.PD_KERNEL_ABI || "1";
   // No PD_PIPE on purpose: scripts must not connect to the kernel (architecture 8.2).
 
-  // Prefer pd-job: the script runs inside a Job Object (kill-on-close, process/memory limits),
-  // while its stdin/stdout are proxied so the request protocol is unchanged.
-  const jobHelper = jobHelperCommand(root);
-  let spawnCommand = command;
-  let spawnArgs = args;
+  // Backend: the proc extension (Job Object + stdio proxy) when available, else the pd-job helper,
+  // else a plain spawn. The request/reply protocol below is identical for all of them.
+  let procReady = false;
+  try {
+    await call("proc.snapshot", "snapshot", {});
+    procReady = true;
+  } catch (error) {
+    if (!error || String(error.code || "").indexOf("ERR_EXT_MISSING") !== 0) {
+      throw error;
+    }
+  }
+
+  event("step", { stepId: "script", title: "script", state: "running" });
+
+  let child = null;
   let helperConfigPath = null;
   let helperResultPath = null;
-  if (jobHelper) {
-    const tmp = path.join(root, "state", "tmp");
-    fs.mkdirSync(tmp, { recursive: true });
-    helperConfigPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".json");
-    helperResultPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".result.json");
-    fs.writeFileSync(helperConfigPath, JSON.stringify({
-      schema: 1,
+  let procPipes = null;
+  let procCall = null;
+  let procResult = null;
+
+  if (procReady) {
+    try {
+      procPipes = createProcPipeSet();
+      await procPipes.ready();
+    } catch (error) {
+      procPipes = null;
+      procReady = false;
+    }
+  }
+
+  if (!procReady) {
+    const jobHelper = jobHelperCommand(root);
+    let spawnCommand = command;
+    let spawnArgs = args;
+    if (jobHelper) {
+      const tmp = path.join(root, "state", "tmp");
+      fs.mkdirSync(tmp, { recursive: true });
+      helperConfigPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".json");
+      helperResultPath = path.join(tmp, "job-" + process.pid + "-" + Date.now() + ".result.json");
+      fs.writeFileSync(helperConfigPath, JSON.stringify({
+        schema: 1,
+        command: command,
+        args: args,
+        cwd: contentRoot,
+        env: environment,
+        timeoutMs: timeoutMs + 2000,
+        memoryLimitMB: JOB_MEMORY_LIMIT_MB,
+        activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
+        resultPath: helperResultPath,
+      }));
+      spawnCommand = jobHelper[0];
+      spawnArgs = jobHelper.slice(1).concat([helperConfigPath]);
+    }
+
+    child = spawn(spawnCommand, spawnArgs, {
+      cwd: contentRoot,
+      env: environment,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } else {
+    child = procPipes.child;
+    procCall = call("proc.spawn", "spawn", {
       command: command,
       args: args,
       cwd: contentRoot,
       env: environment,
-      timeoutMs: timeoutMs + 2000,
+      timeoutMs: timeoutMs,
       memoryLimitMB: JOB_MEMORY_LIMIT_MB,
       activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
-      resultPath: helperResultPath,
-    }));
-    spawnCommand = jobHelper[0];
-    spawnArgs = jobHelper.slice(1).concat([helperConfigPath]);
+      stdinPipe: procPipes.names.stdin,
+      stdoutPipe: procPipes.names.stdout,
+      stderrPipe: procPipes.names.stderr,
+    }).then((result) => {
+      procResult = result || {};
+      child.emit("exit", procResult.exitCode === undefined ? null : procResult.exitCode);
+      return procResult;
+    }, (error) => {
+      child.emit("error", error);
+      throw error;
+    });
+    procCall.catch(() => {});
   }
-
-  event("step", { stepId: "script", title: "script", state: "running" });
-  const child = spawn(spawnCommand, spawnArgs, {
-    cwd: contentRoot,
-    env: environment,
-    windowsHide: true,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
 
   let finished = false;
   let timedOut = false;
@@ -279,7 +389,7 @@ async function runScript(options) {
     }
   };
 
-  const timer = setTimeout(() => {
+  const timer = procReady ? null : setTimeout(() => {
     timedOut = true;
     killTree();
   }, timeoutMs);
@@ -433,8 +543,35 @@ async function runScript(options) {
     });
     child.on("exit", (code) => resolve(code));
   });
-  clearTimeout(timer);
+  if (timer) {
+    clearTimeout(timer);
+  }
   await chain;
+
+  if (procCall) {
+    try {
+      await procCall;
+    } catch (error) {
+      if (procPipes) {
+        procPipes.close();
+      }
+      if (error && error.code) {
+        throw new ScriptError(error.code, "package script could not be started: " + (error.message || String(error)), error.exitCode || 1);
+      }
+      throw new ScriptError("ERR_SCRIPT", "package script could not be started: " + String(error), 1);
+    }
+    if (procResult) {
+      if (procResult.timedOut === true) {
+        timedOut = true;
+      }
+      if (typeof procResult.exitCode === "number") {
+        exit = procResult.exitCode;
+      }
+    }
+  }
+  if (procPipes) {
+    procPipes.close();
+  }
 
   if (helperResultPath) {
     let jobResult = null;

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PortableDev.ProcExt</RootNamespace>
+    <AssemblyName>proc</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PortableDev.Core\PortableDev.Core.csproj" />
+    <ProjectReference Include="..\PortableDev.Proc\PortableDev.Proc.csproj" />
+  </ItemGroup>
+
+  <!-- The extension is deployed as a dll next to its ext.json; the kernel runs it with the stick dotnet. -->
+  <Target Name="DeployToAppExtensions" AfterTargets="Build">
+    <PropertyGroup>
+      <ProcExtDir>$(MSBuildProjectDirectory)\..\..\app\extensions\proc</ProcExtDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(ProcExtDir)" />
+    <Copy SourceFiles="$(TargetDir)proc.dll;$(TargetDir)proc.deps.json;$(TargetDir)proc.runtimeconfig.json;$(TargetDir)PortableDev.Proc.dll;$(TargetDir)PortableDev.Core.dll"
+          DestinationFolder="$(ProcExtDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

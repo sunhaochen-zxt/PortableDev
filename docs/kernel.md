@@ -85,6 +85,9 @@ v2\app\
 | `install.defaultChannel` | `stable` | `stable` / `beta` / `dev` | pkgmgr | 否 |
 | `install.maxConcurrent` | `2` | 1–4 | pkgmgr | 否 |
 | `install.verifyAfterInstall` | `true` | bool | pkgmgr | 否 |
+| `proc.processMemoryMB` | `1024` | 64–16384 | proc | 否 |
+| `proc.activeProcesses` | `64` | 1–1024 | proc | 否 |
+| `proc.scriptTimeout` | `120s` | 1–3600s | proc | 否 |
 | `gc.keepGenerations` | `50` | 5–500 | 内核 | 否 |
 | `gc.keepBlobs` | `true` | bool | 内核 | 否 |
 | `gc.stagingMaxAge` | `24h` | 时长 | 内核 | 否 |

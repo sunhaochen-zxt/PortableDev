@@ -38,6 +38,7 @@ public static class Kinds
     public const string ExtInvoke = "ext.invoke";
     public const string ExtReady = "ext.ready";
     public const string ExtResult = "ext.result";
+    public const string Event = "event";
     public const string Call = "call";
     public const string CallOk = "call.ok";
     public const string CallErr = "call.err";
@@ -72,6 +73,7 @@ public static class Features
     public const string Subscribe = "subscribe";
     public const string Grants = "grants";
     public const string ExtEvents = "ext-events";
+    public const string Topics = "topics";
 }
 
 /// <summary>`ctl` actions, per spec 4.7 and 5.4.</summary>

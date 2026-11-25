@@ -32,6 +32,8 @@ public static class ErrorCodes
     public const string LogProviderConflict = "ERR_LOG_PROVIDER_CONFLICT";
     public const string Env = "ERR_ENV";
     public const string Internal = "ERR_INTERNAL";
+    public const string ProcNotFound = "ERR_PROC_NOT_FOUND";
+    public const string ProcProtected = "ERR_PROC_PROTECTED";
 }
 
 /// <summary>Exit-code mapping (commands.md section 3 / 6.3).</summary>

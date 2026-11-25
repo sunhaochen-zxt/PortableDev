@@ -165,13 +165,15 @@
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `entry` | string | — | 入口文件，相对扩展目录 |
-| `interpreter` | enum | `exe` | `exe` / `pwsh` / `python` / `node` / `cmd` / `auto` |
+| `interpreter` | enum | `exe` | `exe` / `pwsh` / `python` / `node` / `dotnet` / `cmd` / `auto` |
 | `entryArgs` | string[] | `[]` | 解释器的固定参数，如 `-NoProfile -File` |
 | `cwd` | string | 扩展目录 | 进程工作目录，支持占位符 |
 | `env` | object | `{}` | 注入的环境变量，支持占位符 |
 | `inheritEnv` | bool | `false` | 是否继承内核的环境（默认不继承，避免"服务环境"污染） |
 
-`interpreter: auto` 时按扩展名猜（`.ps1`→pwsh，`.py`→python，`.js`→node，`.cmd`→cmd）。
+`interpreter: auto` 时按扩展名猜（`.ps1`→pwsh，`.py`→python，`.js`→node，`.dll`→dotnet，`.cmd`→cmd）。
+
+> `dotnet` 用**随盘 dotnet 运行时**跑入口 dll（内核自己的宿主优先），不依赖机器的全局安装。
 
 ### 2.4 版本与平台约束
 
@@ -382,6 +384,7 @@
 | `hello.ok` / `hello.err` | 内核 → 客户端 | 协商结果 / 拒绝 |
 | `req` | 客户端 → 内核 | 一次命令调用 |
 | `evt` | 内核 → 客户端、扩展 → 内核 | 事件流 |
+| `event` | 扩展 → 内核 → 客户端 | 扩展主动上报的**主题事件**（非任务事件，见 4.9 / 5.8） |
 | `ctl` | 双向 | 取消、心跳、交互回复、租界申请、订阅 |
 | `ack` | 双向 | 流量控制回执（预留） |
 | `ext.invoke` | 内核 → 扩展 | 派活 |
@@ -436,7 +439,7 @@
     "machineId": "m-a5f24fefbd80",
     "root": "Z:\\PortableDev",
     "stableRoot": "C:\\Dev",
-    "features": ["json", "prompt", "cancel", "progress", "subscribe"],
+    "features": ["json", "prompt", "cancel", "progress", "subscribe", "topics"],
     "bootedAt": "2026-11-23T21:20:00+08:00",
     "limits": { "maxFrame": 16777216, "maxConcurrent": 8 }
   }
@@ -550,6 +553,17 @@
   "data": { "action": "prompt_reply", "promptId": "p1", "value": true } }
 ```
 
+可选的 `code` / `params` 字段（向后兼容）：
+
+```json
+{ "type": "prompt", "promptId": "p1", "kind": "confirm",
+  "code": "proc.kill.critical", "params": { "pid": 612, "level": 2 },
+  "message": "", "default": false, "timeout": 60 }
+```
+
+- 认识 `code` 的客户端按 `code` + `params` 自己渲染（**文案属于壳，机制层不产生人类可读文本**）；
+- 不认识的客户端回退显示 `message`；`message` 为空时显示通用提问。
+
 - `kind`：`confirm` / `input` / `select` / `multiselect`（开放集合）；
 - 客户端非交互（`--json`、管道、无 TTY）时回 `value: null`；
 - 超时未回 → 内核取消任务，`done` 带 `ERR_PROMPT_TIMEOUT`。
@@ -584,7 +598,7 @@
 - `stopTimeout` 内没停 → 内核杀进程树，代它回 `done`；
 - 客户端看门狗（固定 30s，不可配）内无事件且无心跳 → 判定卡死；
 - `subscribe` 不带 `scope` 时默认是任务订阅（`id` 必填）；
-  带 `"scope":"ext"` 时订阅扩展状态事件（`id` 忽略）。
+  带 `"scope":"ext"` 时订阅扩展状态事件（`id` 忽略）；带其它值（如 `"proc"`）时是主题订阅，见 4.9。
 
 ### 4.8 并发与串行
 
@@ -594,6 +608,26 @@
 - 只读请求可并行；
 - 排队中被取消 → 直接回 `ERR_CANCELLED`，不执行；
 - 被调用方（`call`）如果是独占能力，同样进同一条串行队列。
+
+---
+
+### 4.9 主题事件订阅
+
+客户端订阅某个主题，内核把扩展上报的 `event` 转发过来（界面实时刷新用，例如进程列表）：
+
+```json
+// 客户端 → 内核
+{ "v": 1, "kind": "ctl", "id": "r9", "data": { "action": "subscribe", "scope": "proc" } }
+// 内核 → 订阅者
+{ "v": 1, "kind": "event",
+  "data": { "topic": "proc", "event": "proc.started", "ts": "...",
+            "payload": { "procId": "p-3f2a", "kind": "script", "pid": 8124 } } }
+```
+
+- 主题名由提供方约定（`proc` 由进程扩展提供）；客户端只按名订阅，不认识就忽略；
+- 没有订阅者时事件直接丢弃，**不缓存、不重放**；
+- 客户端在 `hello` 的 `features` 里声明 `topics` 才收得到；
+- 状态：已实现（`proc` 扩展上报 `proc.started` / `proc.exited`，见 [proc.md](proc.md)）。
 
 ---
 
@@ -814,6 +848,23 @@
 
 ---
 
+### 5.8 扩展主动事件
+
+扩展除了任务内的 `evt`，还可以发**不属于任何任务**的主题事件：
+
+```json
+{ "v": 1, "kind": "event",
+  "data": { "topic": "proc", "event": "proc.started",
+            "payload": { "procId": "p-3f2a", "kind": "script", "pid": 8124 } } }
+```
+
+- 只允许扩展发；内核校验来源是已就绪的扩展，补 `ts`，按 `topic` 转发给订阅者（4.9）；
+- 发完即忘，没有回执、没有 `done`，不占并发额度；
+- 载荷里**不放人类可读文本**（文案属于壳）；
+- 状态：已实现（首个提供方是 `proc` 扩展）。
+
+---
+
 ## 6. 错误与退出码
 
 ### 6.1 错误对象
@@ -864,6 +915,8 @@
 | `ERR_OFFLINE_MISS` | 离线且内容不在盘上 |
 | `ERR_DEP_UNSATISFIED` | 依赖装不上 |
 | `ERR_ELEVATION` | 需要提权但被拒 |
+| `ERR_PROC_NOT_FOUND` | 进程不存在或已经退出 |
+| `ERR_PROC_PROTECTED` | 受保护进程，即使提权也无法结束 |
 | `ERR_INDEX_INVALID` | 索引格式不对 |
 | `ERR_IO` / `ERR_NET` / `ERR_HASH` | 常见失败类别 |
 | `ERR_INTERNAL` | 兜底 |

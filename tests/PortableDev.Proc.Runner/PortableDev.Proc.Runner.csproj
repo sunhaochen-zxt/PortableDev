@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PortableDev.Proc.Runner</RootNamespace>
+    <AssemblyName>PortableDev.Proc.Runner</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PortableDev.Proc\PortableDev.Proc.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -789,6 +789,13 @@ public sealed class ExtensionSupervisor
             }
         }
 
+        // Framework-dependent .NET extensions (proc) must resolve the runtime shipped on the stick,
+        // not whatever the machine happens to have installed.
+        if (ResolveDotnetRoot() is { Length: > 0 } dotnetRoot)
+        {
+            startInfo.Environment["DOTNET_ROOT"] = dotnetRoot;
+        }
+
         startInfo.Environment["PD_ROOT"] = _kernel.State.Root;
         startInfo.Environment["PD_STATE"] = _kernel.Paths.State;
         startInfo.Environment["PD_STABLE_ROOT"] = _kernel.State.StableRoot;
@@ -987,6 +994,44 @@ public sealed class ExtensionSupervisor
         _ = _kernel.Sessions.BroadcastExtensionEventAsync(envelope);
     }
 
+    /// <summary>The dotnet host that runs a dll-based extension: our own host first, then the shipped runtime.</summary>
+    private static string ResolveDotnetExecutable()
+    {
+        var processPath = Environment.ProcessPath;
+        if (processPath is not null
+            && string.Equals(Path.GetFileName(processPath), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return processPath;
+        }
+
+        var root = ResolveDotnetRoot();
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            var candidate = Path.Combine(root, "dotnet.exe");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return "dotnet";
+    }
+
+    /// <summary>The dotnet root that hosts this kernel: env override, else derived from the runtime path.</summary>
+    private static string? ResolveDotnetRoot()
+    {
+        var configured = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        // <root>/shared/Microsoft.NETCore.App/<version> -> <root>
+        var runtimeDirectory = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory()
+            .TrimEnd('\\', '/');
+        return Directory.GetParent(runtimeDirectory)?.Parent?.Parent?.FullName;
+    }
+
     private (string FileName, string[] Arguments) ResolveInterpreter(ExtensionManifest manifest, string entry)
     {
         var args = new List<string>();
@@ -999,6 +1044,7 @@ public sealed class ExtensionSupervisor
                 ".py" => "python",
                 ".js" => "node",
                 ".cmd" or ".bat" => "cmd",
+                ".dll" => "dotnet",
                 _ => "exe",
             };
         }
@@ -1021,6 +1067,10 @@ public sealed class ExtensionSupervisor
                 args.Add(entry);
                 args.AddRange(manifest.EntryArgs);
                 return ("node", args.ToArray());
+            case "dotnet":
+                args.Add(entry);
+                args.AddRange(manifest.EntryArgs);
+                return (ResolveDotnetExecutable(), args.ToArray());
             case "cmd":
                 args.AddRange(["/c", entry]);
                 args.AddRange(manifest.EntryArgs);

@@ -217,7 +217,7 @@ public sealed class ClientConnection : IMessageSink
             ["machineId"] = _kernel.State.MachineId,
             ["root"] = _kernel.State.Root,
             ["stableRoot"] = _kernel.State.StableRoot,
-            ["features"] = new JsonArray(Features.Json, Features.Prompt, Features.Cancel, Features.Progress, Features.Subscribe, Features.ExtEvents, Features.Grants),
+            ["features"] = new JsonArray(Features.Json, Features.Prompt, Features.Cancel, Features.Progress, Features.Subscribe, Features.ExtEvents, Features.Grants, Features.Topics),
             ["bootedAt"] = TimeUtil.Format(_kernel.State.BootedAt),
             ["limits"] = new JsonObject
             {
@@ -410,6 +410,17 @@ public sealed class ClientConnection : IMessageSink
                 {
                     _kernel.Sessions.SubscribeExtensions(SessionId);
                 }
+                else if (scope is not null)
+                {
+                    if (_features.Contains(Features.Topics))
+                    {
+                        _kernel.Sessions.SubscribeTopic(scope, SessionId, this);
+                    }
+                    else
+                    {
+                        _kernel.Logger.Debug("topic.subscribe", "client did not announce the topics feature", new JsonObject { ["scope"] = scope });
+                    }
+                }
                 else if (subscribeId is not null)
                 {
                     // A client may only subscribe to its own tasks; ResolveKey without the session
@@ -429,6 +440,10 @@ public sealed class ClientConnection : IMessageSink
                 if (string.Equals(unsubscribeScope, "ext", StringComparison.Ordinal))
                 {
                     _kernel.Sessions.UnsubscribeExtensions(SessionId);
+                }
+                else if (unsubscribeScope is not null)
+                {
+                    _kernel.Sessions.UnsubscribeTopic(unsubscribeScope, SessionId);
                 }
                 else if (unsubscribeId is not null)
                 {
@@ -499,6 +514,17 @@ public sealed class ClientConnection : IMessageSink
                         }
                     }
 
+                    break;
+                case Kinds.Event:
+                    var topic = JsonUtil.String(envelope.Data, "topic");
+                    if (string.IsNullOrWhiteSpace(topic))
+                    {
+                        _kernel.Logger.Debug("event.topic", "extension event without a topic", new JsonObject { ["extension"] = _extensionName });
+                        break;
+                    }
+
+                    envelope.Ts ??= TimeUtil.NowIso();
+                    await _kernel.Sessions.PublishTopicAsync(topic, envelope).ConfigureAwait(false);
                     break;
                 case Kinds.Ctl:
                     switch (JsonUtil.String(envelope.Data, "action"))
