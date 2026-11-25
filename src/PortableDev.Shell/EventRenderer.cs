@@ -17,6 +17,7 @@ public sealed class EventRenderer
     private readonly bool _color;
     private readonly bool _tty;
     private readonly Dictionary<string, int> _lastPercent = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TableChunk> _tables = new(StringComparer.Ordinal);
     private bool _partial;
 
     public EventRenderer(TextWriter output, bool json, bool quiet, bool verbose, bool color)
@@ -247,6 +248,17 @@ public sealed class EventRenderer
         Line(marker + title);
     }
 
+    private sealed class TableChunk(string key)
+    {
+        public string Key { get; } = key;
+
+        public string? Title { get; set; }
+
+        public JsonArray? Columns { get; set; }
+
+        public SortedDictionary<int, JsonArray> Rows { get; } = new();
+    }
+
     private void Table(JsonObject data)
     {
         if (_quiet)
@@ -254,14 +266,61 @@ public sealed class EventRenderer
             return;
         }
 
+        var key = JsonUtil.String(data, "key");
+        var chunk = JsonUtil.Int(data, "chunk");
+        var final = JsonUtil.Bool(data, "final");
+        if (key is null && chunk is null && final is null)
+        {
+            RenderTable(JsonUtil.String(data, "title"), JsonUtil.Array(data, "columns"), JsonUtil.Array(data, "rows") ?? []);
+            return;
+        }
+
+        // spec 4.5: chunks with the same key accumulate by chunk index and render on final:true.
+        key ??= "table";
+        var accumulator = _tables.TryGetValue(key, out var existing) ? existing : new TableChunk(key);
+        _tables[key] = accumulator;
         var title = JsonUtil.String(data, "title");
+        if (!string.IsNullOrEmpty(title))
+        {
+            accumulator.Title = title;
+        }
+
+        var columns = JsonUtil.Array(data, "columns");
+        if (columns is not null)
+        {
+            accumulator.Columns = columns;
+        }
+
+        var rows = JsonUtil.Array(data, "rows");
+        if (rows is not null)
+        {
+            accumulator.Rows[chunk ?? accumulator.Rows.Count] = rows;
+        }
+
+        if (final != true && chunk is not null)
+        {
+            return;
+        }
+
+        _tables.Remove(key);
+        var all = new JsonArray();
+        foreach (var pair in accumulator.Rows)
+        {
+            foreach (var row in pair.Value)
+            {
+                all.Add(row?.DeepClone());
+            }
+        }
+
+        RenderTable(accumulator.Title, accumulator.Columns, all);
+    }
+
+    private void RenderTable(string? title, JsonArray? columns, JsonArray rows)
+    {
         if (!string.IsNullOrEmpty(title))
         {
             Line(Paint(title, "1"));
         }
-
-        var columns = JsonUtil.Array(data, "columns");
-        var rows = JsonUtil.Array(data, "rows") ?? [];
         var headers = new List<string>();
         if (columns is not null)
         {

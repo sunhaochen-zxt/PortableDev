@@ -157,6 +157,13 @@ def main():
         check("echo exit 0", result.returncode == 0, result.stdout + result.stderr)
         check("echo renders progress and summary", "echo hello" in result.stdout, result.stdout)
 
+        print("table chunking")
+        result = pd(root, "echo", "table")
+        check("table chunks accumulated",
+              result.returncode == 0 and all(word in result.stdout for word in ("alpha", "beta", "gamma")),
+              result.stdout)
+        check("table header rendered once", result.stdout.count("名字") == 1, result.stdout)
+
         print("prompts")
         result = pd(root, "echo", "ask", stdin_text="")
         check("non-interactive prompt replies null", result.returncode == 0 and "reply=null" in result.stdout, result.stdout)

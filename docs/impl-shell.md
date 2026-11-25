@@ -114,7 +114,7 @@ v2/src/PortableDev.Shell/
 
 ## 7. 测试
 
-`tools/pd-e2e.py`：**29 项**，自己起内核、跑完、收尾：
+`tools/pd-e2e.py`：**31 项**，自己起内核、跑完、收尾：
 
 - 基本：`version`、无参数状态摘要、`--json` 纯 NDJSON 且以 done 收尾、`--quiet` 去掉表格；
 - 帮助：壳用法、`help` 从内核取命令表；
@@ -147,3 +147,5 @@ python -u tools/pd-e2e.py .run
 - `Ctrl+C` 在**连接/自动拉起阶段**也能取消（第一次按下取消连接，退出码 130）；任务运行中仍走
   `ctl cancel`，第二次按下才强退。
 - 表格按**显示宽度**对齐：CJK / 全角字符按 2 列计算，截断与填充不再错位。
+- 表格分块（spec 4.5）：`key` 相同的 `chunk` 按序号累积，`final:true` 时合并渲染，表头只打印一次。
+- `prompt` 带 `secret:true` 时在真实终端上隐藏输入（不回显），重定向/非交互场景仍回 null。

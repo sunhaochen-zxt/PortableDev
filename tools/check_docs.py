@@ -128,6 +128,40 @@ if ext_root.exists():
         if f"`pd {name}" not in commands_body:
             problems.append(f"[命令] commands.md: 扩展命令 pd {name} 未写入命令表")
 
+# 11. 命令实现状态：commands.md §4 的命令要么能解析到实现，要么被"实现状态"明确标为未实现
+builtin_source = DOCS.parent / "src" / "PortableDev.Kernel" / "Dispatch" / "BuiltinCommands.cs"
+implemented = set()
+if builtin_source.exists():
+    for match in re.finditer(r'Add\("([a-z][a-z0-9 ]*)"', builtin_source.read_text(encoding="utf-8")):
+        name = match.group(1).strip()
+        implemented.add(name)
+        implemented.add(name.split(" ")[0])
+if ext_root.exists():
+    for manifest_path in ext_root.glob("*/ext.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for command in manifest.get("commands") or []:
+            name = command.get("name") if isinstance(command, dict) else None
+            if name:
+                implemented.add(name)
+
+declared_unimplemented = set()
+status_match = re.search(r"\*\*实现状态[^\n]*\*\*[：:](.*?)(?:\n\n|\n#)", commands_body, re.S)
+if status_match:
+    for token in re.findall(r"`([^`]+)`", status_match.group(1)):
+        for word in re.split(r"[^a-z-]+", token):
+            if word:
+                declared_unimplemented.add(word)
+
+for match in re.finditer(r"^\|\s*`pd(?:\s+([a-z][a-z0-9-]*))?", commands_body, re.M):
+    name = match.group(1)
+    if not name:
+        continue
+    if name not in implemented and name not in declared_unimplemented:
+        problems.append(f"[命令] commands.md §4: pd {name} 既没有实现，也没有在'实现状态'里标注")
+
 # 输出
 print(f"检查 {len(files)} 份文档，共 {sum(len(t.splitlines()) for t in text.values())} 行")
 if not problems:

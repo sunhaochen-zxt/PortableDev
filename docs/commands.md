@@ -90,7 +90,8 @@ pd [全局开关] <命令> [参数...]
 > `kernel status|ps|ext list|restart|stop|log` / `config list|get|set|unset` / `log` /
 > `install` / `rollback` / `apply` / `clean` / `gc`。其余（`run` / `shell` / `remove` /
 > `upgrade` / `list` / `search` / `source` / `index` / `ext` / `doctor` / `recover` /
-> `outdated` / `export` / `pack` / `verify` / `ui` 等）尚未注册，敲了会得到
+> `outdated` / `export` / `pack` / `verify` / `ui` / `env` / `info` / `fetch` /
+> `selftest` / `adopt` / `pkg` / `bundle` 等）尚未注册，敲了会得到
 > `ERR_UNKNOWN_COMMAND`（2）。
 
 ### 4.1 信息类

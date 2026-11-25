@@ -93,6 +93,14 @@ function handle(message) {
     return;
   }
 
+  if (first === "table") {
+    emit("table", { title: "demo", key: "t1", columns: [{ key: "name", title: "名字" }, { key: "ver", title: "版本" }], rows: [["alpha", "1"]], chunk: 0, total: 3, final: false });
+    emit("table", { key: "t1", rows: [["beta", "2"]], chunk: 1, total: 3, final: false });
+    emit("table", { key: "t1", rows: [["gamma", "3"]], chunk: 2, total: 3, final: true });
+    emit("done", { ok: true, exitCode: 0, summary: "table" });
+    return;
+  }
+
   if (first === "ask") {
     const promptId = "p-" + Math.random().toString(36).slice(2, 8);
     emit("prompt", { promptId, kind: "confirm", message: "continue?", default: false });

@@ -367,7 +367,44 @@ public sealed class PdShell : IDisposable
         else
         {
             _renderer.Prompt(prompt);
-            var line = Console.ReadLine();
+            var secret = JsonUtil.Bool(prompt, "secret") ?? false;
+            string? line;
+            if (secret && !Console.IsInputRedirected)
+            {
+                // Secret prompt: read without echoing to the terminal.
+                var buffer = new StringBuilder();
+                while (true)
+                {
+                    var keyInfo = Console.ReadKey(intercept: true);
+                    if (keyInfo.Key == ConsoleKey.Enter)
+                    {
+                        Console.WriteLine();
+                        break;
+                    }
+
+                    if (keyInfo.Key == ConsoleKey.Backspace)
+                    {
+                        if (buffer.Length > 0)
+                        {
+                            buffer.Length -= 1;
+                        }
+
+                        continue;
+                    }
+
+                    if (!char.IsControl(keyInfo.KeyChar))
+                    {
+                        buffer.Append(keyInfo.KeyChar);
+                    }
+                }
+
+                line = buffer.ToString();
+            }
+            else
+            {
+                line = Console.ReadLine();
+            }
+
             if (string.IsNullOrWhiteSpace(line))
             {
                 value = prompt["default"]?.DeepClone();
