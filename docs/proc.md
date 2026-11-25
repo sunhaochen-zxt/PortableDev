@@ -1,9 +1,10 @@
 # PortableDev v2 规范：进程模型与 `proc` 扩展
 
-> 状态：**部分实现（2026-11-25）**。已落地：进程原语（Job/spawn/kill/detach）、`proc` 扩展协议、
-> `proc.spawn/snapshot/kill`、stdio 代理、`pd proc list|info|kill`、主题事件（`proc.started/exited`），
-> 并有 e2e 覆盖（`tools/proc-e2e.py`）。期 2 的 `pd run` 已落地 MVP（exec 通道，见 spec 4.10；
-> 按 `launch` 声明自动解析可执行文件未做）。未开始：系统级枚举/结束（期 3）。
+> 状态：**基本实现（2026-11-25）**。已落地：进程原语（Job/spawn/kill/detach）、`proc` 扩展协议、
+> `proc.spawn/snapshot/kill`、stdio 代理、`pd proc list|info|kill|system`、主题事件（`proc.started/exited`）、
+> 系统级枚举与结束（未提权 best-effort + admin 模式 一次性实例），e2e 覆盖 `tools/proc-e2e.py`（28 项）。
+> 期 2 的 `pd run`/`pd shell` 已落地（exec 通道，见 spec 4.10）。未做：`--elevated` 的 UAC 自动化测试、
+> 受保护进程（PPL）结束、`commandLine` 字段。
 > 相关文档：[architecture.md](architecture.md) 3.9 / 18、[spec.md](spec.md) 4.6 / 6.2、
 > [commands.md](commands.md) 4.10 / 5.18、[impl-pkgmgr.md](impl-pkgmgr.md)。
 
@@ -240,5 +241,6 @@ proc.exe --admin <请求文件>      # ShellExecuteEx runas，一次 UAC
    `proc.spawn` + stdio 代理 → pkgmgr 接入、`pd-job` 归档 → 主题事件通道（spec 4.9 / 5.8）+
    `proc.started/exited` → 三个 `proc.*` 设置键 → `pd proc list`/`kill`（受管）。
 2. **期 2**：`pd run` / `pd shell`（壳拉起、可选 job、detach）+ `pd proc system`（未提权）。
-3. **期 3**：一次性提权实例（完整枚举 + 系统级结束 + level 1/2 流程 + `--force-critical`）。
+3. **期 3（基础部分已完成）**：未提权 best-effort 枚举、系统级结束、关键进程 `--force-critical` 门禁、
+   一次性 admin 模式 实例（UAC 流程代码已就绪，自动化测试只覆盖非交互部分）。
 4. **不做**：suspend/resume、常驻提权进程、系统进程管理器 UI、内核线程。

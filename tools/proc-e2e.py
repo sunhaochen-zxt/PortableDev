@@ -211,6 +211,63 @@ def main():
         check("proc kill unknown 20", done and done.get("exitCode") == 20, done)
         check("proc kill unknown code", done and (done.get("error") or {}).get("code") == "ERR_PROC_NOT_FOUND", done)
 
+        print("system enumeration / system kill")
+        done, events = call(stream, ["proc", "system", "--filter", "dotnet"])
+        tables = [e for e in events if e.get("type") == "table"]
+        filtered_rows = tables[0].get("rows", []) if tables else []
+        check("proc system exit 0", done and done.get("exitCode") == 0, done)
+        check("proc system filter works", any("dotnet" in str(row[2] or "").lower() for row in filtered_rows), filtered_rows[:3])
+
+        done, events = call(stream, ["proc", "system"])
+        tables = [e for e in events if e.get("type") == "table"]
+        rows = tables[0].get("rows", []) if tables else []
+        check("proc system not empty", len(rows) > 10, len(rows))
+
+        critical_pid = next((row[0] for row in rows if str(row[2] or "").lower() in
+                             ("csrss.exe", "wininit.exe", "services.exe", "lsass.exe")), None)
+        if critical_pid:
+            done, _ = call(stream, ["proc", "kill", str(critical_pid)])
+            check("critical kill refused", done and done.get("exitCode") == 11, done)
+
+        done, _ = call(stream, ["proc", "kill", "4"])
+        check("pid 4 refused", done and done.get("exitCode") == 11, done)
+
+        victim = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        try:
+            time.sleep(0.6)
+            done, _ = call(stream, ["proc", "kill", str(victim.pid)])
+            check("system kill exit 0", done and done.get("exitCode") == 0, done)
+            try:
+                victim.wait(timeout=5)
+                removed = True
+            except subprocess.TimeoutExpired:
+                removed = False
+            check("system kill removed it", removed, victim.pid)
+        finally:
+            if victim.poll() is None:
+                victim.kill()
+
+        print("admin mode (one-shot)")
+        request_path = os.path.join(root, "admin-request.json")
+        result_path = request_path + ".result.json"
+        with open(request_path, "w", encoding="utf-8") as handle:
+            json.dump({"action": "system", "filter": "dotnet", "resultPath": result_path}, handle)
+        proc_dll = os.path.join("app", "extensions", "proc", "proc.dll")
+        subprocess.run([DOTNET, proc_dll, "--admin", request_path], check=False, capture_output=True,
+                       timeout=120, env=env)
+        admin_result = {}
+        if os.path.isfile(result_path):
+            with open(result_path, "r", encoding="utf-8") as handle:
+                admin_result = json.load(handle)
+        check("admin mode enumerated",
+              isinstance(admin_result.get("processes"), list) and bool(admin_result.get("processes")),
+              admin_result.get("error"))
+        for path in (request_path, result_path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
         print("pkgmgr: script runs through proc.spawn")
         pkg = make_dir_pkg(root, "scripted", "scripted", "1.0.0", SCRIPT_WRITE)
         done, events = call(stream, ["install", pkg], timeout=180)

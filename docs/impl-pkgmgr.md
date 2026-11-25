@@ -137,7 +137,7 @@ pd install <目标>
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 | `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
-| `tools/proc-e2e.py` | 20 | proc 协议、`proc.spawn` + stdio 代理、list/info/kill、主题事件、真实安装脚本 |
+| `tools/proc-e2e.py` | 28 | proc 协议、`proc.spawn` + stdio 代理、list/info/kill、系统枚举/结束、admin 模式 实例、主题事件、真实安装脚本 |
 | `tools/run-e2e.py` | 19 | `pd run`：记录解析、launch 声明、exec 通道、stdio 继承、退出码/--propagate、--json、`pd shell` |
 
 运行：

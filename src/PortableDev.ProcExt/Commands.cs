@@ -295,6 +295,59 @@ internal static class Commands
                 break;
             }
 
+            case "system":
+            {
+                var systemFlags = ParseFlags(argv.Skip(1).ToArray());
+                var filter = systemFlags.GetValueOrDefault("filter");
+                var result = systemFlags.ContainsKey("elevated")
+                    ? Elevated.Run(new JsonObject { ["action"] = "system", ["filter"] = filter })
+                    : SystemProcesses.Snapshot(filter);
+
+                if (result["error"] is JsonObject systemError)
+                {
+                    await client.DoneAsync(taskKey, ExitCodeForError(systemError), error: (JsonObject)systemError.DeepClone())
+                        .ConfigureAwait(false);
+                    break;
+                }
+
+                var processes = result["processes"] as JsonArray ?? new JsonArray();
+                var rows = new JsonArray();
+                foreach (var node in processes)
+                {
+                    if (node is not JsonObject item)
+                    {
+                        continue;
+                    }
+
+                    rows.Add(new JsonArray(
+                        JsonUtil.Int(item, "pid"),
+                        JsonUtil.Int(item, "ppid"),
+                        JsonUtil.String(item, "name"),
+                        JsonUtil.Int(item, "level"),
+                        JsonUtil.String(item, "path")));
+                }
+
+                await client.EventAsync(taskKey, EventTypes.Table, new JsonObject
+                {
+                    ["key"] = "system-processes",
+                    ["title"] = "system processes",
+                    ["columns"] = new JsonArray(
+                        new JsonObject { ["key"] = "pid", ["title"] = "PID", ["type"] = "number" },
+                        new JsonObject { ["key"] = "ppid", ["title"] = "PPID", ["type"] = "number" },
+                        new JsonObject { ["key"] = "name", ["title"] = "NAME", ["type"] = "string" },
+                        new JsonObject { ["key"] = "level", ["title"] = "LEVEL", ["type"] = "number" },
+                        new JsonObject { ["key"] = "path", ["title"] = "PATH", ["type"] = "path" }),
+                    ["rows"] = rows,
+                    ["final"] = true,
+                }).ConfigureAwait(false);
+
+                var denied = JsonUtil.Int(result, "denied") ?? 0;
+                await client.DoneAsync(taskKey, ExitCodes.Ok,
+                    summary: processes.Count + " process(es)" + (denied > 0 ? ", " + denied + " need admin" : string.Empty))
+                    .ConfigureAwait(false);
+                break;
+            }
+
             case "kill":
             {
                 if (argv.Length < 2
@@ -308,8 +361,30 @@ internal static class Commands
 
                 if (!Managed.Kill(pid))
                 {
-                    await client.DoneAsync(taskKey, ExitCodes.NotFound, error: Error(ErrorCodes.ProcNotFound, "no managed process with pid " + pid))
-                        .ConfigureAwait(false);
+                    var killFlags = ParseFlags(argv.Skip(1).ToArray());
+                    var forceCritical = killFlags.ContainsKey("force-critical");
+                    var wantElevated = killFlags.ContainsKey("elevated");
+                    var result = SystemProcesses.Kill(pid, forceCritical);
+                    if (result["error"] is JsonObject killError
+                        && wantElevated
+                        && string.Equals(JsonUtil.String(killError, "code"), ErrorCodes.Elevation, StringComparison.Ordinal))
+                    {
+                        result = Elevated.Run(new JsonObject
+                        {
+                            ["action"] = "kill",
+                            ["pid"] = pid,
+                            ["forceCritical"] = forceCritical,
+                        });
+                    }
+
+                    if (result["error"] is JsonObject finalError)
+                    {
+                        await client.DoneAsync(taskKey, ExitCodeForError(finalError), error: (JsonObject)finalError.DeepClone())
+                            .ConfigureAwait(false);
+                        break;
+                    }
+
+                    await client.DoneAsync(taskKey, ExitCodes.Ok, summary: "killed pid " + pid).ConfigureAwait(false);
                     break;
                 }
 
@@ -325,6 +400,39 @@ internal static class Commands
                 break;
         }
     }
+
+    private static Dictionary<string, string?> ParseFlags(string[] args)
+    {
+        var flags = new Dictionary<string, string?>(StringComparer.Ordinal);
+        for (var index = 0; index < args.Length; index++)
+        {
+            var argument = args[index];
+            if (!argument.StartsWith("--", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string? value = null;
+            if (index + 1 < args.Length && !args[index + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                value = args[++index];
+            }
+
+            flags[argument[2..]] = value;
+        }
+
+        return flags;
+    }
+
+    private static int ExitCodeForError(JsonObject error)
+        => (JsonUtil.String(error, "code") ?? ErrorCodes.Internal) switch
+        {
+            ErrorCodes.BadArgs => ExitCodes.Args,
+            ErrorCodes.Unsupported => ExitCodes.Rejected,
+            ErrorCodes.Elevation => ExitCodes.Permission,
+            ErrorCodes.ProcNotFound => ExitCodes.NotFound,
+            _ => ExitCodes.Internal,
+        };
 
     private static JsonObject Error(string code, string message) => new()
     {

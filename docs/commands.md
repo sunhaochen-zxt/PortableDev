@@ -527,7 +527,9 @@ pd proc system [--filter <词>] [--elevated] [--json]
 - 结束 `level 1` 必须 `--elevated`（一次 UAC，取消 → 8）；`level 2` 还必须 `--force-critical`（缺 → 11）；
 - 文本模式的警告由壳按等级生成（机制层只回数字）；**不再额外确认**，`--force-critical` 就是确认（`--json` 模式同样要求它）；
 - 硬拒绝：pid 0/4、PD 自己的祖先链，以及受保护进程（`ERR_PROC_PROTECTED`，即使提权也杀不掉）；
-- `pd proc system` 目前**未实现**（期 3：系统级枚举 + 不弹 UAC 的只读档 + 一次性提权实例）；届时字段含 `user` / `commandLine`，未提权是 best-effort（拿不到就是 `null`），`--elevated` 才完整、且才能结束别的用户的进程；
+- `pd proc system`：未提权是 best-effort（字段 `user` 拿不到就是 `null`，拿不到句柄的进程 `level` 记 1），`--elevated` 走一次性提权实例、才能结束别的用户的进程；
+- `pd proc kill` 先找受管进程，找不到就按系统进程处理：pid 0/4 硬拒绝（11）；`level 2` 缺 `--force-critical` 拒绝（11）；
+  `level 1` 缺 `--elevated` 返回 8；受保护进程（PPL）即使提权也结束不了，如实报错；
 
 ## 6. 输出约定
 
