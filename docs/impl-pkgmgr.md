@@ -70,7 +70,8 @@ pd install <目标>
   默认自动加入内置源（`app\sources\<名>\index.json`）和 `<盘>\packages` 目录源；
 - 源类型：`dir`（有 index.json 就用，没有就现场扫 `.pdpkg`）、`http`（缓存到
   `state\sources\<名>\index.json` + `meta.json`，TTL 默认 24h）、`git`（`gh:owner/repo` → raw index URL）、
-  `builtin`（随程序发布，只读）；`scoop` 仍未实现（`ERR_UNSUPPORTED`）；
+  `scoop`（`gh:owner/bucket` → 下载 bucket zip → 清单转换，见 index-spec 1.1；支持 `branch` / `subdir` / `tarballUrl`）、
+  `builtin`（随程序发布，只读）；
 - 版本范围：`latest` / 精确版本 / `^` / `~` / `>= < ==` 组合；默认跳过 yanked、预发布
   （除非显式管道/版本，yanked 需 `--force`）、平台不符、minKernel 不满足；
 - 多源：priority 小者优先，同优先级按声明顺序；`--source` 锁定单源；
@@ -136,6 +137,7 @@ pd install <目标>
 |---|---|---|
 | `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
+| `tools/scoop-e2e.py` | 22 | scoop 源（zip/exe 转换安装、跳过规则）、requires 递归/冲突/循环/`--no-deps`/`--dry-run` 计划 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 | `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
 | `tools/proc-e2e.py` | 28 | proc 协议、`proc.spawn` + stdio 代理、list/info/kill、系统枚举/结束、admin 模式 实例、主题事件、真实安装脚本 |
@@ -152,14 +154,15 @@ python -u tools/script-e2e.py .run
 python -u tools/manage-e2e.py .run-manage
 python -u tools/proc-e2e.py
 python -u tools/run-e2e.py
+python -u tools/scoop-e2e.py
 ```
 
 ## 9. 还没做的
 
 | 项 | 说明 |
 |---|---|
-| scoop 源 | `kind: scoop` 仍是 `ERR_UNSUPPORTED`，需要清单转换 |
-| 依赖求解 | `requires`/虚拟包/冲突只做版本条目的平台过滤，未做递归安装 |
+| scoop 转换 | zip/单文件 exe 清单转索引条目；msi/非 sha256/安装脚本清单跳过 |
+| 依赖求解 | `requires` 递归安装（已装满足则跳过；冲突/循环报 24；`--no-deps` 跳过）；虚拟包未做 |
 | 更多解包 | `7z` / `msi` |
 | 脚本资源配额 | proc 提供内存/进程数上限，CPU 配额未做 |
 | 提权脚本 | `script.elevated:true` 未实现（需要提权子进程 + 回执 IPC） |

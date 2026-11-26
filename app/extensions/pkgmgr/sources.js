@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
+const scoop = require("./scoop");
 
 const SOURCE_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/;
@@ -258,6 +259,87 @@ function createSourceManager(options) {
     }
   }
 
+  function scoopRepo(source) {
+    const repo = String(source.repo || "").replace(/^(gh:|github:)/i, "");
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+      throw new SourceError("ERR_BAD_ARGS", "scoop source needs repo owner/name, got: " + String(source.repo || ""), 2);
+    }
+    return repo;
+  }
+
+  function scoopZipUrls(source) {
+    if (source.tarballUrl) {
+      return [String(source.tarballUrl)];
+    }
+    const repo = scoopRepo(source);
+    if (source.branch) {
+      return ["https://github.com/" + repo + "/archive/refs/heads/" + encodeURIComponent(String(source.branch)) + ".zip"];
+    }
+    return [
+      "https://github.com/" + repo + "/archive/refs/heads/main.zip",
+      "https://github.com/" + repo + "/archive/refs/heads/master.zip",
+    ];
+  }
+
+  async function loadScoopIndex(source, flags) {
+    const offline = flags.offline === true;
+    const refresh = flags.refresh === true;
+    const cached = readCached(source);
+    const age = cached ? Date.now() - Date.parse(cached.meta.fetchedAt || 0) : Number.MAX_SAFE_INTEGER;
+    if (cached && !refresh && age < ttlMillis(source)) {
+      return { index: cached.index, source: source, stale: false };
+    }
+    if (offline) {
+      if (cached) { return { index: cached.index, source: source, stale: true }; }
+      throw new SourceError("ERR_OFFLINE_MISS", "source " + source.name + " has no cached index and --offline is requested", 23);
+    }
+    const cache = cacheFor(source);
+    fs.mkdirSync(cache.dir, { recursive: true });
+    const subdir = String(source.subdir || "bucket").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const dest = path.join(cache.dir, "bucket.zip");
+    // Unpack only writes inside the stick staging directory; convert there, then clean up.
+    const extractDir = path.join(root, "staging", "scoop-" + String(source.name).replace(/[^a-z0-9-]/gi, "_").slice(0, 48));
+    let downloaded = false;
+    let lastError = null;
+    for (const url of scoopZipUrls(source)) {
+      try {
+        await call("download.fetch", "get", { url: url, dest: dest + ".part", maxBytes: 256 * 1024 * 1024 });
+        fs.renameSync(dest + ".part", dest);
+        downloaded = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        fs.rmSync(dest + ".part", { force: true });
+      }
+    }
+    if (!downloaded) {
+      throw lastError || new SourceError("ERR_NET", "could not download scoop bucket for " + source.name, 14);
+    }
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    fs.mkdirSync(extractDir, { recursive: true });
+    await call("unpack.extract", "extract", { archive: dest, dest: extractDir, kind: "zip" });
+    const manifests = [];
+    const roots = fs.readdirSync(extractDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => path.join(extractDir, entry.name));
+    roots.push(extractDir);
+    for (const bucketDir of roots.map((root) => path.join(root, subdir))) {
+      let files = [];
+      try { files = fs.readdirSync(bucketDir); } catch (error) { continue; }
+      for (const file of files.filter((name) => name.toLowerCase().endsWith(".json")).sort()) {
+        try {
+          manifests.push(scoop.convertManifest(JSON.parse(fs.readFileSync(path.join(bucketDir, file), "utf8")), file));
+        } catch (error) {
+          manifests.push({ skip: "unreadable " + file });
+        }
+      }
+    }
+    const built = scoop.buildIndex(source.name, manifests);
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    const index = validateIndex(built, source.name);
+    writeJsonAtomic(cache.index, index);
+    writeJsonAtomic(cache.meta, { schema: 1, fetchedAt: now(), subdir: subdir });
+    return { index: index, source: source, stale: false };
+  }
+
   async function loadIndex(source, flags) {
     const offline = flags.offline === true;
     const refresh = flags.refresh === true;
@@ -271,6 +353,10 @@ function createSourceManager(options) {
         return { index: readIndexFile(indexFile, source.name), source: source, stale: false };
       }
       return { index: indexFromDirectory(directory), source: source, stale: false };
+    }
+
+    if (source.kind === "scoop") {
+      return loadScoopIndex(source, flags);
     }
 
     if (source.kind === "builtin") {
@@ -463,6 +549,7 @@ function createSourceManager(options) {
     defaults: defaults,
     resolve: resolve,
     materialize: materialize,
+    satisfies: satisfies,
     loadIndex: loadIndex,
     validateIndex: validateIndex,
     indexFromDirectory: indexFromDirectory,

@@ -140,7 +140,7 @@ pd [全局开关] <命令> [参数...]
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
 | `pd source list` | 看源 | 否 | 能 | `--json` | — |
-| `pd source add <名> <地址>` | 加源 | **是**（写 `sources.json`） | 不能 | `--kind` `--priority` `--ttl` | 2/3/15 |
+| `pd source add <名> <地址>` | 加源 | **是**（写 `sources.json`） | 不能 | `--kind` `--priority` `--ttl` `--branch` `--subdir` `--tarball-url` | 2/3/15 |
 | `pd source remove <名>` | 删源 | **是** | 能 | — | 20 |
 | `pd source enable/disable <名>` | 启停源 | **是** | 能 | — | 20 |
 | `pd source refresh [名]` | 刷新索引 | **是**（写索引缓存） | 不能 | `--all` | 3/15/20 |
@@ -222,6 +222,7 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 | `--allow-scripts` | 允许跑包脚本（默认不允许从网络源来的包跑） |
 | `--no-scripts` | 一律不跑脚本（优先于 `--allow-scripts` 与配置 `install.allowScripts`） |
 | `--source <源>` | 指定从哪个源解析 |
+| `--no-deps` | 不装 `requires` 里的依赖（默认递归装） |
 | `--pin` | 锁定这个包：记 `pinned:true`，`pd upgrade --all` 跳过它；显式点名升级仍执行并保留 pin |
 | `--sha256` | 直接给 URL 包的哈希（URL 来源必需；按名从索引安装时由索引提供） |
 
@@ -236,11 +237,13 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 **当前实现范围**（其余见 [impl-pkgmgr.md](impl-pkgmgr.md)）：
 
 - 支持：`.pdpkg`、包目录、URL 直链（需 `--sha256`）、**按包名从源索引解析**（`name@版本范围`、
-  多源优先级、yanked、离线缓存、`--source`/`--refresh`/`--offline`）、`--pin` 锁定包；
+  多源优先级（包括 scoop bucket 源）、yanked、离线缓存、`--source`/`--refresh`/`--offline`）、`--pin` 锁定包；
 - 支持：包脚本（受限请求协议；本地默认跑、网络源需 `--allow-scripts`，`--no-scripts` 优先）、
   PATH/环境变量/HKCU/HKLM/启动器接线、`data.link`/`data.copy`、`{{HOME}}` 家目录联接；
 - 支持：`pd upgrade` / `pd remove` / `pd list` 生命周期命令（见 5.2）；
-- 未支持：`scoop` 源、依赖递归安装、`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
+- 支持：依赖递归安装（`requires` 按拓扑先装依赖；已装且满足范围则跳过；冲突/循环直接失败 24；
+  失败时已装好的依赖保留；`--no-deps` 跳过；`--dry-run` 显示依赖计划）；
+- 未支持：`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
 - 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`）。
 
 ### 5.2 `pd upgrade` / `pd remove` / `pd list`

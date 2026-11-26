@@ -324,6 +324,178 @@ function assertFilesExist(root, asserts) {
   }
 }
 
+function sanitizeFilePart(value) {
+  return String(value || "untitled").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64) || "untitled";
+}
+
+// Converts a downloaded scoop installer (zip or single exe) into a staging directory
+// shaped like a package: { package.json, files/... }. The rest of install() then runs
+// the ordinary dir flow (grant copy -> manifest -> script -> adopt).
+async function prepareScoopStaging({ resolved, blob, event }) {
+  const scoop = (resolved.entry && resolved.entry.scoop) || {};
+  const installerKind = scoop.kind === "exe" ? "exe" : "zip";
+  // Stage inside the stick staging directory: unpack.extract refuses anywhere else.
+  const staging = path.join(ROOT, "staging", "scoop-" + sanitizeFilePart(resolved.id) + "-" + sanitizeFilePart(resolved.version) + "-" + process.pid);
+  fs.rmSync(staging, { recursive: true, force: true });
+  fs.mkdirSync(path.join(staging, "files"), { recursive: true });
+  if (installerKind === "zip") {
+    event("step", { stepId: "fetch", title: "unpack scoop archive", state: "running" });
+    await callCapability("unpack.extract", "extract", { archive: blob.path, dest: path.join(staging, "files"), kind: "zip" });
+    event("step", { stepId: "fetch", title: "unpack scoop archive", state: "done" });
+  } else {
+    const exeFile = String(scoop.exeFile || (resolved.id + ".exe")).split(/[\\/]/).filter(Boolean).pop() || (resolved.id + ".exe");
+    fs.mkdirSync(path.join(staging, "files", "bin"), { recursive: true });
+    fs.copyFileSync(blob.path, path.join(staging, "files", "bin", exeFile));
+    // Single-file exes land in bin/; manifest bin paths are package-root relative,
+    // so qualify bare names to match the staged layout.
+    for (const item of (scoop.launch || [])) {
+      if (item && typeof item.exe === "string" && !item.exe.includes("/")) {
+        item.exe = "bin/" + item.exe;
+      }
+    }
+  }
+  // Bin names drift between scoop versions; drop launchers whose target is missing
+  // with a warning instead of failing the whole install.
+  const launch = [];
+  for (const item of (scoop.launch || [])) {
+    const exe = String((item && item.exe) || "").replace(/\\/g, "/");
+    const name = String((item && item.name) || "");
+    if (!exe || !name || exe.split("/").includes("..")) {
+      continue;
+    }
+    if (!fs.existsSync(path.join(staging, "files", ...exe.split("/")))) {
+      event("log", { level: "warn", msg: "scoop launcher target is missing, skipped: " + exe });
+      continue;
+    }
+    launch.push({ name: name, exe: exe });
+  }
+  if (launch.length === 0) {
+    throw new PkgError("ERR_PKG_INVALID", "scoop package has no usable launcher: " + resolved.id + "@" + resolved.version, 3);
+  }
+  const manifest = {
+    schema: 1,
+    id: resolved.id,
+    version: resolved.version,
+    platform: "win-x64",
+    launch: launch,
+    path: scoop.path && scoop.path.length > 0 ? scoop.path : ["bin"],
+    env: scoop.env || {},
+    requires: (resolved.entry && resolved.entry.requires) || [],
+    meta: { scoop: { manifest: scoop.manifest || null, kind: installerKind } },
+  };
+  fs.writeFileSync(path.join(staging, "package.json"), JSON.stringify(manifest, null, 2) + "\n");
+  return staging;
+}
+
+function depRef(raw, pkgId) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.id !== "string") {
+    throw new PkgError("ERR_PKG_INVALID", "bad requires entry in " + pkgId + ": " + JSON.stringify(raw), 3);
+  }
+  const id = raw.id.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(id)) {
+    throw new PkgError("ERR_PKG_INVALID", "bad requires id in " + pkgId + ": " + raw.id, 3);
+  }
+  const range = raw.range === undefined || raw.range === null ? "" : String(raw.range).trim();
+  return { id: id, range: range, ref: range ? id + "@" + range : id };
+}
+
+async function installedRecord(pkg) {
+  try {
+    return await callCapability("storage.record", "get", { pkg: pkg });
+  } catch (error) {
+    if (error && error.code === "ERR_PKG_NOT_FOUND") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+// Plans dependency installs from the package manifest. Pure checks only (no writes),
+// so the dry-run path can display the plan and bail out before anything changes.
+async function planDependencies({ manifest, pkgId, event, flags, manager }) {
+  const requires = Array.isArray(manifest.requires) ? manifest.requires : [];
+  if (flags["no-deps"] === true) {
+    if (requires.length > 0) {
+      event("log", { level: "info", msg: "skipping " + requires.length + " dependencies (--no-deps)" });
+    }
+    return [];
+  }
+  const plan = [];
+  for (const raw of requires) {
+    const dep = depRef(raw, pkgId);
+    let constraint;
+    try {
+      constraint = manager.parseConstraint(dep.range);
+    } catch (error) {
+      throw new PkgError("ERR_DEP_UNSATISFIED", "bad version range for " + dep.id + " required by " + pkgId + ": " + dep.range, 24);
+    }
+    const installed = await installedRecord(dep.id);
+    if (installed && manager.satisfies(String(installed.version), constraint)) {
+      event("log", { level: "info", msg: "dependency satisfied: " + dep.id + " " + installed.version });
+      plan.push({ id: dep.id, range: dep.range, ref: dep.ref, status: "satisfied", version: String(installed.version) });
+      continue;
+    }
+    if (installed) {
+      throw new PkgError("ERR_DEP_UNSATISFIED", "dependency conflict: " + dep.id + " " + installed.version + " is installed but " + pkgId + " needs " + (dep.range || "another version") + "; upgrade it explicitly first", 24);
+    }
+    plan.push({ id: dep.id, range: dep.range, ref: dep.ref, status: "install" });
+  }
+  return plan;
+}
+
+// Installs the planned dependencies topologically before the dependent itself.
+// Deps installed by an aborted chain stay installed (each keeps its own transaction).
+async function installDependencyPlan({ plan, chain, taskId, id, ctx, flags, event }) {
+  let counter = 0;
+  for (const dep of plan) {
+    if (dep.status !== "install") {
+      continue;
+    }
+    if (chain.some((link) => link.split("@")[0] === dep.id)) {
+      throw new PkgError("ERR_DEP_UNSATISFIED", "circular dependency involving " + dep.id + " (chain: " + chain.join(" -> ") + ")", 24);
+    }
+    if (chain.length >= 25) {
+      throw new PkgError("ERR_DEP_UNSATISFIED", "dependency chain too deep (chain: " + chain.join(" -> ") + ")", 24);
+    }
+    counter += 1;
+    const childId = id + "-dep-" + counter;
+    const argv = [dep.ref];
+    for (const name of ["offline", "refresh", "channel", "prerelease", "allow-scripts", "no-scripts", "force"]) {
+      const value = flags[name];
+      if (value === true) {
+        argv.push("--" + name);
+      } else if (typeof value === "string" && value.length > 0) {
+        argv.push("--" + name, value);
+      }
+    }
+    event("step", { stepId: "dep-" + dep.id, title: "dependency " + dep.ref, state: "running" });
+    try {
+      // Like upgrade: the child reuses the outer wire id (the only id the kernel
+      // knows for grants/cancel), while taskId stays the audit grouping.
+      await runInstall(
+        { id: id, data: { argv: argv, ctx: ctx, cmd: "install" } },
+        taskId,
+        (type, data) => {
+          if (type === "step") {
+            event("step", { stepId: "dep-" + dep.id + "-" + (data.stepId || "step"), title: data.title, state: data.state });
+            return;
+          }
+          if (type === "kv" || type === "table") {
+            return;
+          }
+          event(type, data);
+        },
+        chain,
+      );
+      event("step", { stepId: "dep-" + dep.id, title: "dependency " + dep.ref, state: "done" });
+    } catch (error) {
+      const code = (error && error.code) || "ERR_INTERNAL";
+      const exitCode = code === "ERR_DEP_UNSATISFIED" ? 24 : (error && error.exitCode) || 1;
+      throw new PkgError(code, "dependency " + dep.ref + " failed: " + ((error && error.message) || String(error)), exitCode);
+    }
+  }
+}
+
 async function install(message, options) {
   const id = message.id;
   const opts = options || {};
@@ -347,6 +519,14 @@ async function install(message, options) {
   }
 
   let grantPath = null;
+  let scoopStaging = null;
+  const dropScoopStaging = () => {
+    const staging = scoopStaging;
+    scoopStaging = null;
+    if (staging) {
+      try { fs.rmSync(staging, { recursive: true, force: true }); } catch (error) { /* best effort */ }
+    }
+  };
   const cleanupGrant = async () => {
     if (!grantPath) {
       return;
@@ -412,7 +592,14 @@ async function install(message, options) {
         event("step", { stepId: "source", title: "resolve source", state: "done" });
 
         if (flags["dry-run"] === true) {
-          event("kv", { title: "install plan", items: { package: resolved.id, version: resolved.version, source: resolved.source.name, url: resolved.entry.url } });
+          const planItems = { package: resolved.id, version: resolved.version, source: resolved.source.name, url: resolved.entry.url };
+          const planned = Array.isArray(resolved.entry.requires) ? resolved.entry.requires : [];
+          if (flags["no-deps"] === true && planned.length > 0) {
+            planItems.dependencies = planned.map((dep) => (dep && dep.id) || "?").join(", ") + " (skipped by --no-deps)";
+          } else if (planned.length > 0) {
+            planItems.dependencies = planned.map((dep) => (dep && dep.id) + ((dep && dep.range) ? dep.range : "")).join(", ") + " (installed first)";
+          }
+          event("kv", { title: "install plan", items: planItems });
           done({ summary: "dry-run: would install " + resolved.id + " " + resolved.version + " from " + resolved.source.name, metrics: { dryRun: true, package: resolved.id, version: resolved.version, source: resolved.source.name } });
           return;
         }
@@ -420,7 +607,13 @@ async function install(message, options) {
         event("step", { stepId: "fetch", title: "download", state: "running" });
         const blob = await sources().materialize(resolved, flags);
         event("step", { stepId: "fetch", title: "download", state: "done" });
-        kind = "archive";
+        if (resolved.entry && resolved.entry.scoop) {
+          scoopStaging = await prepareScoopStaging({ resolved: resolved, blob: blob, event: event });
+          kind = "dir";
+          dirRoot = scoopStaging;
+        } else {
+          kind = "archive";
+        }
         archive = blob.path;
       }
     }
@@ -442,6 +635,9 @@ async function install(message, options) {
 
     const pkgId = validPackageId(flags.as || manifest.id);
     const version = validVersion(manifest.version);
+    const manager = sources();
+    const depPlan = await planDependencies({ manifest: manifest, pkgId: pkgId, event: event, flags: flags, manager: manager });
+    const depChain = (opts.chain || []).concat([pkgId + "@" + version]);
 
     if (resolvedPackage) {
       if (!flags.as && String(manifest.id) !== resolvedPackage.id) {
@@ -469,11 +665,19 @@ async function install(message, options) {
     }
 
     if (flags["dry-run"] === true) {
-      event("kv", { title: "install plan", items: { package: pkgId, version, source: label } });
+      const items = { package: pkgId, version: version, source: label };
+      if (depPlan.length > 0) {
+        items.dependencies = depPlan.map((dep) => dep.ref + " (" + dep.status + ")").join(", ");
+      }
+      event("kv", { title: "install plan", items: items });
       await cleanupGrant();
+      dropScoopStaging();
       done({ summary: "dry-run: would install " + pkgId + " " + version, metrics: { dryRun: true } });
       return;
     }
+
+    throwIfCancelled(id);
+    await installDependencyPlan({ plan: depPlan, chain: depChain, taskId: taskId, id: id, ctx: (message.data && message.data.ctx) || {}, flags: flags, event: event });
 
     let contentRoot;
     if (kind === "dir") {
@@ -549,7 +753,7 @@ async function install(message, options) {
       version,
       stagingPath: contentRoot,
       contentHash: (manifest.hashes && manifest.hashes.archive) || (manifest.source && manifest.source.sha256) || undefined,
-      origin: kind === "dir" ? "local" : "archive",
+      origin: scoopStaging || kind !== "dir" ? "archive" : "local",
       wiring,
     });
     event("step", { stepId: "adopt", title: "adopt", state: "done" });
@@ -580,6 +784,7 @@ async function install(message, options) {
       event("log", { level: "warn", msg: "ledger commit failed: " + (error.message || String(error)) });
     }
     await cleanupGrant();
+    dropScoopStaging();
 
     done({
       summary: "installed " + pkgId + " " + version,
@@ -599,6 +804,7 @@ async function install(message, options) {
   } catch (error) {
     await rollbackTask(taskId, event);
     await cleanupGrant();
+    dropScoopStaging();
     // A cancelled task already received its terminal done(130) from the kernel; sending another one
     // would just be dropped, so stay quiet in that case.
     if (!isCancelled(id)) {
@@ -709,8 +915,24 @@ async function sourceCommand(message) {
         const repo = target.replace(/^(gh:|github:)/i, "");
         source.repo = repo;
         source.url = "https://raw.githubusercontent.com/" + repo + "/HEAD/index.json";
+      } else if (kind === "scoop") {
+        const repo = String(target || "").replace(/^(gh:|github:)/i, "");
+        if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+          throw new PkgError("ERR_BAD_ARGS", "kind=scoop needs gh:owner/repo, got: " + String(target || ""), 2);
+        }
+        source.repo = repo;
+        source.url = "https://github.com/" + repo;
+        if (flags.branch) {
+          source.branch = String(flags.branch);
+        }
+        if (flags.subdir) {
+          source.subdir = String(flags.subdir);
+        }
+        if (flags["tarball-url"]) {
+          source.tarballUrl = String(flags["tarball-url"]);
+        }
       } else {
-        throw new PkgError("ERR_UNSUPPORTED", "source kind " + kind + " is not implemented yet (dir/http/git)", 11);
+        throw new PkgError("ERR_UNSUPPORTED", "source kind " + kind + " is not implemented yet (dir/http/git/scoop)", 11);
       }
       if (flags.ttl) {
         source.ttl = String(flags.ttl);
@@ -970,7 +1192,7 @@ async function fetchCommand(message) {
 }
 
 // Runs install() as a sub-step of a batch while forwarding its progress to the outer task.
-function runInstall(innerMessage, taskId, onEvent) {
+function runInstall(innerMessage, taskId, onEvent, chain) {
   return new Promise((resolve, reject) => {
     const io = {
       event: (type, data) => {
@@ -982,7 +1204,7 @@ function runInstall(innerMessage, taskId, onEvent) {
       fail: (error) => reject(error),
     };
     try {
-      const pending = install(innerMessage, { taskId: taskId, io: io });
+      const pending = install(innerMessage, { taskId: taskId, io: io, chain: chain });
       if (pending && typeof pending.then === "function") {
         pending.catch(reject);
       }
@@ -1146,7 +1368,7 @@ async function upgradeCommand(message) {
           task: taskId, pkg: pkg, purgeData: false, skipGeneration: true,
         });
         const argv = [pkg + "@" + item.resolved.version, "--source", item.resolved.source.name];
-        for (const name of ["no-scripts", "allow-scripts", "force", "channel", "prerelease", "refresh", "offline"]) {
+        for (const name of ["no-scripts", "allow-scripts", "force", "no-deps", "channel", "prerelease", "refresh", "offline"]) {
           const value = flags[name];
           if (value === true) {
             argv.push("--" + name);

@@ -2,8 +2,8 @@
 
 > 配套文档：[architecture.md](architecture.md)、[spec.md](spec.md)、[package-spec.md](package-spec.md)、[commands.md](commands.md)、[kernel.md](kernel.md)
 > 状态：草案。同样遵守「宁多勿少」：字段可以多写，接收方忽略不认识的。
-> v2 实现进度：`dir` / `http` / `git` 源、缓存、优先级、版本范围、yanked、离线均已实现
-> （见 impl-pkgmgr.md）；`scoop` 清单转换、依赖递归安装未实现。
+> v2 实现进度：`dir` / `http` / `git` / `scoop` 源、缓存、优先级、版本范围、yanked、离线、依赖递归安装均已实现
+> （见 impl-pkgmgr.md）。
 
 ---
 
@@ -27,9 +27,31 @@
 | 目录 | `dir` | 盘上某个文件夹，里面有 `index.json` 或一堆 `.pdpkg` |
 | 静态 HTTP | `http` | 一个 `https://.../index.json` |
 | Git 仓库 | `git` | `gh:ScoopInstaller/Main` 这类，取 raw 文件 |
-| Scoop bucket | `scoop` | 读 Scoop 清单，先转成我们的格式再用 |
+| Scoop bucket | `scoop` | 读 Scoop 清单，先转成我们的格式再用（见 1.1） |
 
 `builtin` 和 `dir` 不需要联网；`http`/`git`/`scoop` 需要联网，但会把结果缓存到盘上。
+
+### 1.1 Scoop 清单转换规则（已实现）
+
+`scoop` 源的配置：`{ "kind": "scoop", "repo": "owner/name", "branch": "main"（可选）, "subdir": "bucket"（可选）, "tarballUrl": "…"（可选，镜像/测试覆盖默认下载地址） }`。
+刷新时下载整个 bucket 仓库的 zip 包（`github.com/<repo>/archive/refs/heads/<分支>.zip`，没写 `branch` 就依次试 `main`、`master`），解开后逐个转换 `subdir` 下的 `*.json` 清单，写成我们自己的 `index.json` 再走后面的流程。
+
+只转能 1:1 落到我们模型上的子集，其他的一律跳过（刷新日志里记 `skipped` 个数）：
+
+| 清单有 | 我们怎么做 |
+|---|---|
+| `64bit.url` / 顶层 `url` 以 `.zip` 结尾 | 下载安装包，解开后按现有流程安装 |
+| 顶层 `url` 以 `.exe` 结尾（单个可执行文件） | 收编为 `files/bin/<名字>`，配一个同名启动器 |
+| `bin`（字符串 / 数组 / `[程序, 别名]`） | 转成 launch 启动器；安装时目标不存在的启动器警告并跳过 |
+| `env_add_path` | 转成 PATH 接线（只收相对目录） |
+| `env_set` | 原样转成 env |
+| `depends` | 转成 `requires`（安装时递归装，见 package-spec） |
+| `extract_dir` | 作为 bin 路径的前缀 |
+| `description` / `homepage` | 进 `title` / `meta`，仅展示 |
+
+跳过（装不了也不装）：`.msi`；`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller` 脚本、`pre_install` / `post_install` 的（静默装脚本超出范围）；没有可用 bin 的；版本号不符合 `VERSION` 的。
+
+安全说明：安装包哈希走索引校验（和普通源一样，比对安装包的 sha256）；转换后的包没有脚本执行能力（生成的 `package.json` 不带脚本），scoop 清单里的脚本一律不运行。
 
 ---
 

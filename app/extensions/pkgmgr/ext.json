@@ -36,7 +36,7 @@
       "mutates": true,
       "parallel": false,
       "summary": "install a package from a source, a .pdpkg, a directory or a URL",
-      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>] [--source <源>] [--force] [--offline] [--refresh] [--allow-scripts] [--no-scripts]"
+      "usage": "pd install <包名|路径|URL> [--dry-run] [--as <名字>] [--sha256 <hex>] [--from-dir <目录>] [--source <源>] [--force] [--no-deps] [--offline] [--refresh] [--allow-scripts] [--no-scripts]"
     },
     {
       "name": "remove",
@@ -102,7 +102,7 @@
       "mutates": true,
       "parallel": false,
       "summary": "list/add/remove/enable/disable/refresh package sources",
-      "usage": "pd source list | add <名> <路径|URL|gh:owner/repo> [--kind dir|http|git] [--priority N] [--ttl dur] | remove <名> | enable|disable <名> | refresh [名]"
+      "usage": "pd source list | add <名> <路径|URL|gh:owner/repo> [--kind dir|http|git|scoop] [--branch <分支>] [--subdir <目录>] [--tarball-url <地址>] [--priority N] [--ttl dur] | remove <名> | enable|disable <名> | refresh [名]"
     },
     {
       "name": "index",
