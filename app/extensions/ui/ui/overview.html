@@ -1,20 +1,122 @@
 <!doctype html>
 <html data-theme="light">
-<head><meta charset="utf-8"><title>概览</title><link rel="stylesheet" href="style.css"></head>
+<head>
+  <meta charset="utf-8">
+  <title>概览 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
 <body>
 <div class="wrap">
-<header class="hero"><h1>概览</h1><div class="muted">便携盘开发环境 · 状态一览</div></header>
-<section class="card"><h2>环境</h2><div id="env"><span class="loading">正在连接内核…</span></div></section>
-<section class="card"><h2>版本</h2><div id="version"><span class="loading">读取中…</span></div></section>
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="home" data-size="18"></span>概览</h1>
+      <div class="muted">PortableDev 便携盘开发环境 · 实时工作台</div>
+    </div>
+    <div class="hero-actions">
+      <span class="status-pill" id="kernel-status"><span class="pulse-dot"></span><span>内核在线</span></span>
+      <button class="secondary sm" id="theme-btn"><span data-icon="moon" data-size="14"></span>切换主题</button>
+      <button class="secondary sm" id="refresh-btn"><span data-icon="refresh" data-size="14"></span>刷新</button>
+    </div>
+  </header>
+
+  <section class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-top"><span>已装软件包</span><span class="kpi-icon" data-icon="box" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-pkgs">—</div>
+      <div class="kpi-sub">由 pd list 实时统计</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-top"><span>活动软件源</span><span class="kpi-icon info" data-icon="globe" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-sources">—</div>
+      <div class="kpi-sub">pdpkg / scoop / 本地目录</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-top"><span>已加载扩展</span><span class="kpi-icon ok" data-icon="cpu" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-exts">—</div>
+      <div class="kpi-sub">微内核按需监督运行</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-top"><span>内核版本</span><span class="kpi-icon warn" data-icon="shield" data-size="15"></span></div>
+      <div class="kpi-val small" id="version">读取中…</div>
+      <div class="kpi-sub">协议握手与版本校验</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2><span data-icon="compass" data-size="16"></span>快速导航</h2>
+      <span class="muted">一键直达核心管理功能</span>
+    </div>
+    <div class="quick-grid">
+      <button class="quick-tile" data-nav="packages">
+        <span class="kpi-icon" data-icon="box" data-size="16"></span>
+        <span><span class="quick-tile-title">软件包管理</span><span class="quick-tile-sub">查看、升级、卸载已安装包</span></span>
+      </button>
+      <button class="quick-tile" data-nav="discover">
+        <span class="kpi-icon info" data-icon="compass" data-size="16"></span>
+        <span><span class="quick-tile-title">软件商店</span><span class="quick-tile-sub">搜索索引并一键安装</span></span>
+      </button>
+      <button class="quick-tile" data-nav="sources">
+        <span class="kpi-icon ok" data-icon="globe" data-size="16"></span>
+        <span><span class="quick-tile-title">软件源</span><span class="quick-tile-sub">同步索引、添加或管理源</span></span>
+      </button>
+      <button class="quick-tile" data-nav="processes">
+        <span class="kpi-icon warn" data-icon="cpu" data-size="16"></span>
+        <span><span class="quick-tile-title">进程监控</span><span class="quick-tile-sub">受管进程、扩展与整机枚举</span></span>
+      </button>
+      <button class="quick-tile" data-nav="logs">
+        <span class="kpi-icon" data-icon="list" data-size="16"></span>
+        <span><span class="quick-tile-title">实时日志</span><span class="quick-tile-sub">按级别筛选与流式追踪</span></span>
+      </button>
+      <button class="quick-tile" data-nav="settings">
+        <span class="kpi-icon info" data-icon="sliders" data-size="16"></span>
+        <span><span class="quick-tile-title">系统设置</span><span class="quick-tile-sub">可视化修改与重置配置</span></span>
+      </button>
+    </div>
+  </section>
+
+  <div class="two-col">
+    <section class="card">
+      <div class="card-head">
+        <h2><span data-icon="shield" data-size="16"></span>盘与环境身份</h2>
+        <span class="badge mono" id="stick-badge">—</span>
+      </div>
+      <div id="env"><span class="loading">正在连接内核…</span></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2><span data-icon="cpu" data-size="16"></span>内核扩展状态</h2>
+        <span class="badge muted" id="ext-count">—</span>
+      </div>
+      <div class="table-wrap">
+        <table id="ext-table">
+          <thead><tr><th>扩展</th><th>状态</th><th>版本</th></tr></thead>
+          <tbody><tr><td colspan="3"><span class="loading">加载中…</span></td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
 </div>
+
 <script src="common.js"></script>
 <script>
-(async () => {
+async function loadOverview() {
   const envNode = document.getElementById("env");
   const versionNode = document.getElementById("version");
+  const statusEl = document.getElementById("kernel-status");
+  const refreshBtn = document.getElementById("refresh-btn");
+  refreshBtn.disabled = true;
+
   try {
     const env = await window.pd.env();
-    const keys = [["root", "盘根"], ["stickId", "盘标识"], ["kernelVersion", "内核版本"], ["stableRoot", "稳定根"]];
+    document.getElementById("stick-badge").textContent = env.stickId || "local";
+    const keys = [
+      ["root", "盘根目录"],
+      ["stableRoot", "稳定根目录"],
+      ["stickId", "盘标识"],
+      ["kernelVersion", "内核版本"],
+    ];
     const dl = document.createElement("dl");
     dl.className = "grid";
     for (const [key, label] of keys) {
@@ -22,19 +124,92 @@
       const dt = document.createElement("dt");
       dt.textContent = label;
       const dd = document.createElement("dd");
-      dd.textContent = String(env[key]);
+      const val = document.createElement("span");
+      val.textContent = String(env[key]);
+      const cp = document.createElement("button");
+      cp.className = "ghost sm";
+      cp.title = "复制 " + label;
+      cp.appendChild(makeIcon("copy", 13));
+      cp.addEventListener("click", () => copyText(env[key], label));
+      dd.appendChild(val);
+      dd.appendChild(cp);
       dl.appendChild(dt);
       dl.appendChild(dd);
     }
-    envNode.innerHTML = "";
+    envNode.textContent = "";
     envNode.appendChild(dl);
+
     const timed = await pdTimed(["version"]);
-    versionNode.textContent = (timed.result.done && (timed.result.done.summary || timed.result.done.metrics && timed.result.done.metrics.kernelVersion)) || "版本未知";
-    showTiming("页面" + navMs() + "ms · version命令" + timed.ms + "ms");
+    versionNode.textContent =
+      (timed.result.done && (timed.result.done.summary || (timed.result.done.metrics && timed.result.done.metrics.kernelVersion))) ||
+      "版本未知";
+    statusEl.classList.remove("offline");
+    statusEl.lastElementChild.textContent = "内核在线";
+    showTiming("页面 " + navMs() + "ms · version " + timed.ms + "ms");
+
+    // Fetch secondary dashboard KPIs in parallel without blocking initial version render.
+    const [pkgRes, srcRes, extRes] = await Promise.allSettled([
+      window.pd.run(["list"]),
+      window.pd.run(["source", "list"]),
+      window.pd.run(["kernel", "ext", "list"]),
+    ]);
+
+    if (pkgRes.status === "fulfilled") {
+      document.getElementById("kpi-pkgs").textContent = String(extractTable(pkgRes.value).rows.length);
+    }
+    if (srcRes.status === "fulfilled") {
+      document.getElementById("kpi-sources").textContent = String(extractTable(srcRes.value).rows.length);
+    }
+    if (extRes.status === "fulfilled") {
+      const tbl = extractTable(extRes.value);
+      document.getElementById("kpi-exts").textContent = String(tbl.rows.length);
+      document.getElementById("ext-count").textContent = tbl.rows.length + " 个扩展";
+      const tbody = document.querySelector("#ext-table tbody");
+      tbody.textContent = "";
+      if (tbl.rows.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 3;
+        td.className = "muted";
+        td.textContent = "暂无扩展信息";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      } else {
+        for (const row of tbl.rows) {
+          const tr = document.createElement("tr");
+          tr.appendChild(cell(row, 0, "mono"));
+          const stTd = document.createElement("td");
+          const badge = document.createElement("span");
+          const stText = String(row[1] ?? "");
+          badge.className = "badge " + (/ready|run/i.test(stText) ? "ok" : /fail|err/i.test(stText) ? "danger" : "muted");
+          badge.textContent = stText || "—";
+          stTd.appendChild(badge);
+          tr.appendChild(stTd);
+          tr.appendChild(cell(row, 2, "mono"));
+          tbody.appendChild(tr);
+        }
+      }
+    }
   } catch (error) {
-    envNode.innerHTML = "";
+    statusEl.classList.add("offline");
+    statusEl.lastElementChild.textContent = "连接异常";
+    envNode.textContent = "";
     renderError(envNode, error);
+  } finally {
+    refreshBtn.disabled = false;
   }
-})();
+}
+
+document.getElementById("theme-btn").addEventListener("click", () => toggleTheme(true));
+document.getElementById("refresh-btn").addEventListener("click", loadOverview);
+document.querySelectorAll("[data-nav]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const target = btn.getAttribute("data-nav");
+    if (window.pd && window.pd.navigate) window.pd.navigate(target);
+  });
+});
+
+loadOverview();
 </script>
-</body></html>
+</body>
+</html>

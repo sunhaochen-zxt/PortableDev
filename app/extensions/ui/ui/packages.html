@@ -1,54 +1,242 @@
 <!doctype html>
 <html data-theme="light">
-<head><meta charset="utf-8"><title>软件包</title><link rel="stylesheet" href="style.css"></head>
+<head>
+  <meta charset="utf-8">
+  <title>软件包 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
 <body>
 <div class="wrap">
-<header class="hero"><h1>软件包</h1><div class="muted">已安装的包（调用 pd list）</div></header>
-<section class="card toolbar"><button id="refresh">刷新</button><span class="badge" id="count">—</span></section>
-<section class="card"><table id="table"><thead></thead><tbody><tr><td><span class="loading">加载中…</span></td></tr></tbody></table></section>
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="box" data-size="18"></span>软件包</h1>
+      <div class="muted">管理便携盘上已安装的软件包（pd list / outdated / upgrade / remove）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="secondary sm" id="check-outdated"><span data-icon="arrowUp" data-size="14"></span>检查更新</button>
+      <button class="sm" id="upgrade-all"><span data-icon="download" data-size="14"></span>全部升级</button>
+      <button class="secondary sm" id="refresh"><span data-icon="refresh" data-size="14"></span>刷新</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar">
+      <div class="input-box">
+        <span data-icon="search" data-size="15"></span>
+        <input type="search" id="filter" placeholder="按包名、版本或来源实时筛选…">
+      </div>
+      <span class="badge" id="count">—</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="table-wrap">
+      <table id="table">
+        <thead></thead>
+        <tbody><tr><td><span class="loading">加载中…</span></td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="terminal-card" style="display:none;">
+    <div class="card-head">
+      <h2><span data-icon="terminal" data-size="16"></span>任务输出</h2>
+      <button class="ghost sm" id="close-terminal">收起</button>
+    </div>
+    <div class="console" id="terminal-out"></div>
+  </section>
 </div>
+
 <script src="common.js"></script>
 <script>
-async function load() {
-  const button = document.getElementById("refresh");
+let cachedColumns = [];
+let cachedRows = [];
+let outdatedSet = new Set();
+
+function renderTable() {
   const table = document.getElementById("table");
   const head = table.querySelector("thead");
   const body = table.querySelector("tbody");
-  const count = document.getElementById("count");
-  button.disabled = true;
-  try {
-    const timed = await pdTimed(["list"]);
-    const result = timed.result;
-    head.innerHTML = "";
-    body.innerHTML = "";
-    const tableEvent = (result.events || []).filter((event) => event.type === "table").pop();
-    const rows = (tableEvent && tableEvent.rows) || [];
-    if (tableEvent) {
-      const tr = document.createElement("tr");
-      for (const column of tableEvent.columns || []) {
-        const th = document.createElement("th");
-        th.textContent = column.title || column.key;
-        tr.appendChild(th);
+  const query = document.getElementById("filter").value.trim().toLowerCase();
+
+  head.textContent = "";
+  body.textContent = "";
+
+  const filtered = cachedRows.filter((row) =>
+    !query || row.some((v) => String(v ?? "").toLowerCase().includes(query))
+  );
+
+  document.getElementById("count").textContent =
+    query ? filtered.length + " / " + cachedRows.length + " 个包" : cachedRows.length + " 个包";
+
+  if (cachedColumns.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.className = "empty";
+    td.textContent = "尚未安装任何软件包，前往「软件商店」搜索安装吧。";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  const htr = document.createElement("tr");
+  for (const col of cachedColumns) {
+    const th = document.createElement("th");
+    th.textContent = col.title || col.key;
+    htr.appendChild(th);
+  }
+  const actTh = document.createElement("th");
+  actTh.style.textAlign = "right";
+  actTh.textContent = "操作";
+  htr.appendChild(actTh);
+  head.appendChild(htr);
+
+  if (filtered.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = cachedColumns.length + 1;
+    td.className = "empty";
+    td.textContent = cachedRows.length === 0 ? "尚未安装任何软件包" : "没有匹配当前筛选条件的软件包";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  for (const row of filtered) {
+    const pkgId = String(row[0] ?? "");
+    const tr = document.createElement("tr");
+    for (let i = 0; i < row.length; i++) {
+      if (i === 0) {
+        const td = document.createElement("td");
+        const strong = document.createElement("strong");
+        strong.textContent = pkgId;
+        td.appendChild(strong);
+        if (outdatedSet.has(pkgId)) {
+          const dot = document.createElement("span");
+          dot.className = "badge warn";
+          dot.style.marginLeft = "8px";
+          dot.textContent = "有更新";
+          td.appendChild(dot);
+        }
+        tr.appendChild(td);
+      } else if (i === 1) {
+        const td = document.createElement("td");
+        const b = document.createElement("span");
+        b.className = "badge mono";
+        b.textContent = String(row[i] ?? "");
+        td.appendChild(b);
+        tr.appendChild(td);
+      } else {
+        tr.appendChild(cell(row, i));
       }
-      head.appendChild(tr);
-      for (const row of rows) {
-        const tr2 = document.createElement("tr");
-        for (let index = 0; index < row.length; index++) tr2.appendChild(cell(row, index));
-        body.appendChild(tr2);
-      }
-    } else {
-      body.innerHTML = "<tr><td>没有数据</td></tr>";
     }
-    count.textContent = rows.length + " 个包";
-    showTiming("页面" + navMs() + "ms · list命令" + timed.ms + "ms");
-  } catch (error) {
-    body.innerHTML = "";
-    renderError(body, error);
-  } finally {
-    button.disabled = false;
+
+    const actTd = document.createElement("td");
+    actTd.className = "actions";
+
+    const infoBtn = document.createElement("button");
+    infoBtn.className = "secondary sm";
+    infoBtn.textContent = "详情";
+    infoBtn.addEventListener("click", () => showInfo(pkgId));
+
+    const upBtn = document.createElement("button");
+    upBtn.className = "secondary sm";
+    upBtn.textContent = "升级";
+    upBtn.addEventListener("click", () => runTask(["upgrade", pkgId]));
+
+    const rmBtn = document.createElement("button");
+    rmBtn.className = "danger sm";
+    rmBtn.textContent = "卸载";
+    rmBtn.addEventListener("click", async () => {
+      const ok = await confirmDialog("卸载 " + pkgId, "确定要卸载软件包 " + pkgId + " 吗？依赖保护仍会生效。", "确认卸载", true);
+      if (ok) runTask(["remove", pkgId]);
+    });
+
+    actTd.appendChild(infoBtn);
+    actTd.appendChild(upBtn);
+    actTd.appendChild(rmBtn);
+    tr.appendChild(actTd);
+    body.appendChild(tr);
   }
 }
+
+async function runTask(argv) {
+  const card = document.getElementById("terminal-card");
+  const out = document.getElementById("terminal-out");
+  card.style.display = "block";
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  await streamCommand(argv, out, (ok) => {
+    showToast(ok ? "命令执行完成" : "命令执行失败", ok ? "ok" : "error");
+    load();
+  });
+}
+
+async function showInfo(pkgId) {
+  try {
+    const res = await window.pd.run(["info", pkgId]);
+    const items = extractKv(res);
+    const lines = Object.entries(items).map(([k, v]) => k + ": " + (typeof v === "object" ? JSON.stringify(v) : String(v)));
+    await confirmDialog(
+      pkgId + " · 软件包详情",
+      lines.length > 0 ? lines.join("\n") : (res.done && res.done.summary) || "无更多信息",
+      "关闭",
+      false
+    );
+  } catch (error) {
+    showToast((error && error.message) || String(error), "error");
+  }
+}
+
+async function load() {
+  const btn = document.getElementById("refresh");
+  btn.disabled = true;
+  try {
+    const timed = await pdTimed(["list"]);
+    const tbl = extractTable(timed.result);
+    cachedColumns = tbl.columns;
+    cachedRows = tbl.rows;
+    renderTable();
+    showTiming("页面 " + navMs() + "ms · list " + timed.ms + "ms");
+  } catch (error) {
+    const body = document.querySelector("#table tbody");
+    body.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    renderError(td, error);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("check-outdated").addEventListener("click", async () => {
+  const btn = document.getElementById("check-outdated");
+  btn.disabled = true;
+  try {
+    const res = await window.pd.run(["outdated"]);
+    const tbl = extractTable(res);
+    outdatedSet = new Set(tbl.rows.map((r) => String(r[0] ?? "")));
+    renderTable();
+    showToast(outdatedSet.size > 0 ? "发现 " + outdatedSet.size + " 个可升级包" : "全部软件包均为最新", "ok");
+  } catch (error) {
+    showToast((error && error.message) || String(error), "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("upgrade-all").addEventListener("click", async () => {
+  const ok = await confirmDialog("全部升级", "将执行 pd upgrade 升级全部可更新的软件包，是否继续？", "开始升级", false);
+  if (ok) runTask(["upgrade"]);
+});
+
+document.getElementById("close-terminal").addEventListener("click", () => {
+  document.getElementById("terminal-card").style.display = "none";
+});
+document.getElementById("filter").addEventListener("input", renderTable);
 document.getElementById("refresh").addEventListener("click", load);
 load();
 </script>
-</body></html>
+</body>
+</html>

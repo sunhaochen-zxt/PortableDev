@@ -264,7 +264,10 @@ def main():
              "--root", no_ui, "--extensions", os.path.join(no_ui, "app", "extensions"),
              "--kernel-dll", outside_kernel_dll], env=env)
         bad_result = read_json(bad_report) or {}
-        check("unsafe entry rejected", len(bad_result.get("pages") or []) == 2, bad_result.get("pages"))
+        # Derived, not hard-coded: the ui extension may gain or lose pages.
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            expected_pages = len(json.load(handle).get("pages") or []) - 1
+        check("unsafe entry rejected", len(bad_result.get("pages") or []) == expected_pages, bad_result.get("pages"))
     finally:
         stop_kernel(no_ui, env)
         try:

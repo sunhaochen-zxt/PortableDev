@@ -1,0 +1,223 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>软件源 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="globe" data-size="18"></span>软件源</h1>
+      <div class="muted">管理 pdpkg / scoop / 本地目录软件源与索引缓存（pd source）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="sm" id="add-btn"><span data-icon="plus" data-size="14"></span>添加软件源</button>
+      <button class="secondary sm" id="update-btn"><span data-icon="refresh" data-size="14"></span>同步全部索引</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="card-head">
+      <h2><span data-icon="globe" data-size="16"></span>已配置源列表</h2>
+      <span class="badge" id="count">—</span>
+    </div>
+    <div class="table-wrap">
+      <table id="table">
+        <thead></thead>
+        <tbody><tr><td><span class="loading">加载中…</span></td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="terminal-card" style="display:none;">
+    <div class="card-head">
+      <h2><span data-icon="terminal" data-size="16"></span>同步输出</h2>
+      <button class="ghost sm" id="close-terminal">收起</button>
+    </div>
+    <div class="console" id="terminal-out"></div>
+  </section>
+</div>
+
+<script src="common.js"></script>
+<script>
+async function load() {
+  const head = document.querySelector("#table thead");
+  const body = document.querySelector("#table tbody");
+  try {
+    const timed = await pdTimed(["source", "list"]);
+    const tbl = extractTable(timed.result);
+    head.textContent = "";
+    body.textContent = "";
+    document.getElementById("count").textContent = tbl.rows.length + " 个源";
+    showTiming("source list " + timed.ms + "ms");
+
+    if (tbl.columns.length === 0 || tbl.rows.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.className = "empty";
+      td.textContent = "尚未配置外部软件源，点击右上角「添加软件源」快速配置。";
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+
+    const htr = document.createElement("tr");
+    for (const col of tbl.columns) {
+      const th = document.createElement("th");
+      th.textContent = col.title || col.key;
+      htr.appendChild(th);
+    }
+    const actTh = document.createElement("th");
+    actTh.style.textAlign = "right";
+    actTh.textContent = "操作";
+    htr.appendChild(actTh);
+    head.appendChild(htr);
+
+    for (const row of tbl.rows) {
+      const name = String(row[0] ?? "");
+      const tr = document.createElement("tr");
+      for (let i = 0; i < row.length; i++) {
+        if (i === 0) {
+          const td = document.createElement("td");
+          const s = document.createElement("strong");
+          s.textContent = name;
+          td.appendChild(s);
+          tr.appendChild(td);
+        } else if (i === 1) {
+          const td = document.createElement("td");
+          const b = document.createElement("span");
+          b.className = "badge mono";
+          b.textContent = String(row[i] ?? "");
+          td.appendChild(b);
+          tr.appendChild(td);
+        } else {
+          tr.appendChild(cell(row, i, i === 2 ? "mono" : ""));
+        }
+      }
+
+      const actTd = document.createElement("td");
+      actTd.className = "actions";
+      const rmBtn = document.createElement("button");
+      rmBtn.className = "danger sm";
+      rmBtn.textContent = "移除";
+      rmBtn.addEventListener("click", async () => {
+        const ok = await confirmDialog("移除软件源", "确定要移除软件源「" + name + "」吗？", "确认移除", true);
+        if (!ok) return;
+        try {
+          await window.pd.run(["source", "remove", name]);
+          showToast("已移除 " + name, "ok");
+          load();
+        } catch (err) {
+          showToast((err && err.message) || String(err), "error");
+        }
+      });
+      actTd.appendChild(rmBtn);
+      tr.appendChild(actTd);
+      body.appendChild(tr);
+    }
+  } catch (error) {
+    body.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    renderError(td, error);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+}
+
+function openAddModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const box = document.createElement("div");
+  box.className = "modal-box";
+
+  const title = document.createElement("h3");
+  title.className = "modal-title";
+  title.textContent = "添加软件源";
+
+  const mkField = (labelText, inputEl) => {
+    const f = document.createElement("div");
+    f.className = "form-field";
+    const l = document.createElement("label");
+    l.textContent = labelText;
+    f.appendChild(l);
+    f.appendChild(inputEl);
+    return f;
+  };
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "例如 main / scoop-main";
+
+  const urlInput = document.createElement("input");
+  urlInput.type = "text";
+  urlInput.placeholder = "https://... 或本地目录路径";
+
+  const kindSelect = document.createElement("select");
+  for (const [v, t] of [["", "自动识别"], ["index", "PortableDev 索引 (index)"], ["scoop", "Scoop Bucket (scoop)"], ["dir", "本地目录 (dir)"]]) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = t;
+    kindSelect.appendChild(opt);
+  }
+
+  const foot = document.createElement("div");
+  foot.className = "modal-foot";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "secondary";
+  cancelBtn.textContent = "取消";
+  const okBtn = document.createElement("button");
+  okBtn.textContent = "添加";
+
+  cancelBtn.addEventListener("click", () => backdrop.remove());
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.remove(); });
+  okBtn.addEventListener("click", async () => {
+    const n = nameInput.value.trim();
+    const u = urlInput.value.trim();
+    if (!n || !u) { showToast("请填写源名称与地址", "error"); return; }
+    okBtn.disabled = true;
+    try {
+      const argv = ["source", "add", n, u];
+      if (kindSelect.value) argv.push("--kind", kindSelect.value);
+      await window.pd.run(argv);
+      backdrop.remove();
+      showToast("已添加软件源 " + n, "ok");
+      load();
+    } catch (err) {
+      showToast((err && err.message) || String(err), "error");
+      okBtn.disabled = false;
+    }
+  });
+
+  foot.appendChild(cancelBtn);
+  foot.appendChild(okBtn);
+  box.appendChild(title);
+  box.appendChild(mkField("源名称", nameInput));
+  box.appendChild(mkField("索引 URL 或本地路径", urlInput));
+  box.appendChild(mkField("源类型", kindSelect));
+  box.appendChild(foot);
+  backdrop.appendChild(box);
+  document.body.appendChild(backdrop);
+  nameInput.focus();
+}
+
+document.getElementById("add-btn").addEventListener("click", openAddModal);
+document.getElementById("update-btn").addEventListener("click", async () => {
+  const card = document.getElementById("terminal-card");
+  const out = document.getElementById("terminal-out");
+  card.style.display = "block";
+  await streamCommand(["source", "update"], out, (ok) => {
+    showToast(ok ? "全部索引已同步" : "同步失败", ok ? "ok" : "error");
+    load();
+  });
+});
+document.getElementById("close-terminal").addEventListener("click", () => {
+  document.getElementById("terminal-card").style.display = "none";
+});
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>进程监控 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="cpu" data-size="18"></span>进程监控</h1>
+      <div class="muted">实时查看受管进程、内核扩展进程与整机进程（pd proc / kernel ps）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="secondary sm" id="refresh"><span data-icon="refresh" data-size="14"></span>刷新</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar">
+      <div class="tabs" id="mode-tabs">
+        <button class="tab-btn active" data-mode="managed">受管进程</button>
+        <button class="tab-btn" data-mode="extensions">扩展进程</button>
+        <button class="tab-btn" data-mode="system">系统进程</button>
+      </div>
+      <div class="input-box">
+        <span data-icon="search" data-size="15"></span>
+        <input type="search" id="filter" placeholder="按 PID、名称或命令过滤…">
+      </div>
+      <span class="badge" id="count">—</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="table-wrap">
+      <table id="table">
+        <thead></thead>
+        <tbody><tr><td><span class="loading">加载中…</span></td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="common.js"></script>
+<script>
+let mode = "managed";
+let cachedCols = [];
+let cachedRows = [];
+
+function renderTable() {
+  const head = document.querySelector("#table thead");
+  const body = document.querySelector("#table tbody");
+  const q = document.getElementById("filter").value.trim().toLowerCase();
+  head.textContent = "";
+  body.textContent = "";
+
+  const rows = cachedRows.filter((r) => !q || r.some((v) => String(v ?? "").toLowerCase().includes(q)));
+  document.getElementById("count").textContent =
+    q ? rows.length + " / " + cachedRows.length + " 个进程" : cachedRows.length + " 个进程";
+
+  if (cachedCols.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.className = "empty";
+    td.textContent = "暂无进程数据";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  const canKill = mode === "managed" || mode === "system";
+  const htr = document.createElement("tr");
+  for (const col of cachedCols) {
+    const th = document.createElement("th");
+    th.textContent = col.title || col.key;
+    htr.appendChild(th);
+  }
+  if (canKill) {
+    const actTh = document.createElement("th");
+    actTh.style.textAlign = "right";
+    actTh.textContent = "操作";
+    htr.appendChild(actTh);
+  }
+  head.appendChild(htr);
+
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = cachedCols.length + (canKill ? 1 : 0);
+    td.className = "empty";
+    td.textContent = cachedRows.length === 0 ? "当前没有运行中的进程" : "没有匹配的进程";
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  const pidIndex = Math.max(0, cachedCols.findIndex((c) => /pid/i.test(String(c.key || c.title || ""))));
+
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (let i = 0; i < row.length; i++) {
+      const colKey = String((cachedCols[i] && (cachedCols[i].key || cachedCols[i].title)) || "");
+      if (/state|status|状态/i.test(colKey)) {
+        const td = document.createElement("td");
+        const b = document.createElement("span");
+        const v = String(row[i] ?? "");
+        b.className = "badge " + (/ready|run/i.test(v) ? "ok" : /crash|fail|err/i.test(v) ? "danger" : "muted");
+        b.textContent = v || "—";
+        td.appendChild(b);
+        tr.appendChild(td);
+      } else {
+        tr.appendChild(cell(row, i, /pid|id/i.test(colKey) ? "mono" : ""));
+      }
+    }
+
+    if (canKill) {
+      const pid = String(row[pidIndex] ?? "");
+      const actTd = document.createElement("td");
+      actTd.className = "actions";
+      const btn = document.createElement("button");
+      btn.className = "danger sm";
+      btn.textContent = "结束";
+      btn.disabled = !/^\d+$/.test(pid);
+      btn.addEventListener("click", async () => {
+        const ok = await confirmDialog("结束进程 PID " + pid, "确定要结束 PID " + pid + " 吗？系统关键进程和 PortableDev 自身会被保护拒绝。", "确认结束", true);
+        if (!ok) return;
+        try {
+          await window.pd.run(["proc", "kill", pid, "--yes"]);
+          showToast("已请求结束 PID " + pid, "ok");
+          load();
+        } catch (err) {
+          showToast((err && err.message) || String(err), "error");
+        }
+      });
+      actTd.appendChild(btn);
+      tr.appendChild(actTd);
+    }
+
+    body.appendChild(tr);
+  }
+}
+
+async function load() {
+  const btn = document.getElementById("refresh");
+  btn.disabled = true;
+  try {
+    const argv = mode === "managed" ? ["proc", "list"]
+      : mode === "extensions" ? ["kernel", "ps"]
+      : ["proc", "system"];
+    const timed = await pdTimed(argv);
+    const tbl = extractTable(timed.result);
+    cachedCols = tbl.columns;
+    cachedRows = tbl.rows;
+    renderTable();
+    showTiming(argv.join(" ") + " " + timed.ms + "ms");
+  } catch (error) {
+    const body = document.querySelector("#table tbody");
+    body.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    renderError(td, error);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.querySelectorAll("#mode-tabs .tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#mode-tabs .tab-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    mode = btn.getAttribute("data-mode");
+    load();
+  });
+});
+document.getElementById("filter").addEventListener("input", renderTable);
+document.getElementById("refresh").addEventListener("click", load);
+load();
+</script>
+</body>
+</html>

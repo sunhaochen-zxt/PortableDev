@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "ui",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "title": "PortableDev UI",
   "priority": 100,
   "entry": "index.js",
@@ -9,12 +9,16 @@
   "requiresKernel": ">=1",
   "permissions": [
     { "kind": "ui", "allow": true },
-    { "kind": "commands", "allow": ["list", "search", "fetch", "install", "remove", "upgrade", "log", "version", "config"] }
+    { "kind": "commands", "allow": ["list", "info", "search", "outdated", "fetch", "install", "remove", "upgrade", "source", "proc", "kernel", "log", "version", "config"] }
   ],
   "pages": [
     { "id": "overview", "title": "概览", "entry": "ui/overview.html", "icon": "home", "order": 10, "nav": "sidebar" },
     { "id": "packages", "title": "软件包", "entry": "ui/packages.html", "icon": "box", "order": 20, "nav": "sidebar" },
-    { "id": "logs", "title": "日志", "entry": "ui/logs.html", "icon": "list", "order": 30, "nav": "sidebar" }
+    { "id": "discover", "title": "软件商店", "entry": "ui/discover.html", "icon": "compass", "order": 30, "nav": "sidebar" },
+    { "id": "sources", "title": "软件源", "entry": "ui/sources.html", "icon": "globe", "order": 40, "nav": "sidebar" },
+    { "id": "processes", "title": "进程监控", "entry": "ui/processes.html", "icon": "cpu", "order": 50, "nav": "sidebar" },
+    { "id": "logs", "title": "实时日志", "entry": "ui/logs.html", "icon": "list", "order": 60, "nav": "sidebar" },
+    { "id": "settings", "title": "系统设置", "entry": "ui/settings.html", "icon": "sliders", "order": 70, "nav": "sidebar" }
   ],
   "lifecycle": { "start": "on-demand", "startTimeout": "5s", "heartbeatTimeout": "60s", "stopTimeout": "3s", "restart": "on-crash", "maxRestarts": 1 }
 }

@@ -1,0 +1,164 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>软件商店 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="compass" data-size="18"></span>软件商店</h1>
+      <div class="muted">搜索已配置软件源中的可用软件包并一键安装（pd search / install）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="secondary sm" id="sync-btn"><span data-icon="refresh" data-size="14"></span>同步索引</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar">
+      <div class="input-box">
+        <span data-icon="search" data-size="15"></span>
+        <input type="search" id="query" placeholder="输入关键字搜索软件包（留空回车显示全部）…">
+      </div>
+      <button id="search-btn"><span data-icon="search" data-size="14"></span>搜索</button>
+      <span class="badge" id="count">—</span>
+    </div>
+  </section>
+
+  <section style="margin-top:16px;" id="results-area">
+    <div class="card empty">正在加载索引…</div>
+  </section>
+
+  <section class="card" id="terminal-card" style="display:none;">
+    <div class="card-head">
+      <h2><span data-icon="terminal" data-size="16"></span>安装进度</h2>
+      <button class="ghost sm" id="close-terminal">收起</button>
+    </div>
+    <div class="console" id="terminal-out"></div>
+  </section>
+</div>
+
+<script src="common.js"></script>
+<script>
+async function doSearch() {
+  const q = document.getElementById("query").value.trim();
+  const btn = document.getElementById("search-btn");
+  const area = document.getElementById("results-area");
+  btn.disabled = true;
+
+  try {
+    const argv = q ? ["search", q] : ["search"];
+    const timed = await pdTimed(argv);
+    const tbl = extractTable(timed.result);
+    document.getElementById("count").textContent = tbl.rows.length + " 个结果";
+    showTiming("search " + timed.ms + "ms");
+
+    area.textContent = "";
+    if (tbl.rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "card empty";
+      empty.textContent = q ? "未找到与「" + q + "」匹配的软件包，试试先点击右上角「同步索引」。" : "当前软件源暂无可用软件包。";
+      area.appendChild(empty);
+      return;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "pkg-grid";
+    for (const row of tbl.rows) {
+      const id = String(row[0] ?? "");
+      const ver = String(row[1] ?? "");
+      const src = String(row[2] ?? "");
+      const desc = String(row[3] ?? row[2] ?? "便携软件包");
+
+      const card = document.createElement("div");
+      card.className = "pkg-card";
+
+      const head = document.createElement("div");
+      head.className = "pkg-card-head";
+      const nameEl = document.createElement("div");
+      nameEl.className = "pkg-name";
+      nameEl.textContent = id;
+      const verEl = document.createElement("span");
+      verEl.className = "badge mono";
+      verEl.textContent = ver || "latest";
+      head.appendChild(nameEl);
+      head.appendChild(verEl);
+
+      const descEl = document.createElement("div");
+      descEl.className = "pkg-desc";
+      descEl.textContent = row.length >= 4 ? desc : "来自软件源：" + (src || "默认源");
+
+      const foot = document.createElement("div");
+      foot.className = "pkg-foot";
+      const srcEl = document.createElement("span");
+      srcEl.className = "badge muted";
+      srcEl.textContent = src || "source";
+
+      const btns = document.createElement("div");
+      const dryBtn = document.createElement("button");
+      dryBtn.className = "secondary sm";
+      dryBtn.textContent = "预览";
+      dryBtn.style.marginRight = "6px";
+      dryBtn.addEventListener("click", () => runInstall(id, true));
+
+      const instBtn = document.createElement("button");
+      instBtn.className = "sm";
+      instBtn.appendChild(makeIcon("download", 13));
+      instBtn.appendChild(document.createTextNode("安装"));
+      instBtn.addEventListener("click", () => runInstall(id, false));
+
+      btns.appendChild(dryBtn);
+      btns.appendChild(instBtn);
+      foot.appendChild(srcEl);
+      foot.appendChild(btns);
+
+      card.appendChild(head);
+      card.appendChild(descEl);
+      card.appendChild(foot);
+      grid.appendChild(card);
+    }
+    area.appendChild(grid);
+  } catch (error) {
+    area.textContent = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    renderError(card, error);
+    area.appendChild(card);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function runInstall(pkgId, dryRun) {
+  const card = document.getElementById("terminal-card");
+  const out = document.getElementById("terminal-out");
+  card.style.display = "block";
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const argv = dryRun ? ["install", pkgId, "--dry-run"] : ["install", pkgId];
+  await streamCommand(argv, out, (ok) => {
+    showToast(ok ? (dryRun ? "预览完成" : pkgId + " 安装完成") : "安装失败", ok ? "ok" : "error");
+  });
+}
+
+document.getElementById("search-btn").addEventListener("click", doSearch);
+document.getElementById("query").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+document.getElementById("sync-btn").addEventListener("click", async () => {
+  const card = document.getElementById("terminal-card");
+  const out = document.getElementById("terminal-out");
+  card.style.display = "block";
+  await streamCommand(["source", "update"], out, (ok) => {
+    showToast(ok ? "索引已同步" : "索引同步失败", ok ? "ok" : "error");
+    doSearch();
+  });
+});
+document.getElementById("close-terminal").addEventListener("click", () => {
+  document.getElementById("terminal-card").style.display = "none";
+});
+
+doSearch();
+</script>
+</body>
+</html>

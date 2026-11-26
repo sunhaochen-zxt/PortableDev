@@ -1,0 +1,199 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>系统设置 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="sliders" data-size="18"></span>系统设置</h1>
+      <div class="muted">可视化编辑 config/settings.json（pd config list / set / unset）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="secondary sm" id="theme-quick"><span data-icon="moon" data-size="14"></span>切换明/暗主题</button>
+      <button class="secondary sm" id="refresh"><span data-icon="refresh" data-size="14"></span>刷新</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar">
+      <div class="input-box">
+        <span data-icon="search" data-size="15"></span>
+        <input type="search" id="filter" placeholder="搜索配置键（例如 ui.theme、network.timeout、proc.*）…">
+      </div>
+      <span class="badge" id="count">—</span>
+    </div>
+  </section>
+
+  <div id="groups"><section class="card empty">正在读取配置…</section></div>
+</div>
+
+<script src="common.js"></script>
+<script>
+const GROUP_TITLES = {
+  ui: "外观与界面",
+  kernel: "内核与运行",
+  root: "路径与便携盘",
+  install: "包安装策略",
+  network: "网络与代理",
+  proc: "进程限额",
+  log: "日志与审计",
+  gc: "垃圾回收",
+  recovery: "崩溃恢复",
+  elevation: "提权策略",
+};
+
+let allSettings = [];
+
+function unquote(raw) {
+  const text = String(raw ?? "");
+  try {
+    const parsed = JSON.parse(text);
+    return parsed === null || parsed === undefined ? "" : String(parsed);
+  } catch (e) {
+    return text;
+  }
+}
+
+function renderGroups() {
+  const container = document.getElementById("groups");
+  const q = document.getElementById("filter").value.trim().toLowerCase();
+  container.textContent = "";
+
+  const filtered = allSettings.filter((s) => !q || s.key.toLowerCase().includes(q) || s.value.toLowerCase().includes(q));
+  document.getElementById("count").textContent = filtered.length + " 项设置";
+
+  if (filtered.length === 0) {
+    const empty = document.createElement("section");
+    empty.className = "card empty";
+    empty.textContent = "没有匹配的配置项";
+    container.appendChild(empty);
+    return;
+  }
+
+  const map = new Map();
+  for (const item of filtered) {
+    const prefix = item.key.includes(".") ? item.key.split(".")[0] : "other";
+    if (!map.has(prefix)) map.set(prefix, []);
+    map.get(prefix).push(item);
+  }
+
+  for (const [prefix, list] of map.entries()) {
+    const card = document.createElement("section");
+    card.className = "card";
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const h2 = document.createElement("h2");
+    h2.textContent = (GROUP_TITLES[prefix] || "其他配置") + " (" + prefix + ")";
+    const badge = document.createElement("span");
+    badge.className = "badge muted";
+    badge.textContent = list.length + " 项";
+    head.appendChild(h2);
+    head.appendChild(badge);
+    card.appendChild(head);
+
+    for (const item of list) {
+      const row = document.createElement("div");
+      row.className = "setting-row";
+
+      const left = document.createElement("div");
+      const keyEl = document.createElement("div");
+      keyEl.className = "setting-key";
+      keyEl.textContent = item.key;
+      left.appendChild(keyEl);
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = item.value;
+      input.setAttribute("aria-label", item.key);
+      if (item.key === "schema") input.disabled = true;
+
+      const actions = document.createElement("div");
+      actions.style.display = "flex";
+      actions.style.gap = "6px";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "sm";
+      saveBtn.textContent = "保存";
+      saveBtn.disabled = item.key === "schema";
+      saveBtn.addEventListener("click", async () => {
+        saveBtn.disabled = true;
+        try {
+          const res = await window.pd.run(["config", "set", item.key, input.value]);
+          const restart = res.done && res.done.metrics && res.done.metrics.restartRequired;
+          if (item.key === "ui.theme") {
+            const next = input.value.trim().toLowerCase() === "dark" ? "dark" : "light";
+            document.documentElement.dataset.theme = next;
+            try { sessionStorage.setItem("pd-ui-theme", next); } catch (e) { /* ignore */ }
+          }
+          showToast(item.key + " 已保存" + (restart ? "（重启内核后生效）" : ""), "ok");
+          load();
+        } catch (err) {
+          showToast((err && err.message) || String(err), "error");
+          saveBtn.disabled = false;
+        }
+      });
+
+      const resetBtn = document.createElement("button");
+      resetBtn.className = "secondary sm";
+      resetBtn.textContent = "默认";
+      resetBtn.disabled = item.key === "schema";
+      resetBtn.addEventListener("click", async () => {
+        resetBtn.disabled = true;
+        try {
+          await window.pd.run(["config", "unset", item.key]);
+          showToast(item.key + " 已恢复默认", "ok");
+          load();
+        } catch (err) {
+          showToast((err && err.message) || String(err), "error");
+          resetBtn.disabled = false;
+        }
+      });
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(resetBtn);
+      row.appendChild(left);
+      row.appendChild(input);
+      row.appendChild(actions);
+      card.appendChild(row);
+    }
+
+    container.appendChild(card);
+  }
+}
+
+async function load() {
+  const btn = document.getElementById("refresh");
+  btn.disabled = true;
+  try {
+    const timed = await pdTimed(["config", "list"]);
+    const tbl = extractTable(timed.result);
+    allSettings = tbl.rows.map((r) => ({ key: String(r[0] ?? ""), value: unquote(r[1]) }));
+    renderGroups();
+    showTiming("config list " + timed.ms + "ms");
+  } catch (error) {
+    const container = document.getElementById("groups");
+    container.textContent = "";
+    const card = document.createElement("section");
+    card.className = "card";
+    renderError(card, error);
+    container.appendChild(card);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("theme-quick").addEventListener("click", () => {
+  toggleTheme(true);
+  setTimeout(load, 200);
+});
+document.getElementById("filter").addEventListener("input", renderGroups);
+document.getElementById("refresh").addEventListener("click", load);
+load();
+</script>
+</body>
+</html>

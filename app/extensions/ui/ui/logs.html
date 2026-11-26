@@ -1,19 +1,53 @@
 <!doctype html>
 <html data-theme="light">
-<head><meta charset="utf-8"><title>日志</title><link rel="stylesheet" href="style.css"></head>
+<head>
+  <meta charset="utf-8">
+  <title>实时日志 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
 <body>
 <div class="wrap">
-<header class="hero"><h1>日志</h1><div class="muted">最近 50 条，新记录自动追加（pd log --tail 50 --follow）</div></header>
-<section class="card toolbar"><button id="follow">停止跟随</button><span class="badge" id="count">—</span></section>
-<section class="card"><pre class="logs" id="out"><span class="loading">加载中…</span></pre></section>
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="list" data-size="18"></span>实时日志</h1>
+      <div class="muted">流式追踪内核与扩展事件（pd log --tail 100 --follow）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="sm" id="follow">停止跟随</button>
+      <button class="secondary sm" id="clear-btn"><span data-icon="trash" data-size="14"></span>清空视图</button>
+      <button class="secondary sm" id="copy-btn"><span data-icon="copy" data-size="14"></span>复制日志</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar">
+      <div class="tabs" id="level-tabs">
+        <button class="tab-btn active" data-lvl="all">全部</button>
+        <button class="tab-btn" data-lvl="error">ERROR</button>
+        <button class="tab-btn" data-lvl="warn">WARN</button>
+        <button class="tab-btn" data-lvl="info">INFO</button>
+        <button class="tab-btn" data-lvl="debug">DEBUG</button>
+      </div>
+      <div class="input-box">
+        <span data-icon="search" data-size="15"></span>
+        <input type="search" id="filter" placeholder="按关键字过滤日志…">
+      </div>
+      <span class="badge" id="count">0 条</span>
+    </div>
+  </section>
+
+  <section class="card" style="padding:14px;">
+    <div class="console" id="out"><span class="loading">正在订阅日志流…</span></div>
+  </section>
 </div>
+
 <script src="common.js"></script>
 <script>
 let taskId = null;
 let unsubscribe = null;
-let stopping = false;
-// Cap the DOM: a long-running follow would otherwise grow the page forever.
+let levelFilter = "all";
 const MAX_LINES = 1000;
+const entries = [];
 
 function unwrap(record) {
   let node = record || {};
@@ -21,58 +55,139 @@ function unwrap(record) {
   return node;
 }
 
-function lineOf(event) {
-  const record = unwrap(event.record);
-  const time = String(record.ts || "").slice(11, 19);
-  return ((time ? time + " " : "") + (record.level || "info") + "  " + (record.msg || "")).trim();
+function normalizeLevel(lvl) {
+  const s = String(lvl || "info").toLowerCase();
+  if (s.startsWith("err") || s === "fatal" || s === "crit") return "error";
+  if (s.startsWith("warn")) return "warn";
+  if (s.startsWith("deb") || s === "trace") return "debug";
+  return "info";
 }
 
-function appendLine(text) {
+function matchesFilter(entry) {
+  if (levelFilter !== "all" && entry.level !== levelFilter) return false;
+  const q = document.getElementById("filter").value.trim().toLowerCase();
+  if (!q) return true;
+  return entry.text.toLowerCase().includes(q) || entry.unit.toLowerCase().includes(q);
+}
+
+function createRow(entry) {
+  const row = document.createElement("div");
+  row.className = "log-row";
+
+  const ts = document.createElement("span");
+  ts.className = "log-ts";
+  ts.textContent = entry.time || "--:--:--";
+
+  const lvl = document.createElement("span");
+  lvl.className = "log-lvl " + entry.level;
+  lvl.textContent = entry.level;
+
+  const msg = document.createElement("span");
+  msg.className = "log-msg";
+  msg.textContent = (entry.unit ? "[" + entry.unit + "] " : "") + entry.text;
+
+  row.appendChild(ts);
+  row.appendChild(lvl);
+  row.appendChild(msg);
+  return row;
+}
+
+function renderAll() {
+  const out = document.getElementById("out");
+  out.textContent = "";
+  const shown = entries.filter(matchesFilter);
+  if (shown.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.style.padding = "12px";
+    empty.textContent = entries.length === 0 ? "等待新日志…" : "没有匹配当前过滤条件的日志";
+    out.appendChild(empty);
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const item of shown) frag.appendChild(createRow(item));
+    out.appendChild(frag);
+    out.scrollTop = out.scrollHeight;
+  }
+  document.getElementById("count").textContent = shown.length + " / " + entries.length + " 条";
+}
+
+function appendEvent(event) {
+  const rec = unwrap(event.record);
+  const entry = {
+    time: String(rec.ts || "").slice(11, 19),
+    level: normalizeLevel(rec.level),
+    unit: String(rec._unit || rec.unit || ""),
+    text: String(rec.msg || ""),
+  };
+  entries.push(entry);
+  if (entries.length > MAX_LINES) entries.shift();
+
   const out = document.getElementById("out");
   const pinned = out.scrollTop + out.clientHeight >= out.scrollHeight - 40;
   if (!out.dataset.ready) { out.textContent = ""; out.dataset.ready = "1"; }
-  const div = document.createElement("div");
-  div.textContent = text;
-  out.appendChild(div);
-  while (out.children.length > MAX_LINES) out.removeChild(out.firstChild);
-  document.getElementById("count").textContent = out.children.length + " 条";
-  if (pinned) out.scrollTop = out.scrollHeight;
+  if (matchesFilter(entry)) {
+    out.appendChild(createRow(entry));
+    while (out.children.length > MAX_LINES) out.removeChild(out.firstChild);
+    if (pinned) out.scrollTop = out.scrollHeight;
+  }
+  const shownCount = levelFilter === "all" && !document.getElementById("filter").value.trim()
+    ? entries.length
+    : entries.filter(matchesFilter).length;
+  document.getElementById("count").textContent = shownCount + " / " + entries.length + " 条";
 }
 
 async function start() {
-  stop(false);
-  stopping = false;
+  await stop(false);
   setButton(true);
   try {
-    taskId = await window.pd.exec(["log", "--tail", "50", "--follow"]);
+    taskId = await window.pd.exec(["log", "--tail", "100", "--follow"]);
     unsubscribe = window.pd.on("evt:" + taskId, (event) => {
       if (!event || event.type !== "log") return;
-      appendLine(lineOf(event));
+      appendEvent(event);
     });
   } catch (error) {
-    renderError(document.getElementById("out"), error);
+    const out = document.getElementById("out");
+    out.textContent = "";
+    renderError(out, error);
     setButton(false);
   }
 }
 
 async function stop(report) {
-  if (unsubscribe) { try { unsubscribe(); } catch (error) { /* ignore */ } unsubscribe = null; }
+  if (unsubscribe) { try { unsubscribe(); } catch (e) { /* ignore */ } unsubscribe = null; }
   if (taskId) {
     const id = taskId;
     taskId = null;
-    try { await window.pd.cancel(id); } catch (error) { /* already gone */ }
+    try { await window.pd.cancel(id); } catch (e) { /* already gone */ }
   }
   if (report !== false) setButton(false);
 }
 
 function setButton(following) {
-  const button = document.getElementById("follow");
-  button.textContent = following ? "停止跟随" : "开始跟随";
-  button.onclick = following ? () => { stopping = true; stop(); } : start;
+  const btn = document.getElementById("follow");
+  btn.textContent = following ? "停止跟随" : "开始跟随";
+  btn.className = following ? "sm" : "secondary sm";
+  btn.onclick = following ? () => stop(true) : start;
 }
 
-window.addEventListener("beforeunload", () => { if (taskId) { try { window.pd.cancel(taskId); } catch (error) { /* page is going away */ } } });
+document.querySelectorAll("#level-tabs .tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#level-tabs .tab-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    levelFilter = btn.getAttribute("data-lvl");
+    renderAll();
+  });
+});
+document.getElementById("filter").addEventListener("input", renderAll);
+document.getElementById("clear-btn").addEventListener("click", () => { entries.length = 0; renderAll(); });
+document.getElementById("copy-btn").addEventListener("click", () => {
+  const dump = entries.filter(matchesFilter).map((e) => e.time + " [" + e.level.toUpperCase() + "] " + (e.unit ? "[" + e.unit + "] " : "") + e.text).join("\n");
+  copyText(dump, "日志内容");
+});
+
+window.addEventListener("beforeunload", () => { if (taskId) { try { window.pd.cancel(taskId); } catch (e) { /* ignore */ } } });
 setButton(true);
 start();
 </script>
-</body></html>
+</body>
+</html>
