@@ -12,7 +12,8 @@
 let taskId = null;
 let unsubscribe = null;
 let stopping = false;
-let shown = 0;
+// Cap the DOM: a long-running follow would otherwise grow the page forever.
+const MAX_LINES = 1000;
 
 function unwrap(record) {
   let node = record || {};
@@ -29,12 +30,12 @@ function lineOf(event) {
 function appendLine(text) {
   const out = document.getElementById("out");
   const pinned = out.scrollTop + out.clientHeight >= out.scrollHeight - 40;
-  if (shown === 0) out.textContent = "";
+  if (!out.dataset.ready) { out.textContent = ""; out.dataset.ready = "1"; }
   const div = document.createElement("div");
   div.textContent = text;
   out.appendChild(div);
-  shown += 1;
-  document.getElementById("count").textContent = shown + " 条";
+  while (out.children.length > MAX_LINES) out.removeChild(out.firstChild);
+  document.getElementById("count").textContent = out.children.length + " 条";
   if (pinned) out.scrollTop = out.scrollHeight;
 }
 
