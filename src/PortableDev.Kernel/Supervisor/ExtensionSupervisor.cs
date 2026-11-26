@@ -758,14 +758,8 @@ public sealed class ExtensionSupervisor
 
     private async Task<bool> StartProcessAsync(ExtensionRuntime runtime, ExtensionManifest manifest, CancellationToken cancellationToken)
     {
-        // The budget is about restarts, not the initial start: Restarts==0 must always be allowed.
-        // (The old condition only applied to restart="never", i.e. exactly the case that never restarts.)
-        if (runtime.Restarts > 0 && runtime.Restarts >= manifest.Lifecycle.MaxRestarts)
-        {
-            runtime.State = "failed";
-            return false;
-        }
-
+        // The restart budget is enforced by the automatic-restart path (OnProcessExited); an
+        // explicit on-demand start must still be attempted even after the budget is spent.
         var entry = manifest.EntryPath;
         if (!File.Exists(entry))
         {
