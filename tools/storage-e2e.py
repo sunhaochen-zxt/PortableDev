@@ -363,7 +363,10 @@ def main():
         check("recovery cleared intent", not os.path.isfile(os.path.join(root, "state", "intent", "t99.json")), None)
         if os.path.isfile(recovered):
             data = json.load(open(recovered, encoding="utf-8"))
-            check("recovered record points at store", data.get("storePath") == recovery_target, data)
+            # recovery normalizes the target to an absolute path, so compare normalized forms.
+            check("recovered record points at store",
+                  os.path.normcase(os.path.abspath(str(data.get("storePath")))) ==
+                  os.path.normcase(os.path.abspath(recovery_target)), data)
     finally:
         stop_kernel(root)
         try:

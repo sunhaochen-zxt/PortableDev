@@ -417,7 +417,7 @@ public sealed class BuiltinCommandSet
     {
         _ = args;
         var rows = SettingCatalog.Definitions
-            .Select(d => new JsonArray(d.Path, SettingCatalog.GetPath(_kernel.Settings.Root, d.Path)?.ToJsonString() ?? "null"))
+            .Select(d => new JsonArray(d.Path, _kernel.Settings.GetJsonString(d.Path)))
             .ToArray();
 
         await ctx.EmitAsync(EventTypes.Table, new JsonObject
@@ -467,7 +467,7 @@ public sealed class BuiltinCommandSet
         }
         else
         {
-            value = SettingCatalog.GetPath(_kernel.Settings.Root, key)?.ToJsonString() ?? "null";
+            value = _kernel.Settings.GetJsonString(key);
         }
 
         var changedOnDisk = !fromFile && _kernel.Settings.FileChangedSinceLoad;
@@ -525,14 +525,10 @@ public sealed class BuiltinCommandSet
             return Task.FromResult(Fail(ErrorCodes.BadArgs, ExitCodes.Args, "config unset needs a key", "pd config unset <键>"));
         }
 
-        var definition = SettingCatalog.Find(key);
-        if (definition is null)
+        if (!_kernel.Settings.Unset(key, out var definition) || definition is null)
         {
             return Task.FromResult(Fail(ErrorCodes.BadArgs, ExitCodes.Args, $"unknown setting '{key}'"));
         }
-
-        SettingCatalog.SetPath(_kernel.Settings.Root, key, definition.DefaultValue?.DeepClone());
-        _kernel.Settings.Save();
         _kernel.Logger.Info("config.unset", "setting reset to default", new System.Text.Json.Nodes.JsonObject { ["key"] = key });
         var metrics = new System.Text.Json.Nodes.JsonObject
         {

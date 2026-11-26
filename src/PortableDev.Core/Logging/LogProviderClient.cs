@@ -16,6 +16,7 @@ public sealed class LogProviderClient : IDisposable
     private readonly Channel<LogRecord> _queue;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _pump;
+    private readonly object _stateGate = new();
     private string? _providerName;
     private long _dropped;
     private int _providerPriority = int.MaxValue;
@@ -25,19 +26,29 @@ public sealed class LogProviderClient : IDisposable
     public LogProviderClient(KernelLogger owner)
     {
         _owner = owner;
-        _queue = Channel.CreateBounded<LogRecord>(new BoundedChannelOptions(QueueCapacity)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = false,
-        });
+        // SingleReader is false because Flush() and Dispose() also drain the channel; itemDropped
+        // tracks evictions under DropOldest (where TryWrite always returns true).
+        _queue = Channel.CreateBounded<LogRecord>(
+            new BoundedChannelOptions(QueueCapacity)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = false,
+                SingleWriter = false,
+            },
+            _ => Interlocked.Increment(ref _dropped));
         _pump = Task.Run(PumpAsync);
     }
 
-    public string? ProviderName => _providerName;
+    public string? ProviderName
+    {
+        get { lock (_stateGate) { return _providerName; } }
+    }
 
     /// <summary>Two providers claimed the same priority; ingest is refused until the kernel restarts.</summary>
-    public bool Conflicted => _conflicted;
+    public bool Conflicted
+    {
+        get { lock (_stateGate) { return _conflicted; } }
+    }
 
     public long Dropped => Interlocked.Read(ref _dropped);
 
@@ -47,38 +58,46 @@ public sealed class LogProviderClient : IDisposable
     /// </summary>
     public void Attach(string providerName, int priority = 0)
     {
-        if (_conflicted)
+        string? conflictFirst = null;
+        lock (_stateGate)
         {
-            return;
+            if (_conflicted)
+            {
+                return;
+            }
+
+            if (_providerName is null)
+            {
+                _providerName = providerName;
+                _providerPriority = priority;
+                return;
+            }
+
+            if (string.Equals(_providerName, providerName, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (priority < _providerPriority)
+            {
+                _providerName = providerName;
+                _providerPriority = priority;
+                return;
+            }
+
+            if (priority == _providerPriority)
+            {
+                conflictFirst = _providerName;
+                _conflicted = true;
+                _providerName = null;
+            }
         }
 
-        if (_providerName is null)
+        if (conflictFirst is not null)
         {
-            _providerName = providerName;
-            _providerPriority = priority;
-            return;
-        }
-
-        if (string.Equals(_providerName, providerName, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        if (priority < _providerPriority)
-        {
-            _providerName = providerName;
-            _providerPriority = priority;
-            return;
-        }
-
-        if (priority == _providerPriority)
-        {
-            var first = _providerName;
-            _conflicted = true;
-            _providerName = null;
             _owner.Error("log.provider", "two log providers share the same priority; refusing both", null, new JsonObject
             {
-                ["first"] = first,
+                ["first"] = conflictFirst,
                 ["second"] = providerName,
                 ["priority"] = priority,
             });
@@ -87,21 +106,24 @@ public sealed class LogProviderClient : IDisposable
 
     public void Detach(string providerName)
     {
-        if (_conflicted)
+        lock (_stateGate)
         {
-            return;
-        }
+            if (_conflicted)
+            {
+                return;
+            }
 
-        if (string.Equals(_providerName, providerName, StringComparison.Ordinal))
-        {
-            _providerName = null;
+            if (string.Equals(_providerName, providerName, StringComparison.Ordinal))
+            {
+                _providerName = null;
+            }
         }
     }
 
     /// <summary>True when the record was accepted by the provider path; false means "write the fallback".</summary>
     public bool TryWrite(LogRecord record)
     {
-        if (_providerName is null)
+        if (ProviderName is null)
         {
             return false;
         }
@@ -138,6 +160,7 @@ public sealed class LogProviderClient : IDisposable
         }
 
         _disposed = true;
+        _queue.Writer.TryComplete();
         _cts.Cancel();
         try
         {
@@ -208,7 +231,7 @@ public sealed class LogProviderClient : IDisposable
 
     private void SendBatch(IReadOnlyList<LogRecord> records)
     {
-        var provider = _providerName;
+        var provider = ProviderName;
         if (provider is null)
         {
             // Provider vanished mid-batch: keep the records in the fallback instead of losing them.

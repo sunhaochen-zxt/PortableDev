@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using PortableDev.Core.Config;
 using PortableDev.Core.Logging;
 using PortableDev.Core.Util;
@@ -89,7 +90,6 @@ public sealed class RecoveryService
             var task = JsonUtil.String(document, "task") ?? Path.GetFileNameWithoutExtension(file);
             var target = JsonUtil.String(document, "target");
             var packageId = JsonUtil.String(document, "pkg") ?? JsonUtil.String(document, "id") ?? task;
-            var recordPath = Path.Combine(_paths.Records, packageId + ".json");
 
             if (string.Equals(phase, "done", StringComparison.Ordinal))
             {
@@ -97,7 +97,31 @@ public sealed class RecoveryService
                 return (0, 0, 0);
             }
 
-            var targetExists = target is not null && Directory.Exists(target);
+            if (!IsSafePackageId(packageId))
+            {
+                throw new IOException($"refusing intent with unsafe package id '{packageId}'");
+            }
+
+            var recordPath = Path.GetFullPath(Path.Combine(_paths.Records, packageId + ".json"));
+            if (!IsStrictlyInside(_paths.Records, recordPath))
+            {
+                throw new IOException($"refusing intent whose record path escapes records dir: '{recordPath}'");
+            }
+
+            string? safeTarget = null;
+            if (!string.IsNullOrWhiteSpace(target))
+            {
+                var fullTarget = Path.GetFullPath(target);
+                if (!IsStrictlyInside(_paths.Store, fullTarget))
+                {
+                    throw new IOException($"refusing intent whose target escapes store dir: '{target}'");
+                }
+
+                safeTarget = fullTarget;
+            }
+
+            var targetExists = safeTarget is not null && Directory.Exists(safeTarget) && !IsReparsePoint(safeTarget);
+            target = safeTarget;
             var recordExists = File.Exists(recordPath);
 
             // New-format intents carry the record they were about to write: finishing it is safe and lossless.
@@ -173,6 +197,32 @@ public sealed class RecoveryService
         }
 
         return deleted;
+    }
+
+    private static readonly Regex SafePackageIdPattern = new("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$", RegexOptions.Compiled);
+
+    private static bool IsSafePackageId(string? id)
+        => !string.IsNullOrWhiteSpace(id)
+            && !id.Contains("..", StringComparison.Ordinal)
+            && SafePackageIdPattern.IsMatch(id);
+
+    private static bool IsStrictlyInside(string baseDir, string candidate)
+    {
+        var baseFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(baseDir));
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
+        return full.StartsWith(baseFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private void WriteRecoveredRecord(string path, JsonObject intent, string packageId, string target)

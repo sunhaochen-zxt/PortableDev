@@ -92,40 +92,75 @@ public sealed class SettingsStore
 
     public string? GetString(string path)
     {
-        var node = SettingCatalog.GetPath(_root, path);
-        try
+        lock (_gate)
         {
-            return node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
-        }
-        catch (InvalidOperationException)
-        {
-            return null;
+            var node = SettingCatalog.GetPath(_root, path);
+            try
+            {
+                return node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
         }
     }
 
     public int GetInt(string path, int fallback)
     {
-        var node = SettingCatalog.GetPath(_root, path);
-        try
+        lock (_gate)
         {
-            return node is JsonValue value && value.TryGetValue<int>(out var number) ? number : fallback;
-        }
-        catch (InvalidOperationException)
-        {
-            return fallback;
+            var node = SettingCatalog.GetPath(_root, path);
+            try
+            {
+                return node is JsonValue value && value.TryGetValue<int>(out var number) ? number : fallback;
+            }
+            catch (InvalidOperationException)
+            {
+                return fallback;
+            }
         }
     }
 
     public bool GetBool(string path, bool fallback)
     {
-        var node = SettingCatalog.GetPath(_root, path);
-        try
+        lock (_gate)
         {
-            return node is JsonValue value && value.TryGetValue<bool>(out var flag) ? flag : fallback;
+            var node = SettingCatalog.GetPath(_root, path);
+            try
+            {
+                return node is JsonValue value && value.TryGetValue<bool>(out var flag) ? flag : fallback;
+            }
+            catch (InvalidOperationException)
+            {
+                return fallback;
+            }
         }
-        catch (InvalidOperationException)
+    }
+
+    /// <summary>Returns the JSON representation of one dotted key under the store lock.</summary>
+    public string GetJsonString(string path)
+    {
+        lock (_gate)
         {
-            return fallback;
+            return SettingCatalog.GetPath(_root, path)?.ToJsonString() ?? "null";
+        }
+    }
+
+    /// <summary>Resets a known setting to its default value and persists atomically under the store lock.</summary>
+    public bool Unset(string dottedPath, out SettingDefinition? definition)
+    {
+        definition = SettingCatalog.Find(dottedPath);
+        if (definition is null)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            SettingCatalog.SetPath(_root, dottedPath, definition.DefaultValue?.DeepClone());
+            Save();
+            return true;
         }
     }
 
