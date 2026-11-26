@@ -138,7 +138,7 @@ pd install <目标>
 | `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/scoop-e2e.py` | 22 | scoop 源（zip/exe 转换安装、跳过规则）、requires 递归/冲突/循环/`--no-deps`/`--dry-run` 计划 |
-| `tools/provides-e2e.py` | 18 | 虚拟包（已装优先/优先级选择/同优先级报错 21/范围约束）、replaces 替换与旧包移除 |
+| `tools/provides-e2e.py` | 34 | 虚拟包（已装优先/优先级选择/同优先级报错 21/范围约束）、replaces、conflicts 双向检查、卸载保护/`--force`/`--dry-run` |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 | `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
 | `tools/proc-e2e.py` | 28 | proc 协议、`proc.spawn` + stdio 代理、list/info/kill、系统枚举/结束、admin 模式 实例、主题事件、真实安装脚本 |
@@ -164,7 +164,7 @@ python -u tools/provides-e2e.py
 | 项 | 说明 |
 |---|---|
 | scoop 转换 | zip/单文件 exe 清单转索引条目；msi/非 sha256/安装脚本清单跳过 |
-| 依赖求解 | `requires` 递归安装（已装满足则跳过；冲突/循环报 24；`--no-deps` 跳过）；虚拟包未做 |
+| 依赖求解 | `requires` 递归安装（已装满足则跳过；冲突/循环报 24；`--no-deps` 跳过）；虚拟包（已装优先/优先级/同级报错 21）；`replaces` 先卸旧包（失败尽力恢复）；`conflicts` 双向检查报 24；卸载保护（被依赖时 24，`--force` 跳过） |
 | 更多解包 | `7z` / `msi` |
 | 脚本资源配额 | proc 提供内存/进程数上限，CPU 配额未做 |
 | 提权脚本 | `script.elevated:true` 未实现（需要提权子进程 + 回执 IPC） |

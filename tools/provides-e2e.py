@@ -153,7 +153,7 @@ def add_source_with_index(root, stream, name, priority, entries):
     os.makedirs(directory)
     index = {"schema": 1, "name": name, "packages": {}}
     for pkg_id, version, provides in entries:
-        dest, sha = make_pdpkg(root, directory, pkg_id, version)
+        dest, sha = make_pdpkg(root, directory, pkg_id, version, {"provides": provides} if provides else None)
         index["packages"][pkg_id] = {
             "latest": version,
             "provides": provides,
@@ -198,6 +198,10 @@ def main():
 
         print("priority picks provider")
         done = call(stream, ["uninstall", "ed-real"])
+        check("uninstall blocked by dependent", done and done.get("exitCode") == 24, done)
+        done = call(stream, ["uninstall", "needy-editor"])
+        check("uninstall dependent exit 0", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["uninstall", "ed-real"])
         check("uninstall ed-real exit 0", done and done.get("exitCode") == 0, done)
         done = add_source_with_index(root, stream, "provsrc", 100, [("ed-h", "1.0.0", ["editor"])])
         check("add provsrc exit 0", done and done.get("exitCode") == 0, done)
@@ -223,6 +227,32 @@ def main():
         needy_new = make_pkg(os.path.join(root, "pkgs-dep", "needy-new"), "needy-new", "1.0.0", {"requires": [{"id": "editor", "range": ">=2.0.0"}]})
         done = call(stream, ["install", needy_new])
         check("unsatisfiable virtual range fails", done and done.get("exitCode") in (20, 24), done)
+
+        print("conflicts")
+        cnf_a = make_pkg(os.path.join(root, "pkgs-dep", "cnf-a"), "cnf-a", "1.0.0", {"conflicts": ["cnf-b"]})
+        done = call(stream, ["install", cnf_a])
+        check("install cnf-a exit 0", done and done.get("exitCode") == 0, done)
+        cnf_b = make_pkg(os.path.join(root, "pkgs-dep", "cnf-b"), "cnf-b", "1.0.0")
+        done = call(stream, ["install", cnf_b])
+        check("conflicting package refused", done and done.get("exitCode") == 24, done)
+        check("conflict names both sides", done and "cnf" in json.dumps(done), done)
+        plain_old = make_pkg(os.path.join(root, "pkgs-dep", "plain-old"), "plain-old", "1.0.0")
+        done = call(stream, ["install", plain_old])
+        check("install plain-old exit 0", done and done.get("exitCode") == 0, done)
+        new_c = make_pkg(os.path.join(root, "pkgs-dep", "new-c"), "new-c", "1.0.0", {"conflicts": ["plain-old"]})
+        done = call(stream, ["install", new_c])
+        check("reverse conflict refused", done and done.get("exitCode") == 24, done)
+        done = call(stream, ["install", new_c, "--force"])
+        check("--force overrides conflict", done and done.get("exitCode") == 0, done)
+
+        print("remove protection")
+        done = call(stream, ["remove", "ed-h"])
+        check("remove of required package blocked", done and done.get("exitCode") == 24, done)
+        check("blocker names dependent", done and "needy2" in json.dumps(done), done)
+        done = call(stream, ["remove", "ed-h", "--dry-run"])
+        check("dry-run remove blocked too", done and done.get("exitCode") == 24, done)
+        done = call(stream, ["remove", "ed-h", "--force"])
+        check("remove --force overrides", done and done.get("exitCode") == 0, done)
 
         print("replaces")
         oldpkg = make_pkg(os.path.join(root, "pkgs-dep", "oldpkg"), "oldpkg", "1.0.0")

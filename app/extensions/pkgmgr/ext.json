@@ -47,7 +47,7 @@
       "mutates": true,
       "parallel": false,
       "summary": "remove installed packages and their machine wiring",
-      "usage": "pd remove <包>... [--purge] [--keep-data] [--dry-run]"
+      "usage": "pd remove <包>... [--purge] [--keep-data] [--dry-run] [--force]"
     },
     {
       "name": "upgrade",

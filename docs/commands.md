@@ -110,7 +110,7 @@ pd [全局开关] <命令> [参数...]
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
 | `pd install <目标>` | 安装 | **是** | 见 5.1 | `--from-dir` `--as` `--dry-run` `--force` `--no-deps` `--source` `--allow-scripts` `--no-scripts` | 2/3/4/8/10/11/12/15/20/21/22/23/24/25 |
-| `pd remove <包>` | 卸载 | **是** | 能 | `--purge` `--keep-data` `--dry-run` | 2/3/4/8/10/20 |
+| `pd remove <包>` | 卸载 | **是** | 能 | `--purge` `--keep-data` `--dry-run` `--force` | 2/3/4/8/10/20/24 |
 | `pd upgrade [包...]` | 升级 | **是** | 需缓存 | `--all` `--dry-run` `--to <版本>` | 2/3/4/8/10/11/12/15/20/22/23 |
 | `pd rollback [目标]` | 回滚到某个存档点 | **是** | 能 | `--to <序号>` `--list` `--dry-run` | 2/3/4/8/10/20 |
 | `pd list` / `ls` | 已装列表 | 否 | 能 | `--outdated` `--json` | — |
@@ -282,7 +282,7 @@ pd upgrade [包...] [--all] [--to <版本>] [--dry-run]
 #### 卸载
 
 ```
-pd remove <包>... [--purge] [--keep-data] [--dry-run]
+pd remove <包>... [--purge] [--keep-data] [--dry-run] [--force]
 ```
 
 - 默认（= `--keep-data`）：拆机器层接线、清 current、删记录；**盘上 `home\<包>` 保留**，
@@ -293,6 +293,8 @@ pd remove <包>... [--purge] [--keep-data] [--dry-run]
 - store 目录不立即删（留给 `pd gc` 判断是否还有别的引用）；
 - 包不存在 → 20；部分不存在时存在的那部分照常卸载，汇总里标 `not installed: ...`，命令退出码
   仍为 20（有副作用的部分成功 ≠ 整体成功）；`--dry-run` 里有不存在的包同样 → 20；
+- 有别的已装包依赖它（`requires` 直接写名，或依赖它提供的虚拟包）→ 24，点名是被谁依赖；
+  一起卸（`pd remove a b`）不算依赖；`--force` 跳过检查强卸（`--dry-run` 同样拦截）；
 - `--dry-run` 只打印 包/版本/家目录/动作 计划；每个包成功后写存档点，失败时 `rollback.run`
   撤回该包；metrics 里给每个包带上审计任务号（`task`），可直接用于 `pd rollback --task`。
 

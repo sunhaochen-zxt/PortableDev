@@ -697,6 +697,21 @@ async function install(message, options) {
     throwIfCancelled(id);
     await installDependencyPlan({ plan: depPlan, chain: depChain, taskId: taskId, id: id, ctx: (message.data && message.data.ctx) || {}, flags: flags, event: event });
 
+    if (flags.force !== true) {
+      const installed = await listInstalled();
+      const byId = new Set(installed.map((item) => item.id));
+      const mine = Array.isArray(manifest.conflicts)
+        ? manifest.conflicts.filter((name) => typeof name === "string") : [];
+      const hitMine = mine.find((name) => byId.has(name));
+      if (hitMine) {
+        throw new PkgError("ERR_DEP_UNSATISFIED", pkgId + " conflicts with installed " + hitMine + "; remove it first or install with --force", 24);
+      }
+      const hitTheirs = installed.find((item) => (item.conflicts || []).includes(pkgId));
+      if (hitTheirs) {
+        throw new PkgError("ERR_DEP_UNSATISFIED", "installed " + hitTheirs.id + " conflicts with " + pkgId + "; remove it first or install with --force", 24);
+      }
+    }
+
     // Packages this one replaces must go first (they cannot coexist); keep their data.
     // On later failure each removed package is reinstalled best-effort below.
     for (const replacedId of (Array.isArray(manifest.replaces) ? manifest.replaces : [])) {
@@ -800,15 +815,18 @@ async function install(message, options) {
       await callCapability("storage.record", "write", { record: pinned });
     }
 
-    // Virtual capabilities live on the record so dependency checks do not need
-    // to re-read the store. Records written before this existed simply lack it.
-    if (Array.isArray(manifest.provides) && manifest.provides.length > 0) {
-      const provided = manifest.provides.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name));
-      if (provided.length > 0) {
-        const record = await callCapability("storage.record", "get", { pkg: pkgId });
-        record.provides = provided;
-        await callCapability("storage.record", "write", { record: record });
-      }
+    // Dependency metadata lives on the record so install/remove checks do not need
+    // to re-read the store. Written whenever the manifest carries any of them
+    // (including empty lists, so upgrades clear stale values); older records lack them.
+    if (Array.isArray(manifest.provides) || Array.isArray(manifest.requires) || Array.isArray(manifest.conflicts)) {
+      const record = await callCapability("storage.record", "get", { pkg: pkgId });
+      record.provides = Array.isArray(manifest.provides)
+        ? manifest.provides.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name)) : [];
+      record.requires = Array.isArray(manifest.requires)
+        ? manifest.requires.filter((dep) => dep && typeof dep.id === "string").map((dep) => ({ id: dep.id, range: typeof dep.range === "string" ? dep.range : "" })) : [];
+      record.conflicts = Array.isArray(manifest.conflicts)
+        ? manifest.conflicts.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name)) : [];
+      await callCapability("storage.record", "write", { record: record });
     }
 
     for (const pending of scriptResult.pendingLinks || []) {
@@ -1519,6 +1537,25 @@ async function removeCommand(message) {
         } else {
           throw error;
         }
+      }
+    }
+
+    if (flags.force !== true) {
+      const installed = await listInstalled();
+      const removing = new Set(targets.map((item) => item.pkg));
+      const blocked = [];
+      for (const target of targets) {
+        const provides = Array.isArray(target.record.provides)
+          ? target.record.provides.filter((name) => typeof name === "string") : [];
+        const dependents = installed.filter((item) =>
+          !removing.has(item.id) && item.id !== target.pkg &&
+          (item.requires || []).some((dep) => dep && (dep.id === target.pkg || provides.includes(dep.id))));
+        if (dependents.length > 0) {
+          blocked.push(target.pkg + " (required by " + dependents.map((item) => item.id).join(", ") + ")");
+        }
+      }
+      if (blocked.length > 0) {
+        throw new PkgError("ERR_DEP_UNSATISFIED", "cannot remove " + blocked.join("; ") + "; remove the dependents first or use --force", 24);
       }
     }
 

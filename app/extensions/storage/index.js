@@ -433,7 +433,11 @@ function recordList() {
     try {
       const record = readJson(path.join(RECORDS, name));
       const stored = Array.isArray(record.provides) ? record.provides.filter((name) => typeof name === "string") : null;
-      items.push({ id: record.id, version: record.version, storePath: record.storePath, pinned: record.pinned === true, provides: stored || providesOf(record) });
+      const storedRequires = Array.isArray(record.requires)
+        ? record.requires.filter((dep) => dep && typeof dep.id === "string").map((dep) => ({ id: dep.id, range: typeof dep.range === "string" ? dep.range : "" }))
+        : null;
+      const storedConflicts = Array.isArray(record.conflicts) ? record.conflicts.filter((name) => typeof name === "string") : null;
+      items.push({ id: record.id, version: record.version, storePath: record.storePath, pinned: record.pinned === true, provides: stored || providesOf(record), requires: storedRequires || [], conflicts: storedConflicts || [] });
     } catch (error) {
       // A corrupt record is reported by doctor, not here.
     }
