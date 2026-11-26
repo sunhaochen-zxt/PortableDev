@@ -109,6 +109,9 @@ public sealed class MainForm : Form
             var core = _webView.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
+            // The shell only loads local extension pages: skip the per-navigation
+            // reputation (SmartScreen) check, which stalls every navigation on a fake host.
+            core.Settings.IsReputationCheckingRequired = false;
             core.SetVirtualHostNameToFolderMapping("pd.local", _options.Extensions, CoreWebView2HostResourceAccessKind.Allow);
 
             var look = ReadLook();
@@ -288,6 +291,7 @@ public sealed class MainForm : Form
                     .ExecuteScriptAsync("location.href")
                     .ConfigureAwait(true);
                 report["url"] = url;
+                report["navMs"] = Environment.TickCount64 - _navStart;
                 report["ok"] = value.Contains("object", StringComparison.OrdinalIgnoreCase)
                     && url.Contains("pd.local", StringComparison.OrdinalIgnoreCase);
             }
