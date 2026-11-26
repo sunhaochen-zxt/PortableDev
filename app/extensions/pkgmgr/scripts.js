@@ -554,4 +554,46 @@ async function runScript(options) {
   return { ran: true, pendingLinks: pendingLinks };
 }
 
-module.exports = { runScript: runScript, allowedByPolicy: allowedByPolicy, ScriptError: ScriptError };
+// Runs one short command through the proc extension and captures its output. Used by command
+// assertions and pd selftest: packages must never be executed with Node's child_process, the
+// Job Object / timeout / tree-kill stay with the proc extension.
+async function runCapturedCommand(options) {
+  const pipes = createProcPipeSet();
+  let stdout = "";
+  let stderr = "";
+  const collect = (stream, append) => {
+    stream.on("data", (chunk) => {
+      if (append.length < 1024 * 1024) {
+        append.push(chunk.toString("utf8"));
+      }
+    });
+  };
+  const out = [];
+  const err = [];
+  collect(pipes.child.stdout, out);
+  collect(pipes.child.stderr, err);
+  const finish = () => out.join("") + err.join("");
+  try {
+    await pipes.ready();
+    const result = await options.call("proc.spawn", "spawn", {
+      command: options.command,
+      args: options.args || [],
+      cwd: options.cwd,
+      env: options.env,
+      timeoutMs: options.timeoutMs || 20000,
+      stdinPipe: pipes.names.stdin,
+      stdoutPipe: pipes.names.stdout,
+      stderrPipe: pipes.names.stderr,
+    });
+    // The reply and the pipe data arrive on different channels; give the sockets a moment to
+    // deliver the last chunk before tearing the servers down.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    stdout = out.join("");
+    stderr = err.join("");
+    return { exitCode: result && result.exitCode !== undefined ? result.exitCode : -1, stdout: stdout, stderr: stderr, output: finish() };
+  } finally {
+    pipes.close();
+  }
+}
+
+module.exports = { runScript: runScript, runCapturedCommand: runCapturedCommand, allowedByPolicy: allowedByPolicy, ScriptError: ScriptError };

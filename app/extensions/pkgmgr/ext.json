@@ -105,6 +105,20 @@
       "usage": "pd source list | add <名> <路径|URL|gh:owner/repo> [--kind dir|http|git|scoop] [--branch <分支>] [--subdir <目录>] [--tarball-url <地址>] [--priority N] [--ttl dur] | remove <名> | enable|disable <名> | refresh [名]"
     },
     {
+      "name": "selftest",
+      "mutates": false,
+      "parallel": true,
+      "summary": "run the installed packages own assertions to prove they still work",
+      "usage": "pd selftest [--only <包名>] [--full] [--json]"
+    },
+    {
+      "name": "doctor",
+      "mutates": true,
+      "parallel": false,
+      "summary": "health check the stick and optionally repair built-in extensions/intents",
+      "usage": "pd doctor [--fix] [--json]"
+    },
+    {
       "name": "index",
       "mutates": false,
       "parallel": true,

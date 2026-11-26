@@ -224,21 +224,49 @@ def main():
         outside_log.close()
         kill_leftovers(outside)
 
-    print("no ui extension")
+    print("missing ui extension is restored from the baseline")
     no_ui = outside + "-no-ui"
     kill_leftovers(no_ui)
     shutil.rmtree(no_ui, ignore_errors=True)
     shutil.copytree(outside, no_ui, ignore=shutil.ignore_patterns("state"))
     subprocess.run([DOTNET, KERNEL, "--root", no_ui, "--init", "--once"], check=True, capture_output=True, text=True)
-    shutil.rmtree(os.path.join(no_ui, "app", "extensions", "ui"), ignore_errors=True)
+    ui_dir = os.path.join(no_ui, "app", "extensions", "ui")
+    shutil.rmtree(ui_dir, ignore_errors=True)
     no_ui_kernel, no_ui_log = start_kernel(no_ui, outside_kernel_dll, env)
     try:
-        no_ui_smoke = os.path.join(no_ui, "no-ui.json")
-        run([os.path.join(no_ui, "app", "pd-window.exe"), "--smoke", no_ui_smoke, "--root", no_ui,
+        repaired_smoke = os.path.join(no_ui, "no-ui-repaired.json")
+        run([os.path.join(no_ui, "app", "pd-window.exe"), "--smoke", repaired_smoke, "--root", no_ui,
              "--kernel-dll", outside_kernel_dll], env=env)
-        no_ui_report = read_json(no_ui_smoke) or {}
-        check("no-ui reports empty shell", no_ui_report.get("ok") is False
-              and "no pages" in str(no_ui_report.get("error", "")), no_ui_report)
+        repaired_report = read_json(repaired_smoke) or {}
+        check("ui extension restored from baseline",
+              repaired_report.get("ok") is True and os.path.isdir(ui_dir), repaired_report)
+    finally:
+        stop_kernel(no_ui, env)
+        try:
+            no_ui_kernel.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            no_ui_kernel.kill()
+        no_ui_log.close()
+        kill_leftovers(no_ui)
+
+    print("no ui extension and no baseline reports an empty shell")
+    bare = outside + "-bare"
+    kill_leftovers(bare)
+    shutil.rmtree(bare, ignore_errors=True)
+    shutil.copytree(outside, bare, ignore=shutil.ignore_patterns("state"))
+    subprocess.run([DOTNET, KERNEL, "--root", bare, "--init", "--once"], check=True, capture_output=True, text=True)
+    shutil.rmtree(os.path.join(bare, "app", "extensions", "ui"), ignore_errors=True)
+    shutil.rmtree(os.path.join(bare, "app", "baseline"), ignore_errors=True)
+    bare_kernel, bare_log = start_kernel(bare, outside_kernel_dll, env)
+    try:
+        bare_smoke = os.path.join(bare, "no-ui.json")
+        run([os.path.join(bare, "app", "pd-window.exe"), "--smoke", bare_smoke, "--root", bare,
+             "--kernel-dll", outside_kernel_dll], env=env)
+        bare_report = read_json(bare_smoke) or {}
+        check("no-ui reports empty shell", bare_report.get("ok") is False
+              and "no pages" in str(bare_report.get("error", "")), bare_report)
+        no_ui = bare
+        no_ui_kernel, no_ui_log = bare_kernel, bare_log
 
         print("rejects unsafe page entries")
         bad = os.path.join(no_ui, "app", "extensions", "ui")

@@ -121,6 +121,55 @@ public sealed class MainForm : Form
         };
     }
 
+    private async Task LoadPagesAsync()
+    {
+        var pages = await _link!.RequestPagesAsync().ConfigureAwait(true);
+        _pages.Clear();
+        _navigation.Items.Clear();
+        foreach (var node in pages)
+        {
+            if (node is not JsonObject page)
+            {
+                continue;
+            }
+
+            _pages.Add(page);
+            _navigation.Items.Add(new PageItem(
+                JsonUtil.String(page, "title") ?? "页面",
+                JsonUtil.String(page, "icon") ?? "box",
+                page));
+        }
+    }
+
+    /// <summary>
+    /// A stick whose ui extension was deleted still boots: restore the built-in extensions from
+    /// app\baseline\extensions through `pd doctor --fix`, then reload the page list. Smoke runs
+    /// with no baseline keep the plain "empty shell" report so the failure stays observable.
+    /// </summary>
+    private async Task<bool> TryRepairExtensionsAsync()
+    {
+        var baseline = Path.Combine(_options.Root, "app", "baseline", "extensions");
+        if (!Directory.Exists(baseline) || _link is null)
+        {
+            return false;
+        }
+
+        _status.Text = "界面扩展缺失，正在从 baseline 恢复…";
+        try
+        {
+            var done = await _link.RunAsync(["doctor", "--fix"], 180000).ConfigureAwait(true);
+            var exitCode = JsonUtil.Int(done, "exitCode") ?? 0;
+            var ok = exitCode == 0 && (JsonUtil.Bool(done, "ok") ?? true);
+            _status.Text = ok ? "已从 baseline 恢复界面扩展" : "恢复界面扩展失败（详见 pd doctor）";
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "恢复界面扩展失败: " + ex.Message;
+            return false;
+        }
+    }
+
     private void DisposeLink()
     {
         var link = _link;
@@ -142,22 +191,14 @@ public sealed class MainForm : Form
         try
         {
             _link = await KernelLink.ConnectAsync(_options.Root, _options.KernelDll).ConfigureAwait(true);
-            var pages = await _link.RequestPagesAsync().ConfigureAwait(true);
-            foreach (var node in pages)
-            {
-                if (node is not JsonObject page)
-                {
-                    continue;
-                }
-
-                _pages.Add(page);
-                _navigation.Items.Add(new PageItem(
-                    JsonUtil.String(page, "title") ?? "页面",
-                    JsonUtil.String(page, "icon") ?? "box",
-                    page));
-            }
+            await LoadPagesAsync().ConfigureAwait(true);
 
             StartSmokeWatchdog();
+            if (_pages.Count == 0 && await TryRepairExtensionsAsync().ConfigureAwait(true))
+            {
+                await LoadPagesAsync().ConfigureAwait(true);
+            }
+
             if (_pages.Count == 0)
             {
                 _status.Text = "没有安装界面扩展（缺少 ui 扩展）";

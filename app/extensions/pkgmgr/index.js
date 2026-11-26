@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { connect, ready } = require("./protocol");
 const { createSourceManager, compareVersions } = require("./sources");
-const { runScript } = require("./scripts");
+const { runScript, runCapturedCommand } = require("./scripts");
 
 const ROOT = process.env.PD_ROOT || ".";
 const CACHE = path.join(ROOT, "cache", "blobs");
@@ -178,7 +178,7 @@ function sources() {
   return sourceManager;
 }
 
-const VALUE_FLAGS = new Set(["as", "from-dir", "sha256", "source", "to", "channel", "ttl", "kind", "priority", "name", "out", "limit", "profile"]);
+const VALUE_FLAGS = new Set(["as", "from-dir", "sha256", "source", "to", "channel", "ttl", "kind", "priority", "name", "out", "limit"]);
 
 function parseFlags(argv) {
   const flags = {};
@@ -321,6 +321,144 @@ function assertFilesExist(root, asserts) {
 
   if (failures.length > 0) {
     throw new PkgError("ERR_ASSERT", "file assertions failed: " + failures.join("; "), 12);
+  }
+}
+
+function parseAssertDuration(value, fallbackMs) {
+  const text = String(value === undefined || value === null ? "" : value).trim();
+  const match = /^(\\d+(?:\\.\\d+)?)\\s*(ms|s|m)?$/i.exec(text);
+  if (!match) {
+    return fallbackMs;
+  }
+  const amount = Number(match[1]);
+  const unit = (match[2] || "s").toLowerCase();
+  return Math.round(amount * (unit === "ms" ? 1 : unit === "m" ? 60000 : 1000));
+}
+
+function assertionEnv(pathPrefix) {
+  const environment = {};
+  for (const name of ["SystemRoot", "windir", "TEMP", "TMP", "PATH", "APPDATA", "LOCALAPPDATA", "USERPROFILE"]) {
+    if (process.env[name]) {
+      environment[name] = process.env[name];
+    }
+  }
+  environment.PATH = pathPrefix + ";" + (environment.PATH || "");
+  return environment;
+}
+
+// Evaluates package asserts (file kinds and command). Returns per-assert results so install-time
+// validation and pd selftest share the same checks.
+async function evaluateAsserts(root, asserts, options) {
+  const results = [];
+  const opts = options || {};
+  for (const assertion of asserts || []) {
+    if (!assertion || typeof assertion !== "object") {
+      continue;
+    }
+    const kind = String(assertion.kind || "");
+    if (!kind || kind.startsWith("x-")) {
+      continue;
+    }
+    const label = String(assertion.name || (kind === "command" ? assertion.run : assertion.path) || kind);
+
+    if (kind === "command") {
+      const run = String(assertion.run || "").trim();
+      if (!run) {
+        results.push({ name: label, ok: false, detail: "command assertion needs run" });
+        continue;
+      }
+      const timeoutMs = parseAssertDuration(assertion.timeout, 20000);
+      let result;
+      try {
+        result = await runCapturedCommand({
+          call: callCapability,
+          command: process.env.ComSpec || "cmd.exe",
+          args: ["/d", "/s", "/c", run],
+          cwd: opts.cwd || root,
+          env: assertionEnv(opts.pathPrefix || root),
+          timeoutMs: timeoutMs,
+        });
+      } catch (error) {
+        results.push({ name: label, ok: false, detail: "could not run: " + (error.message || String(error)) });
+        continue;
+      }
+      if (result.exitCode !== 0) {
+        results.push({ name: label, ok: false, detail: "exit " + result.exitCode + ": " + String(result.output || "").slice(-200) });
+        continue;
+      }
+      const expect = assertion.expect === undefined ? null : String(assertion.expect);
+      if (expect === null) {
+        results.push({ name: label, ok: true, detail: "exit 0" });
+        continue;
+      }
+      const mode = String(assertion.match || "contains").toLowerCase();
+      const output = String(result.output || "").trim();
+      let ok = false;
+      if (mode === "equals") {
+        ok = output === expect;
+      } else if (mode === "regex") {
+        try { ok = new RegExp(expect).test(output); } catch (error) { ok = false; }
+      } else {
+        ok = output.includes(expect);
+      }
+      results.push({ name: label, ok: ok, detail: ok ? "matched" : "output mismatch (" + mode + ")" });
+      continue;
+    }
+
+    const relative = String(assertion.path || "");
+    if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) {
+      results.push({ name: label, ok: false, detail: "path escapes the package root" });
+      continue;
+    }
+    const target = path.join(root, relative);
+    const exists = fs.existsSync(target);
+    if (kind === "exists") {
+      results.push({ name: label, ok: exists, detail: exists ? "present" : "missing" });
+      continue;
+    }
+    if (kind === "missing") {
+      results.push({ name: label, ok: !exists, detail: exists ? "unexpected" : "absent" });
+      continue;
+    }
+    if (kind === "json") {
+      if (!exists) {
+        results.push({ name: label, ok: false, detail: "missing" });
+        continue;
+      }
+      try {
+        const document = JSON.parse(fs.readFileSync(target, "utf8"));
+        const segments = String(assertion.pointer || "").split("/").filter(Boolean);
+        let current = document;
+        for (const segment of segments) {
+          current = current == null ? undefined : current[segment];
+        }
+        const ok = assertion.equals === undefined || JSON.stringify(current) === JSON.stringify(assertion.equals);
+        results.push({ name: label, ok: ok, detail: ok ? "matched" : "json value mismatch" });
+      } catch (error) {
+        results.push({ name: label, ok: false, detail: "not valid JSON" });
+      }
+      continue;
+    }
+    if (kind === "fileHash") {
+      if (!exists) {
+        results.push({ name: label, ok: false, detail: "missing" });
+        continue;
+      }
+      const actual = crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex");
+      const ok = String(assertion.sha256 || "").toLowerCase() === actual;
+      results.push({ name: label, ok: ok, detail: ok ? "hash ok" : "hash mismatch" });
+      continue;
+    }
+    results.push({ name: label, ok: false, detail: "unsupported assertion kind: " + kind });
+  }
+  return results;
+}
+
+async function assertPackage(root, asserts, options) {
+  const results = await evaluateAsserts(root, asserts, options);
+  const failures = results.filter((item) => !item.ok).map((item) => item.name + ": " + item.detail);
+  if (failures.length > 0) {
+    throw new PkgError("ERR_ASSERT", "package assertions failed: " + failures.join("; "), 12);
   }
 }
 
@@ -790,7 +928,7 @@ async function install(message, options) {
     });
 
     event("step", { stepId: "assert", title: "assert", state: "running" });
-    assertFilesExist(contentRoot, manifest.asserts);
+    await assertPackage(contentRoot, manifest.asserts, { cwd: contentRoot, pathPrefix: contentRoot });
     event("step", { stepId: "assert", title: "assert", state: "done" });
 
     throwIfCancelled(id);
@@ -896,7 +1034,242 @@ async function install(message, options) {
   }
 }
 
-function commandIo(message) {
+function readJsonSafe(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    return null;
+  }
+}
+
+// `pd doctor`: read-only health report over the stick, with an optional repair pass.
+async function doctorCommand(message) {
+  const io = commandIo(message);
+  const { flags } = commandContext(message);
+  try {
+    const root = ROOT;
+    const settings = readSettings();
+    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\Dev");
+    const rows = [];
+    const issues = { count: 0 };
+    const add = (check, ok, detail) => {
+      if (!ok) {
+        issues.count += 1;
+      }
+      rows.push([check, ok ? "ok" : "问题", detail]);
+    };
+
+    // (a) stick marker
+    const stick = readJsonSafe(path.join(root, "state", "stick.json"));
+    add("盘标记", Boolean(stick && stick.stickId), stick && stick.stickId ? "stickId " + stick.stickId : "state/stick.json 缺失或没有 stickId");
+
+    // (b) bundled runtime
+    const runtime = path.join(root, "app", "runtime");
+    const dotnetHost = path.join(runtime, "dotnet.exe");
+    const nodeHost = path.join(runtime, "node", "node.exe");
+    let clrVersions = [];
+    try {
+      const clrRoot = path.join(runtime, "shared", "Microsoft.NETCore.App");
+      clrVersions = fs.readdirSync(clrRoot).filter((name) => fs.statSync(path.join(clrRoot, name)).isDirectory());
+    } catch (error) {
+      clrVersions = [];
+    }
+    add("随盘 .NET", fs.existsSync(dotnetHost) && clrVersions.length > 0,
+      clrVersions.length > 0 ? "NET " + clrVersions.sort().pop() : "app/runtime 缺少 dotnet.exe 或 shared 运行时");
+    add("随盘 Node", fs.existsSync(nodeHost), fs.existsSync(nodeHost) ? nodeHost : "app/runtime/node/node.exe 缺失");
+
+    // (c) built-in extensions vs the pristine baseline
+    const baselineRoot = path.join(root, "app", "baseline", "extensions");
+    const installedRoot = path.join(root, "app", "extensions");
+    let baselineNames = [];
+    try {
+      baselineNames = fs.readdirSync(baselineRoot).filter((name) => fs.statSync(path.join(baselineRoot, name)).isDirectory());
+    } catch (error) {
+      baselineNames = [];
+    }
+    const damaged = [];
+    for (const name of baselineNames) {
+      const want = readJsonSafe(path.join(baselineRoot, name, "ext.json"));
+      const got = readJsonSafe(path.join(installedRoot, name, "ext.json"));
+      if (!got) {
+        damaged.push(name + "(缺失)");
+        continue;
+      }
+      if (want && String(want.version) !== String(got.version)) {
+        damaged.push(name + "(" + got.version + " != baseline " + want.version + ")");
+      }
+    }
+    add("内置扩展", baselineNames.length > 0 && damaged.length === 0,
+      baselineNames.length === 0 ? "app/baseline/extensions 不存在（无法自愈）"
+        : damaged.length > 0 ? damaged.join("; ")
+        : baselineNames.length + " 个与 baseline 一致");
+
+    // (d) records vs store and the stable-root current junctions
+    const records = ((await callCapability("storage.record", "list", {})).items) || [];
+    const badRecords = [];
+    for (const item of records) {
+      let record = null;
+      try {
+        record = await callCapability("storage.record", "get", { pkg: item.id });
+      } catch (error) {
+        badRecords.push(item.id + "(记录不可读)");
+        continue;
+      }
+      if (!record.storePath || !fs.existsSync(record.storePath)) {
+        badRecords.push(item.id + "(store 缺失)");
+        continue;
+      }
+      if (!fs.existsSync(path.join(stableRoot, "current", String(item.id)))) {
+        badRecords.push(item.id + "(current 缺失)");
+      }
+    }
+    add("记录与 store", badRecords.length === 0,
+      badRecords.length > 0 ? badRecords.join("; ") : records.length + " 个包一致");
+
+    // (e) leftover intents
+    let intents = [];
+    try {
+      intents = fs.readdirSync(path.join(root, "state", "intent")).filter((name) => name.endsWith(".json"));
+    } catch (error) {
+      intents = [];
+    }
+    add("残留 intent", intents.length === 0,
+      intents.length > 0 ? intents.length + " 个待恢复: " + intents.slice(0, 3).join(", ") : "无");
+
+    // (f) settings parse
+    const settingsDoc = readJsonSafe(path.join(root, "config", "settings.json"));
+    add("配置", settingsDoc !== null, settingsDoc !== null ? "config/settings.json 可解析" : "config/settings.json 无法解析");
+
+    let fixed = 0;
+    if (flags.fix === true) {
+      for (const name of baselineNames) {
+        const target = path.join(installedRoot, name, "ext.json");
+        const want = readJsonSafe(path.join(baselineRoot, name, "ext.json"));
+        const got = readJsonSafe(target);
+        const stale = !got || (want && String(want.version) !== String(got.version));
+        if (!stale) {
+          continue;
+        }
+        try {
+          fs.cpSync(path.join(baselineRoot, name), path.join(installedRoot, name), { recursive: true, force: true });
+          fixed += 1;
+        } catch (error) {
+          io.event("log", { level: "warn", msg: "restore " + name + " failed: " + (error.message || String(error)) });
+        }
+      }
+
+      for (const name of intents) {
+        const file = path.join(root, "state", "intent", name);
+        const document = readJsonSafe(file);
+        if (document !== null && document.phase !== "done") {
+          continue;
+        }
+        try {
+          fs.rmSync(file, { force: true });
+          fixed += 1;
+        } catch (error) {
+          io.event("log", { level: "warn", msg: "remove intent " + name + " failed: " + (error.message || String(error)) });
+        }
+      }
+    }
+
+    io.event("table", {
+      title: "doctor",
+      columns: [
+        { key: "check", title: "检查" },
+        { key: "status", title: "状态" },
+        { key: "detail", title: "说明" },
+      ],
+      rows: rows,
+    });
+    io.done({
+      summary: issues.count === 0
+        ? "体检通过" + (fixed > 0 ? "，已修 " + fixed + " 项" : "")
+        : issues.count + " 个问题" + (fixed > 0 ? "，已修 " + fixed + " 项" : "") + "（--fix 可修扩展缺失与残留 intent）",
+      metrics: { issues: issues.count, fixed: fixed, checks: rows.map((row) => ({ check: row[0], ok: row[1] === "ok", detail: row[2] })) },
+    });
+  } catch (error) {
+    io.fail(error.code ? error : new PkgError("ERR_IO", error.message || String(error), 1));
+  }
+}
+async function selftestCommand(message) {
+  const io = commandIo(message);
+  const { flags } = commandContext(message);
+  const only = flags.only === undefined ? null : String(flags.only);
+  const full = flags.full === true;
+  try {
+    const settings = readSettings();
+    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\\\Dev");
+    const items = ((await callCapability("storage.record", "list", {})).items) || [];
+    let selected = items;
+    if (only !== null) {
+      selected = items.filter((item) => item.id === only);
+      if (selected.length === 0) {
+        io.fail(new PkgError("ERR_PKG_NOT_FOUND", "not installed: " + only, 20));
+        return;
+      }
+    }
+
+    const rows = [];
+    let passed = 0;
+    let failed = 0;
+    for (const item of selected) {
+      const record = await callCapability("storage.record", "get", { pkg: item.id });
+      const root = String(record.storePath || "");
+      const manifest = root ? readJsonSafe(path.join(root, "package.json")) : null;
+      if (!manifest) {
+        rows.push([item.id, "package.json", "失败", "store 里没有 package.json"]);
+        failed += 1;
+        continue;
+      }
+
+      const asserts = Array.isArray(manifest.asserts) ? manifest.asserts.slice() : [];
+      if (full && Array.isArray(manifest.selftest)) {
+        for (const entry of manifest.selftest) {
+          if (entry && typeof entry === "object") {
+            asserts.push(Object.assign({ kind: "command" }, entry));
+          }
+        }
+      }
+      if (asserts.length === 0) {
+        rows.push([item.id, "(未声明断言)", "跳过", "package.json 没有 asserts"]);
+        continue;
+      }
+
+      const results = await evaluateAsserts(root, asserts, {
+        cwd: root,
+        pathPrefix: path.join(stableRoot, "current", String(item.id)),
+      });
+      for (const result of results) {
+        rows.push([item.id, result.name, result.ok ? "通过" : "失败", result.detail]);
+        if (result.ok) {
+          passed += 1;
+        } else {
+          failed += 1;
+        }
+      }
+    }
+
+    io.event("table", {
+      title: "selftest",
+      columns: [
+        { key: "package", title: "包" },
+        { key: "check", title: "检查" },
+        { key: "result", title: "结果" },
+        { key: "detail", title: "说明" },
+      ],
+      rows: rows,
+    });
+    const summary = passed + " passed, " + failed + " failed";
+    if (failed > 0) {
+      io.fail(new PkgError("ERR_ASSERT", summary, 12));
+      return;
+    }
+    io.done({ summary: summary, metrics: { passed: passed, failed: failed, packages: selected.length } });
+  } catch (error) {
+    io.fail(error.code ? error : new PkgError("ERR_IO", error.message || String(error), 1));
+  }
+}function commandIo(message) {
   const id = message.id;
   let seq = 0;
   return {
@@ -1895,9 +2268,6 @@ async function shellPackage(message) {
     const separator = argv.indexOf("--");
     const parsed = parseFlags(separator >= 0 ? argv.slice(0, separator) : argv);
     const flags = parsed.flags;
-    if (flags.profile) {
-      throw new PkgError("ERR_UNSUPPORTED", "shell profiles are not implemented yet", 11);
-    }
     const shellName = String(parsed.positional[0] || "cmd").toLowerCase();
     if (shellName !== "cmd") {
       throw new PkgError("ERR_UNSUPPORTED", "only the default cmd shell is supported yet", 11);
@@ -1919,14 +2289,55 @@ async function shellPackage(message) {
     environment.PATH = managed.concat([environment.PATH || ""]).join(";");
     const cwd = (message.data && message.data.ctx && message.data.ctx.cwd) || ROOT;
 
+    // --profile additionally applies each package's declared env vars for this session only
+    // (MSVC/Flutter need INCLUDE/LIB/... without writing HKCU\Environment). It is implemented
+    // as a throwaway batch file the shell calls, then removed when the shell exits.
+    let profilePath = null;
+    let shellArgs = [];
+    if (flags.profile === true) {
+      const lines = ["@echo off"];
+      for (const record of records) {
+        let full;
+        try {
+          full = await callCapability("storage.record", "get", { pkg: record.id });
+        } catch (error) {
+          continue;
+        }
+        const wiring = (full && full.wiring) || {};
+        for (const relative of wiring.path || []) {
+          const dir = path.join(stableRoot, "current", String(record.id), String(relative));
+          lines.push('set "PATH=' + dir + ';%PATH%"');
+        }
+        for (const [name, value] of Object.entries(wiring.env || {})) {
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+            continue;
+          }
+          lines.push('set "' + name + '=' + String(value).replace(/"/g, "") + '"');
+        }
+      }
+
+      const profileDir = path.join(ROOT, "state", "tmp");
+      fs.mkdirSync(profileDir, { recursive: true });
+      profilePath = path.join(profileDir, "pd-profile-" + process.pid + "-" + Date.now().toString(36) + ".cmd");
+      fs.writeFileSync(profilePath, lines.join("\r\n") + "\r\n", "utf8");
+      shellArgs = ["/k", 'call "' + profilePath + '"'];
+    }
+
     io.event("step", { stepId: "shell", title: "shell", state: "running" });
-    const reply = await execOnClient(message.id, {
-      command: process.env.ComSpec || "cmd.exe",
-      args: [],
-      cwd: cwd,
-      env: environment,
-      detach: false,
-    });
+    let reply;
+    try {
+      reply = await execOnClient(message.id, {
+        command: process.env.ComSpec || "cmd.exe",
+        args: shellArgs,
+        cwd: cwd,
+        env: environment,
+        detach: false,
+      });
+    } finally {
+      if (profilePath) {
+        try { fs.rmSync(profilePath, { force: true }); } catch (error) { /* best effort */ }
+      }
+    }
     if (reply && reply.error) {
       throw new PkgError(reply.error.code || "ERR_IO", reply.error.message || "the shell could not be started", 1);
     }
@@ -2043,6 +2454,10 @@ connect({
         runCommand(message, upgradeCommand);
       } else if (command === "list" || command === "ls") {
         runCommand(message, listCommand);
+      } else if (command === "doctor") {
+        runCommand(message, doctorCommand);
+      } else if (command === "selftest") {
+        runCommand(message, selftestCommand);
       } else if (command === "source") {
         runCommand(message, sourceCommand);
       } else if (command === "index") {
