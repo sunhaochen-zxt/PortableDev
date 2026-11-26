@@ -104,7 +104,7 @@ v2\app\
 | `network.proxy` | `system` | `system` / `none` / URL | download | 否 |
 | `elevation.mode` | `on-demand` | `on-demand` | 内核 | **是** |
 | `recovery.intentDefault` | `adopt` | `adopt` / `drop` | 内核 | 否 |
-| `ui.theme` | `dark` | `dark` / `light` / `system` | 窗口壳 | 否 |
+| `ui.theme` | `light` | `dark` / `light` / `system` | 窗口壳 | 否 |
 | `ui.language` | `zh-CN` | `zh-CN` / `en` | 两个壳 | 否 |
 
 ### 2.2 规则

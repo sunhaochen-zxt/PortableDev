@@ -1,9 +1,11 @@
 <!doctype html>
-<html data-theme="dark">
+<html data-theme="light">
 <head><meta charset="utf-8"><title>日志</title><link rel="stylesheet" href="style.css"></head>
 <body>
-<header><h1>日志</h1><div class="muted">最近 50 条（pd log --tail 50）</div></header>
-<section class="card"><pre id="out"></pre></section>
+<div class="wrap">
+<header class="hero"><h1>日志</h1><div class="muted">最近 50 条（pd log --tail 50）</div></header>
+<section class="card"><pre class="logs" id="out"><span class="loading">加载中…</span></pre></section>
+</div>
 <script src="common.js"></script>
 <script>
 (async () => {
@@ -14,8 +16,10 @@
     const lines = (result.events || []).filter((event) => event.type === "log")
       .map((event) => (event.level || "info") + "  " + (event.msg || ""));
     out.textContent = lines.join("\n") || "（没有日志）";
+    out.scrollTop = out.scrollHeight;
     showTiming("页面" + navMs() + "ms · log命令" + timed.ms + "ms");
   } catch (error) {
+    out.textContent = "";
     renderError(out, error);
   }
 })();

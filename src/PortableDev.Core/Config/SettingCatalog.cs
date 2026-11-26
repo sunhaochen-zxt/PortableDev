@@ -38,7 +38,7 @@ public static class SettingCatalog
         new("network.proxy", SettingKind.String, "system"),
         new("elevation.mode", SettingKind.Enum, "on-demand", ["on-demand"]),
         new("recovery.intentDefault", SettingKind.Enum, "adopt", ["adopt", "drop"], RestartRequired: true),
-        new("ui.theme", SettingKind.Enum, "dark", ["dark", "light", "system"]),
+        new("ui.theme", SettingKind.Enum, "light", ["dark", "light", "system"]),
         new("ui.language", SettingKind.Enum, "zh-CN", ["zh-CN", "en"]),
     ];
 

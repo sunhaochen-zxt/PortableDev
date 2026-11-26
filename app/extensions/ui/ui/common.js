@@ -1,10 +1,10 @@
 // Shared helpers for the built-in pages. window.pd is injected by the window shell.
-async function renderError(container, error) {
-  const node = document.createElement("div");
-  node.className = "error";
-  node.textContent = (error && (error.code + ": " + error.message)) || String(error);
-  container.appendChild(node);
-}
+(function applyTheme() {
+  try {
+    const theme = (window.pd && window.pd.theme) || document.documentElement.dataset.theme || "light";
+    document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+  } catch (error) { /* keep the markup default */ }
+})();
 
 function showTiming(text) {
   let node = document.getElementById("pd-timing");
@@ -29,6 +29,13 @@ function navMs() {
     if (entries.length > 0) return Math.round(entries[0].domContentLoadedEventEnd);
   } catch (error) { /* ignore */ }
   return -1;
+}
+
+async function renderError(container, error) {
+  const node = document.createElement("div");
+  node.className = "error";
+  node.textContent = (error && (error.code + ": " + error.message)) || String(error);
+  container.appendChild(node);
 }
 
 function cell(row, index) {

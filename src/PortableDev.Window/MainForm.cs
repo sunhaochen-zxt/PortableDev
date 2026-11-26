@@ -369,7 +369,7 @@ public sealed class MainForm : Form
             var path = Path.Combine(_options.Root, "config", "settings.json");
             if (File.Exists(path) && JsonNode.Parse(File.ReadAllText(path)) is JsonObject settings)
             {
-                var theme = JsonUtil.String(settings, "ui.theme") ?? "dark";
+                var theme = JsonUtil.String(settings, "ui.theme") ?? "light";
                 var locale = JsonUtil.String(settings, "ui.language") ?? "zh-CN";
                 return (theme == "light" ? "light" : "dark", locale);
             }

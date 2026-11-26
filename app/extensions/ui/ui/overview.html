@@ -1,10 +1,12 @@
 <!doctype html>
-<html data-theme="dark">
+<html data-theme="light">
 <head><meta charset="utf-8"><title>概览</title><link rel="stylesheet" href="style.css"></head>
 <body>
-<header><h1>PortableDev</h1><div class="muted">便携盘开发环境</div></header>
-<section class="card" id="env">正在连接内核…</section>
-<section class="card" id="version"></section>
+<div class="wrap">
+<header class="hero"><h1>概览</h1><div class="muted">便携盘开发环境 · 状态一览</div></header>
+<section class="card"><h2>环境</h2><div id="env"><span class="loading">正在连接内核…</span></div></section>
+<section class="card"><h2>版本</h2><div id="version"><span class="loading">读取中…</span></div></section>
+</div>
 <script src="common.js"></script>
 <script>
 (async () => {
@@ -12,16 +14,25 @@
   const versionNode = document.getElementById("version");
   try {
     const env = await window.pd.env();
+    const keys = [["root", "盘根"], ["stickId", "盘标识"], ["kernelVersion", "内核版本"], ["stableRoot", "稳定根"]];
+    const dl = document.createElement("dl");
+    dl.className = "grid";
+    for (const [key, label] of keys) {
+      if (env[key] === undefined) continue;
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = String(env[key]);
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+    }
     envNode.innerHTML = "";
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(env, null, 2);
-    envNode.appendChild(pre);
+    envNode.appendChild(dl);
     const timed = await pdTimed(["version"]);
-    const result = timed.result;
-    versionNode.textContent = (result.done && (result.done.summary || result.done.metrics && result.done.metrics.kernelVersion)) || "版本未知";
+    versionNode.textContent = (timed.result.done && (timed.result.done.summary || timed.result.done.metrics && timed.result.done.metrics.kernelVersion)) || "版本未知";
     showTiming("页面" + navMs() + "ms · version命令" + timed.ms + "ms");
   } catch (error) {
-    envNode.textContent = "";
+    envNode.innerHTML = "";
     renderError(envNode, error);
   }
 })();
