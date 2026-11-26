@@ -497,8 +497,15 @@ public sealed class ClientConnection : IMessageSink
                 case Kinds.Evt:
                     if (envelope.Data["type"] != null && JsonUtil.String(envelope.Data, "type") == EventTypes.Log)
                     {
-                        _kernel.Supervisor.TryGetInvocationId(_extensionName, out var logInvocation);
-                        _kernel.Logger.WriteExtensionBatch(_extensionName, new JsonArray(envelope.Data.DeepClone()), logInvocation, null);
+                        // Query answers (`pd log`) travel as log events carrying a `record` field so the
+                        // requesting task can render them. They are already stored; ingesting them again
+                        // would wrap one more layer per query (an ever-growing record.record... onion).
+                        // Only real statements (level/msg, no record object) go to the provider.
+                        if (envelope.Data["record"] is not JsonObject)
+                        {
+                            _kernel.Supervisor.TryGetInvocationId(_extensionName, out var logInvocation);
+                            _kernel.Logger.WriteExtensionBatch(_extensionName, new JsonArray(envelope.Data.DeepClone()), logInvocation, null);
+                        }
                     }
 
                     if (envelope.Data["type"]?.GetValue<string>() == EventTypes.Ext)

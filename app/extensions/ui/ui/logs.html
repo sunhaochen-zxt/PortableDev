@@ -15,7 +15,12 @@
     const result = timed.result;
     const lines = (result.events || []).filter((event) => event.type === "log")
       .map((event) => {
-        const record = event.record || {};
+        // Older stores may hold query answers re-ingested as record.record... chains;
+        // unwrap to the innermost record that actually carries a message.
+        let record = event.record || {};
+        while (record && !record.msg && record.record && typeof record.record === "object") {
+          record = record.record;
+        }
         const time = String(record.ts || "").slice(11, 19);
         return ((time ? time + " " : "") + (record.level || "info") + "  " + (record.msg || "")).trim();
       });
