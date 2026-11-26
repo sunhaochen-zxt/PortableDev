@@ -153,12 +153,18 @@ public sealed class MainForm : Form
     /// </summary>
     private static async Task<CoreWebView2Environment> CreateWebViewEnvironmentAsync(int attempt)
     {
+        // Pages live on a fake host (https://pd.local) that only exists inside this WebView.
+        // A system proxy would stall every navigation on it, so bypass the proxy entirely.
+        var browserOptions = new CoreWebView2EnvironmentOptions
+        {
+            AdditionalBrowserArguments = "--proxy-server=direct://",
+        };
         var local = Path.Combine(Path.GetTempPath(), "pd-window");
         var name = attempt == 0
             ? Environment.ProcessId.ToString(CultureInfo.InvariantCulture)
             : Environment.ProcessId.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8];
         var folder = Path.Combine(local, name);
-        return await CoreWebView2Environment.CreateAsync(null, folder).ConfigureAwait(true);
+        return await CoreWebView2Environment.CreateAsync(null, folder, browserOptions).ConfigureAwait(true);
     }
 
     private void RecreateWebView()

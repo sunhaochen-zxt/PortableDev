@@ -255,6 +255,7 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
   entry 只允许扩展目录内的相对路径（禁 `/`、`\\` 开头、盘符、`..`、NUL），id 在扩展内唯一，`nav` 只认
   `sidebar`/`menu`/`hidden`，其余回退为 `sidebar`）；
 - 虚拟主机：`https://pd.local/<扩展名>/<entry>`，映射到扩展目录（命令行 --extensions 指定，默认探测）；
+  WebView2 用 `--proxy-server=direct://` 绕过系统代理——假域名走代理会固定卡几秒才回落直连；
 - 宿主桥 `window.pd`：`exec` / `on` / `off` / `cancel` / `reply` / `env` / `navigate`，另有便捷方法
   `run(argv)`（exec + 收集事件直到 done）；`config()` 尚未实现；
 - 事件按任务转发（`evt` / `evt:<id>`），prompt 带 `promptId`，页面用 `pd.reply` 回；
