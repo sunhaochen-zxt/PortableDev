@@ -14,7 +14,8 @@ async function load() {
   head.innerHTML = "";
   body.innerHTML = "";
   try {
-    const result = await window.pd.run(["list"]);
+    const timed = await pdTimed(["list"]);
+    const result = timed.result;
     const tableEvent = (result.events || []).filter((event) => event.type === "table").pop();
     if (tableEvent) {
       const tr = document.createElement("tr");
@@ -32,6 +33,7 @@ async function load() {
     } else {
       body.innerHTML = "<tr><td>没有数据</td></tr>";
     }
+    showTiming("页面" + navMs() + "ms · list命令" + timed.ms + "ms");
   } catch (error) {
     renderError(body, error);
   }

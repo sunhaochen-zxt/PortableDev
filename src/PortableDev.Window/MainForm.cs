@@ -17,6 +17,8 @@ public sealed class MainForm : Form
     private WebView2 _webView = new();
     private KernelLink? _link;
     private bool _initialized;
+    private long _navStart;
+    private string _baseStatus = string.Empty;
     private bool _smokeWritten;
     private System.Windows.Forms.Timer? _smokeTimer;
 
@@ -113,13 +115,19 @@ public sealed class MainForm : Form
             var bridge = new Bridge(_webView, _link, NavigateToAsync);
             await bridge.AttachAsync(look.Theme, look.Locale).ConfigureAwait(true);
 
+            core.NavigationCompleted += OnNavigationCompleted;
             if (_options.Smoke is not null)
             {
                 core.NavigationCompleted += async (_, eventArgs) => await FinishSmokeAsync(eventArgs).ConfigureAwait(true);
             }
 
+            // Navigate explicitly: relying on SelectedIndexChanged is fragile (adding items
+            // can already leave the selection at 0, in which case no event fires and the view
+            // stays blank until the user's first click).
             _navigation.SelectedIndex = 0;
-            _status.Text = "内核 " + _link.KernelVersion + " · " + Path.GetFileName(_options.Root);
+            _baseStatus = "内核 " + _link.KernelVersion + " · " + Path.GetFileName(_options.Root);
+            _status.Text = _baseStatus;
+            await NavigateToPageAsync(_pages[0]).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -230,6 +238,37 @@ public sealed class MainForm : Form
         _smokeTimer.Start();
     }
 
+    private int _navRetries;
+
+    private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)
+    {
+        if (!args.IsSuccess && _navRetries < 1 && _webView.CoreWebView2 is not null)
+        {
+            // First navigation right after WebView2 init aborts from time to time; one retry is enough.
+            _navRetries++;
+            _navStart = Environment.TickCount64;
+            try { _webView.CoreWebView2.Reload(); } catch (Exception) { }
+            return;
+        }
+
+        var elapsed = Environment.TickCount64 - _navStart;
+        var extra = args.IsSuccess ? " · 导航" + elapsed + "ms" : " · 导航失败";
+        try
+        {
+            BeginInvoke(() =>
+            {
+                if (!string.IsNullOrEmpty(_baseStatus))
+                {
+                    _status.Text = _baseStatus + extra;
+                }
+            });
+        }
+        catch (Exception)
+        {
+            // Closing.
+        }
+    }
+
     private async Task FinishSmokeAsync(CoreWebView2NavigationCompletedEventArgs args)
     {
         var report = new JsonObject { ["ok"] = false, ["status"] = _status.Text };
@@ -245,7 +284,12 @@ public sealed class MainForm : Form
                     .ExecuteScriptAsync("typeof window.pd + ':' + (window.pd ? window.pd.theme : '')")
                     .ConfigureAwait(true);
                 report["bridge"] = value;
-                report["ok"] = value.Contains("object", StringComparison.OrdinalIgnoreCase);
+                var url = await _webView.CoreWebView2
+                    .ExecuteScriptAsync("location.href")
+                    .ConfigureAwait(true);
+                report["url"] = url;
+                report["ok"] = value.Contains("object", StringComparison.OrdinalIgnoreCase)
+                    && url.Contains("pd.local", StringComparison.OrdinalIgnoreCase);
             }
         }
         catch (Exception ex)
@@ -288,6 +332,7 @@ public sealed class MainForm : Form
             entry = entry[1..];
         }
 
+        _navStart = Environment.TickCount64;
         _webView.CoreWebView2.Navigate("https://pd.local/" + Uri.EscapeDataString(extension) + "/" + entry);
         _status.Text = (JsonUtil.String(page, "title") ?? extension) + " · " + extension;
         await Task.CompletedTask.ConfigureAwait(true);

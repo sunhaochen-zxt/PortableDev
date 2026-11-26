@@ -144,6 +144,7 @@ def main():
         smoke_report = read_json(smoke_path) or {}
         check("smoke reported", bool(smoke_report), (smoke.stdout[-300:], smoke.stderr[-300:]))
         check("bridge injected", "object" in str(smoke_report.get("bridge", "")), smoke_report)
+        check("real page loaded", "pd.local" in str(smoke_report.get("url", "")), smoke_report)
         check("smoke ok", smoke_report.get("ok") is True, smoke_report)
     finally:
         stop_kernel(ROOT, env)

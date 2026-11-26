@@ -16,8 +16,10 @@
     const pre = document.createElement("pre");
     pre.textContent = JSON.stringify(env, null, 2);
     envNode.appendChild(pre);
-    const result = await window.pd.run(["version"]);
+    const timed = await pdTimed(["version"]);
+    const result = timed.result;
     versionNode.textContent = (result.done && (result.done.summary || result.done.metrics && result.done.metrics.kernelVersion)) || "版本未知";
+    showTiming("页面" + navMs() + "ms · version命令" + timed.ms + "ms");
   } catch (error) {
     envNode.textContent = "";
     renderError(envNode, error);

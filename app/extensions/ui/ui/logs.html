@@ -9,10 +9,12 @@
 (async () => {
   const out = document.getElementById("out");
   try {
-    const result = await window.pd.run(["log", "--tail", "50"]);
+    const timed = await pdTimed(["log", "--tail", "50"]);
+    const result = timed.result;
     const lines = (result.events || []).filter((event) => event.type === "log")
       .map((event) => (event.level || "info") + "  " + (event.msg || ""));
     out.textContent = lines.join("\n") || "（没有日志）";
+    showTiming("页面" + navMs() + "ms · log命令" + timed.ms + "ms");
   } catch (error) {
     renderError(out, error);
   }
