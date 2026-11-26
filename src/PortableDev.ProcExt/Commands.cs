@@ -72,9 +72,9 @@ internal static class Commands
                     break;
             }
         }
-        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
-            await client.CallErrorAsync(callId, ErrorCodes.Io, ex.Message).ConfigureAwait(false);
+            await client.CallErrorAsync(callId, ErrorCodes.Internal, ex.Message).ConfigureAwait(false);
         }
     }
 
@@ -171,7 +171,11 @@ internal static class Commands
                 process.WaitForExit(TimeSpan.FromSeconds(3));
             }
 
-            process.TryGetExitCode(out var exitCode);
+            var gotExit = process.TryGetExitCode(out var exitCode);
+            if (!gotExit)
+            {
+                exitCode = -1;
+            }
             await client.LogEventAsync("proc.exit", timedOut ? "warn" : "info", "managed process exited", new JsonObject
             {
                 ["procId"] = procId,
@@ -188,7 +192,7 @@ internal static class Commands
             }).ConfigureAwait(false);
             return new JsonObject
             {
-                ["ok"] = true,
+                ["ok"] = gotExit,
                 ["procId"] = procId,
                 ["pid"] = process.Pid,
                 ["exitCode"] = exitCode,
@@ -361,6 +365,12 @@ internal static class Commands
 
                 if (!Managed.Kill(pid))
                 {
+                    if (Managed.WasReaped(pid))
+                    {
+                        await client.DoneAsync(taskKey, ExitCodes.NotFound, error: Error(ErrorCodes.ProcNotFound, "no managed process with pid " + pid)).ConfigureAwait(false);
+                        break;
+                    }
+
                     var killFlags = ParseFlags(argv.Skip(1).ToArray());
                     var forceCritical = killFlags.ContainsKey("force-critical");
                     var wantElevated = killFlags.ContainsKey("elevated");

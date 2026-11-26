@@ -272,6 +272,52 @@ public sealed class ExtensionManifest
             Lifecycle = lifecycle,
         };
 
+        if (!string.Equals(manifest.Interpreter, "exe", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(manifest.Interpreter, "pwsh", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(manifest.Interpreter, "python", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(manifest.Interpreter, "node", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(manifest.Interpreter, "dotnet", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(manifest.Interpreter, "cmd", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(manifest.Interpreter, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"unknown interpreter '{manifest.Interpreter}'");
+        }
+
+        if (manifest.Cwd is not null)
+        {
+            var cwdFullPath = Path.GetFullPath(manifest.Cwd);
+            var baseFullPath = Path.GetFullPath(directory);
+            var baseWithSep = baseFullPath + Path.DirectorySeparatorChar;
+            if (!cwdFullPath.Equals(baseFullPath, StringComparison.OrdinalIgnoreCase)
+                && !cwdFullPath.StartsWith(baseWithSep, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add("cwd must stay inside the extension directory");
+            }
+        }
+
+        if (manifest.Env is not null)
+        {
+            var blockedEnvKeys = new List<string>();
+            foreach (var pair in manifest.Env)
+            {
+                var key = pair.Key;
+                if (string.Equals(key, "DOTNET_ROOT", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "SystemRoot", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "windir", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase)
+                    || key.StartsWith("PD_", StringComparison.OrdinalIgnoreCase))
+                {
+                    blockedEnvKeys.Add(key);
+                }
+            }
+
+            foreach (var blockedKey in blockedEnvKeys)
+            {
+                manifest.Env.Remove(blockedKey);
+                errors.Add($"blocked env variable '{blockedKey}'");
+            }
+        }
+
         if (manifest.Enabled && string.IsNullOrWhiteSpace(manifest.Entry))
         {
             errors.Add("entry is required when enabled=true");

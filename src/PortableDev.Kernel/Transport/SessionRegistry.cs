@@ -14,6 +14,7 @@ public sealed class SessionRegistry
     private readonly ConcurrentDictionary<string, Dispatch.TaskContext> _extensionTasks = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _extSubscribers = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, IMessageSink>> _topicSubscribers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, int> _topicCounts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _extensions = new(StringComparer.Ordinal);
 
     public int ConnectionCount => _sinks.Count;
@@ -30,6 +31,7 @@ public sealed class SessionRegistry
         _sinks.TryRemove(sessionId, out _);
         _extensions.TryRemove(sessionId, out _);
         _extSubscribers.TryRemove(sessionId, out _);
+        _topicCounts.TryRemove(sessionId, out _);
         foreach (var (topic, subscribers) in _topicSubscribers)
         {
             subscribers.TryRemove(sessionId, out _);
@@ -102,6 +104,10 @@ public sealed class SessionRegistry
         if (_subscribers.TryGetValue(taskId, out var owners))
         {
             owners.TryRemove(sessionId, out _);
+            if (owners.IsEmpty)
+            {
+                _subscribers.TryRemove(taskId, out _);
+            }
         }
     }
 
@@ -109,17 +115,65 @@ public sealed class SessionRegistry
 
     public void UnsubscribeExtensions(string sessionId) => _extSubscribers.TryRemove(sessionId, out _);
 
-    public void SubscribeTopic(string topic, string sessionId, IMessageSink sink)
+    public bool SubscribeTopic(string? topic, string sessionId, IMessageSink sink)
     {
+        if (string.IsNullOrEmpty(topic))
+        {
+            return false;
+        }
+        if (topic.Length > 128)
+        {
+            return false;
+        }
+        for (var i = 0; i < topic.Length; i++)
+        {
+            var c = topic[i];
+            if (c == '\0' || char.IsControl(c))
+            {
+                return false;
+            }
+        }
+        if (_topicSubscribers.TryGetValue(topic, out var existing) && existing.ContainsKey(sessionId))
+        {
+            existing[sessionId] = sink;
+            return true;
+        }
+        if (_topicCounts.GetValueOrDefault(sessionId, 0) >= 32)
+        {
+            return false;
+        }
         var subscribers = _topicSubscribers.GetOrAdd(topic, _ => new ConcurrentDictionary<string, IMessageSink>(StringComparer.Ordinal));
+        var isNew = !subscribers.ContainsKey(sessionId);
         subscribers[sessionId] = sink;
+        if (isNew)
+        {
+            _topicCounts.AddOrUpdate(sessionId, 1, (key, old) => old + 1);
+        }
+        return true;
     }
 
     public void UnsubscribeTopic(string topic, string sessionId)
     {
         if (_topicSubscribers.TryGetValue(topic, out var subscribers))
         {
-            subscribers.TryRemove(sessionId, out _);
+            if (subscribers.TryRemove(sessionId, out _))
+            {
+                if (_topicCounts.TryGetValue(sessionId, out var count))
+                {
+                    if (count <= 1)
+                    {
+                        _topicCounts.TryRemove(sessionId, out _);
+                    }
+                    else
+                    {
+                        _topicCounts[sessionId] = count - 1;
+                    }
+                }
+            }
+            if (subscribers.IsEmpty)
+            {
+                _topicSubscribers.TryRemove(topic, out _);
+            }
         }
     }
 
@@ -131,7 +185,7 @@ public sealed class SessionRegistry
             return;
         }
 
-        foreach (var (_, sink) in subscribers)
+        foreach (var (_, sink) in subscribers.ToArray())
         {
             await SafeSendAsync(sink, envelope).ConfigureAwait(false);
         }
@@ -147,7 +201,7 @@ public sealed class SessionRegistry
 
         if (_subscribers.TryGetValue(taskId, out var subscribers))
         {
-            foreach (var (_, sink) in subscribers)
+            foreach (var (_, sink) in subscribers.ToArray())
             {
                 await SafeSendAsync(sink, envelope).ConfigureAwait(false);
             }
@@ -164,7 +218,7 @@ public sealed class SessionRegistry
     /// <summary>Sends an extension-status event to every session that subscribed with `scope: ext`.</summary>
     public async Task BroadcastExtensionEventAsync(Envelope envelope)
     {
-        foreach (var (sessionId, _) in _extSubscribers)
+        foreach (var (sessionId, _) in _extSubscribers.ToArray())
         {
             if (_sinks.TryGetValue(sessionId, out var sink))
             {
@@ -188,9 +242,9 @@ public sealed class SessionRegistry
         {
             await sink.SendAsync(envelope).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
+        catch (Exception)
         {
-            // Peer gone or shutting down; the connection loop performs the cleanup.
+            // Best-effort fan-out; a failing peer must not break delivery to the rest.
         }
     }
 }

@@ -248,13 +248,16 @@ def main():
                 victim.kill()
 
         print("admin mode (one-shot)")
-        request_path = os.path.join(root, "admin-request.json")
+        os.makedirs(os.path.join(root, "state", "tmp"), exist_ok=True)
+        request_path = os.path.join(root, "state", "tmp", "admin-request.json")
         result_path = request_path + ".result.json"
         with open(request_path, "w", encoding="utf-8") as handle:
-            json.dump({"action": "system", "filter": "dotnet", "resultPath": result_path}, handle)
+            json.dump({"action": "system", "filter": "dotnet"}, handle)
         proc_dll = os.path.join("app", "extensions", "proc", "proc.dll")
-        subprocess.run([DOTNET, proc_dll, "--admin", request_path], check=False, capture_output=True,
-                       timeout=120, env=env)
+        admin_env = dict(env)
+        admin_env["PD_ROOT"] = root
+        subprocess.run([DOTNET, proc_dll, "--admin", request_path, result_path], check=False, capture_output=True,
+                       timeout=120, env=admin_env)
         admin_result = {}
         if os.path.isfile(result_path):
             with open(result_path, "r", encoding="utf-8") as handle:

@@ -9,15 +9,27 @@ namespace PortableDev.ProcExt;
 internal sealed class ManagedProcesses
 {
     private readonly ConcurrentDictionary<string, Entry> _items = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<int, byte> _reaped = new();
     private long _counter;
 
     public string NextId()
         => "p-" + Interlocked.Increment(ref _counter).ToString("x4", CultureInfo.InvariantCulture);
 
     public void Add(string procId, string kind, int pid, string? command, JobObject? job)
-        => _items[procId] = new Entry(procId, kind, pid, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), command, job);
+    {
+        _items[procId] = new Entry(procId, kind, pid, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture), command, job);
+        _reaped.TryRemove(pid, out _);
+    }
 
-    public void Remove(string procId) => _items.TryRemove(procId, out _);
+    public void Remove(string procId)
+    {
+        if (_items.TryRemove(procId, out var removed))
+        {
+            _reaped[removed.Pid] = 0;
+        }
+    }
+
+    public bool WasReaped(int pid) => _reaped.ContainsKey(pid);
 
     public bool Kill(int pid)
     {

@@ -68,7 +68,7 @@ public sealed class KernelLink : IAsyncDisposable
             catch (Exception ex) when (ex is TimeoutException or IOException or ProtocolException or OperationCanceledException)
             {
                 last = ex;
-                stream.Dispose();
+                await link.DisposeAsync().ConfigureAwait(false);
                 await Task.Delay(200).ConfigureAwait(false);
                 continue;
             }
@@ -111,7 +111,16 @@ public sealed class KernelLink : IAsyncDisposable
             ["opts"] = new JsonObject(),
         });
         envelope.Id = id;
-        await SendAsync(envelope).ConfigureAwait(false);
+        try
+        {
+            await SendAsync(envelope).ConfigureAwait(false);
+        }
+        catch
+        {
+            _done.TryRemove(id, out _);
+            throw;
+        }
+
         return id;
     }
 
@@ -134,6 +143,9 @@ public sealed class KernelLink : IAsyncDisposable
         return await task.ConfigureAwait(false);
     }
 
+    public Task SubscribeExtAsync()
+        => SendAsync(Envelope.Make(Kinds.Ctl, new JsonObject { ["action"] = "subscribe", ["scope"] = "ext" }));
+
     public Task CancelAsync(string taskId)
         => SendWithIdAsync(Envelope.Make(Kinds.Ctl, new JsonObject { ["action"] = CtlActions.Cancel }), taskId);
 
@@ -145,8 +157,10 @@ public sealed class KernelLink : IAsyncDisposable
             ["value"] = value?.DeepClone(),
         }), taskId);
 
-    /// <summary>Runs a command and collects its events (used by the `pd.run` bridge helper).</summary>
-    public async Task<JsonObject> RunWithEventsAsync(string[] argv, JsonArray events, int timeoutMs = 180000)
+    /// <summary>Runs a command and collects its events (used by the `pd.run` bridge helper).
+    /// Only the first <paramref name="maxEvents"/> events are kept; a chatty task must not be
+    /// able to grow the caller without bound.</summary>
+    public async Task<JsonObject> RunWithEventsAsync(string[] argv, JsonArray events, int timeoutMs = 180000, int maxEvents = 5000)
     {
         var id = await ExecAsync(argv).ConfigureAwait(false);
         void Handler(string taskId, JsonObject data)
@@ -205,8 +219,10 @@ public sealed class KernelLink : IAsyncDisposable
 
     private async Task PumpAsync()
     {
-        while (!_lifetime.IsCancellationRequested)
+        try
         {
+            while (!_lifetime.IsCancellationRequested)
+            {
             Envelope? envelope;
             try
             {
@@ -270,6 +286,19 @@ public sealed class KernelLink : IAsyncDisposable
                     waiter.TrySetResult(data);
                 }
             }
+            }
+        }
+        finally
+        {
+            // The read loop exited (null frame, caught exception, or cancellation):
+            // fail fast instead of hanging every later call.
+            var error = new IOException("kernel connection lost");
+            foreach (var waiter in _done.Values)
+            {
+                waiter.TrySetException(error);
+            }
+
+            _pagesSignal.TrySetException(error);
         }
     }
 
@@ -341,16 +370,24 @@ public sealed class KernelLink : IAsyncDisposable
         return (stickId, prefix);
     }
 
+    private bool _disposed;
+
     public async ValueTask DisposeAsync()
     {
-        _lifetime.Cancel();
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        try { _lifetime.Cancel(); } catch (Exception) { }
         if (_pump is not null)
         {
             try { await _pump.ConfigureAwait(false); } catch (Exception) { }
         }
 
-        _stream.Dispose();
-        _writeGate.Dispose();
-        _lifetime.Dispose();
+        try { _stream.Dispose(); } catch (Exception) { }
+        try { _writeGate.Dispose(); } catch (Exception) { }
+        try { _lifetime.Dispose(); } catch (Exception) { }
     }
 }

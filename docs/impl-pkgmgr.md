@@ -128,6 +128,7 @@ pd install <目标>
 - 所有解压/复制都在 storage 发的租界里，收编才进 store；
 - 脚本路径必须留在包根/内容根内，未知请求一律 `ok:false`；
 - 失败必回滚：pkgmgr catch 里调 `rollback.run`，再清理租界。
+- PATH 风险：`pd run`/`pd shell` 会把所有已装包的 `current\` 前置进 PATH，恶意包可用同名 DLL 劫持其他包的程序（DLL 搜索顺序劫持）；缓解靠包来源可信，敏感程序尽量用绝对路径启动。
 
 ## 8. 测试
 

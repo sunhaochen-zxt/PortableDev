@@ -414,7 +414,10 @@ public sealed class ClientConnection : IMessageSink
                 {
                     if (_features.Contains(Features.Topics))
                     {
-                        _kernel.Sessions.SubscribeTopic(scope, SessionId, this);
+                        if (!_kernel.Sessions.SubscribeTopic(scope, SessionId, this))
+                        {
+                            _kernel.Logger.Debug("topic.subscribe", "subscription rejected", new JsonObject { ["scope"] = scope });
+                        }
                     }
                     else
                     {
@@ -500,8 +503,8 @@ public sealed class ClientConnection : IMessageSink
                         // Query answers (`pd log`) travel as log events carrying a `record` field so the
                         // requesting task can render them. They are already stored; ingesting them again
                         // would wrap one more layer per query (an ever-growing record.record... onion).
-                        // Only real statements (level/msg, no record object) go to the provider.
-                        if (envelope.Data["record"] is not JsonObject)
+                        // Only real statements (level/msg, no record container) go to the provider.
+                        if (envelope.Data["record"] is not JsonObject && envelope.Data["record"] is not JsonArray)
                         {
                             _kernel.Supervisor.TryGetInvocationId(_extensionName, out var logInvocation);
                             _kernel.Logger.WriteExtensionBatch(_extensionName, new JsonArray(envelope.Data.DeepClone()), logInvocation, null);
@@ -523,6 +526,12 @@ public sealed class ClientConnection : IMessageSink
                             task = legacyKey is null ? null : _kernel.Sessions.FindTask(legacyKey);
                         }
 
+                        if (task is not null && !_kernel.Supervisor.OwnsTask(_extensionName, task.ExtensionId))
+                        {
+                            _kernel.Logger.Warn("evt.spoof", "extension event for a task it does not own", new JsonObject { ["extension"] = _extensionName });
+                            task = null;
+                        }
+
                         if (task is not null)
                         {
                             envelope.Id = task.Id;
@@ -536,6 +545,12 @@ public sealed class ClientConnection : IMessageSink
                     if (string.IsNullOrWhiteSpace(topic))
                     {
                         _kernel.Logger.Debug("event.topic", "extension event without a topic", new JsonObject { ["extension"] = _extensionName });
+                        break;
+                    }
+
+                    if (!_kernel.Supervisor.IsReady(_extensionName))
+                    {
+                        _kernel.Logger.Warn("event.spoof", "topic event from an extension that is not ready", new JsonObject { ["extension"] = _extensionName, ["topic"] = topic });
                         break;
                     }
 
@@ -555,7 +570,7 @@ public sealed class ClientConnection : IMessageSink
                         case CtlActions.GrantReply:
                             if (envelope.Id is not null)
                             {
-                                _kernel.Supervisor.DeliverGrantReply(envelope.Id, envelope.Data);
+                                _kernel.Supervisor.DeliverGrantReply(envelope.Id, envelope.Data, _extensionName);
                             }
 
                             break;

@@ -144,6 +144,11 @@ public sealed class KernelLogger : ILogSink, IDisposable
                 continue;
             }
 
+            if (IsQueryEcho(raw))
+            {
+                continue;
+            }
+
             var record = LogRecord.SanitizeExtension(raw, unit, _bootId, _stickId, _machineId, invocationId, pid, out var spoofed, out var redacted);
             record.Seq = NextUnitSeq(unit);
             if (spoofed > 0 || redacted > 0)
@@ -171,6 +176,14 @@ public sealed class KernelLogger : ILogSink, IDisposable
 
         Write(accepted);
     }
+
+    /// <summary>
+    /// Query answers travel as `{type: "log", record: {...}}` so the requesting task can render
+    /// them. They are already stored; re-ingesting would wrap one more onion layer per query.
+    /// Real statements carry level/msg and never a `record` container (see LogRecord).
+    /// </summary>
+    internal static bool IsQueryEcho(JsonObject raw)
+        => (raw["record"] is JsonObject || raw["record"] is JsonArray) && raw["msg"] is null;
 
     public void Flush()
     {

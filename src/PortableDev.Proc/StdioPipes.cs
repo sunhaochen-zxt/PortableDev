@@ -82,14 +82,28 @@ public sealed class StdioPipes : IDisposable
     public static StdioPipes FromCurrentProcess(bool redirectStdoutToStderr = false)
     {
         var process = GetCurrentProcess();
-        var stderrSource = GetStdHandle(StandardError);
-        var stdout = redirectStdoutToStderr
-            ? Duplicate(process, stderrSource)
-            : Duplicate(process, GetStdHandle(StandardOutput));
-        return new StdioPipes(
-            Duplicate(process, GetStdHandle(StandardInput)),
-            stdout,
-            Duplicate(process, stderrSource));
+        var stdinDup = Duplicate(process, GetStdHandle(StandardInput));
+        try
+        {
+            var stdoutDup = redirectStdoutToStderr
+                ? Duplicate(process, GetStdHandle(StandardError))
+                : Duplicate(process, GetStdHandle(StandardOutput));
+            try
+            {
+                var stderrDup = Duplicate(process, GetStdHandle(StandardError));
+                return new StdioPipes(stdinDup, stdoutDup, stderrDup);
+            }
+            catch
+            {
+                CloseHandle(stdoutDup);
+                throw;
+            }
+        }
+        catch
+        {
+            CloseHandle(stdinDup);
+            throw;
+        }
     }
 
     private static IntPtr Duplicate(IntPtr process, IntPtr handle)

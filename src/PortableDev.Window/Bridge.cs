@@ -14,12 +14,108 @@ public sealed class Bridge
     private readonly KernelLink _link;
     private readonly Func<string, Task> _navigate;
     private readonly ConcurrentDictionary<string, string> _prompts = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, bool> _ownTasks = new(StringComparer.Ordinal);
+    private bool _extSubscribed;
+    private readonly Dictionary<string, ExtPolicy> _policies;
+    private string? _pageExtension;
 
-    public Bridge(WebView2 webView, KernelLink link, Func<string, Task> navigate)
+    /// <summary>Global read-only commands any page may call (spec 3.2).</summary>
+    private static readonly HashSet<string> ReadOnlyCommands = new(StringComparer.Ordinal)
+    {
+        "list", "ls", "info", "search", "outdated", "doctor", "help", "env", "version", "log", "ui",
+    };
+
+    public Bridge(WebView2 webView, KernelLink link, Func<string, Task> navigate, Dictionary<string, ExtPolicy> policies)
     {
         _webView = webView;
         _link = link;
         _navigate = navigate;
+        _policies = policies;
+    }
+
+    /// <summary>Called by the shell on every navigation so commands are attributed to the right extension.</summary>
+    public void SetPageContext(string extension) => _pageExtension = extension;
+
+    /// <summary>Loads per-extension command policies from the installed ext.json files.</summary>
+    public static Dictionary<string, ExtPolicy> LoadPolicies(string extensionsDir)
+    {
+        var policies = new Dictionary<string, ExtPolicy>(StringComparer.Ordinal);
+        string[] directories;
+        try
+        {
+            directories = Directory.GetDirectories(extensionsDir);
+        }
+        catch (Exception)
+        {
+            return policies;
+        }
+
+        foreach (var directory in directories)
+        {
+            try
+            {
+                var manifestPath = Path.Combine(directory, "ext.json");
+                if (!File.Exists(manifestPath))
+                {
+                    continue;
+                }
+
+                if (JsonNode.Parse(File.ReadAllText(manifestPath)) is not JsonObject manifest)
+                {
+                    continue;
+                }
+
+                var name = JsonUtil.String(manifest, "name");
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var own = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var node in JsonUtil.Array(manifest, "commands") ?? new JsonArray())
+                {
+                    if (node is not JsonObject command)
+                    {
+                        continue;
+                    }
+
+                    var commandName = JsonUtil.String(command, "name");
+                    if (!string.IsNullOrWhiteSpace(commandName))
+                    {
+                        own.Add(commandName);
+                    }
+
+                    foreach (var alias in JsonUtil.Strings(JsonUtil.Array(command, "aliases")))
+                    {
+                        own.Add(alias);
+                    }
+                }
+
+                HashSet<string>? allowed = null;
+                foreach (var node in JsonUtil.Array(manifest, "permissions") ?? new JsonArray())
+                {
+                    if (node is not JsonObject permission
+                        || !string.Equals(JsonUtil.String(permission, "kind"), "commands", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    allowed ??= new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var allowedCommand in JsonUtil.Strings(JsonUtil.Array(permission, "allow")))
+                    {
+                        allowed.Add(allowedCommand);
+                    }
+                }
+
+                policies[name] = new ExtPolicy(own, allowed);
+            }
+            catch (Exception)
+            {
+                // A broken manifest must not break the shell; the kernel reports it separately.
+            }
+        }
+
+        return policies;
     }
 
     public async Task AttachAsync(string theme, string locale)
@@ -27,14 +123,33 @@ public sealed class Bridge
         var core = _webView.CoreWebView2;
         core.WebMessageReceived += OnWebMessage;
         _link.EventReceived += OnKernelEvent;
+        // The placeholders sit inside quoted JS string literals, so the replacement values
+        // must already be JSON-encoded (the caller serializes them) including their quotes.
         var script = LoadScript()
-            .Replace("__PD_THEME__", theme, StringComparison.Ordinal)
-            .Replace("__PD_LOCALE__", locale, StringComparison.Ordinal);
+            .Replace("\"__PD_THEME__\"", theme, StringComparison.Ordinal)
+            .Replace("\"__PD_LOCALE__\"", locale, StringComparison.Ordinal);
         await core.AddScriptToExecuteOnDocumentCreatedAsync(script).ConfigureAwait(true);
     }
 
     private void OnKernelEvent(string taskId, JsonObject data)
     {
+        if (string.Equals(JsonUtil.String(data, "type"), EventTypes.Done, StringComparison.Ordinal))
+        {
+            _ownTasks.TryRemove(taskId, out _);
+            foreach (var (promptId, owner) in _prompts)
+            {
+                if (string.Equals(owner, taskId, StringComparison.Ordinal))
+                {
+                    _prompts.TryRemove(promptId, out _);
+                }
+            }
+        }
+
+        if (_prompts.Count > 512)
+        {
+            _prompts.Clear();
+        }
+
         if (JsonUtil.String(data, "type") == EventTypes.Prompt)
         {
             var promptId = JsonUtil.String(data, "promptId");
@@ -80,31 +195,62 @@ public sealed class Bridge
             switch (method)
             {
                 case "exec":
-                    Reply(id, new JsonObject { ["taskId"] = await _link.ExecAsync(Strings(parameters)).ConfigureAwait(false) });
+                {
+                    var argv = Strings(parameters);
+                    DenyUnlessAllowed(argv);
+                    var taskId = await _link.ExecAsync(argv).ConfigureAwait(false);
+                    _ownTasks[taskId] = true;
+                    Reply(id, new JsonObject { ["taskId"] = taskId });
                     return;
+                }
                 case "run":
                 {
+                    var argv = Strings(parameters);
+                    DenyUnlessAllowed(argv);
                     var events = new JsonArray();
                     var timeout = JsonUtil.Int(parameters, "timeoutMs") ?? 180000;
-                    var done = await _link.RunWithEventsAsync(Strings(parameters), events, timeout).ConfigureAwait(false);
+                    var done = await _link.RunWithEventsAsync(argv, events, timeout, MaxEvents).ConfigureAwait(false);
                     Reply(id, new JsonObject { ["done"] = done.DeepClone(), ["events"] = events });
                     return;
                 }
                 case "cancel":
-                    await _link.CancelAsync(JsonUtil.String(parameters, "taskId") ?? string.Empty).ConfigureAwait(false);
+                {
+                    var taskId = JsonUtil.String(parameters, "taskId") ?? string.Empty;
+                    DenyUnlessOwned(taskId);
+                    await _link.CancelAsync(taskId).ConfigureAwait(false);
                     Reply(id, new JsonObject());
                     return;
+                }
                 case "reply":
                 {
                     var promptId = JsonUtil.String(parameters, "promptId") ?? string.Empty;
                     var taskId = _prompts.TryGetValue(promptId, out var known)
                         ? known
                         : JsonUtil.String(parameters, "taskId") ?? string.Empty;
+                    DenyUnlessOwned(taskId);
                     await _link.ReplyAsync(taskId, promptId, parameters["value"]?.DeepClone()).ConfigureAwait(false);
                     _prompts.TryRemove(promptId, out _);
                     Reply(id, new JsonObject());
                     return;
                 }
+                case "on":
+                {
+                    // Subscriptions are page-local in the JS bridge; the host only needs to act
+                    // for "ext", which requires a kernel-side subscription. Anything already
+                    // subscribed stays subscribed (unsubscribe is page-local too).
+                    var name = JsonUtil.String(parameters, "name");
+                    if (string.Equals(name, "ext", StringComparison.Ordinal) && !_extSubscribed)
+                    {
+                        await _link.SubscribeExtAsync().ConfigureAwait(false);
+                        _extSubscribed = true;
+                    }
+
+                    Reply(id, new JsonObject());
+                    return;
+                }
+                case "off":
+                    Reply(id, new JsonObject());
+                    return;
                 case "env":
                     Reply(id, new JsonObject
                     {
@@ -132,6 +278,54 @@ public sealed class Bridge
                 ["error"] = new JsonObject { ["code"] = "ERR_IO", ["message"] = ex.Message },
             });
         }
+    }
+
+    /// <summary>Bounds one pd.run call so a chatty task cannot grow the shell without limit.</summary>
+    private const int MaxEvents = 5000;
+
+    /// <summary>Pages may only run their own commands, granted commands, or global read-only ones.</summary>
+    private void DenyUnlessAllowed(string[] argv)
+    {
+        if (IsAllowed(argv))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "the current page is not allowed to run '" + string.Join(' ', argv.Take(2)) + "'");
+    }
+
+    private bool IsAllowed(string[] argv)
+    {
+        var command = argv.Length > 0 ? argv[0] : string.Empty;
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return false;
+        }
+
+        if (ReadOnlyCommands.Contains(command))
+        {
+            return command != "config" || (argv.Length > 1 && argv[1] == "get");
+        }
+
+        if (_pageExtension is null || !_policies.TryGetValue(_pageExtension, out var policy))
+        {
+            return false;
+        }
+
+        return policy.OwnCommands.Contains(command)
+            || (policy.AllowedCommands is not null && policy.AllowedCommands.Contains(command));
+    }
+
+    /// <summary>A page may only cancel or answer prompts for tasks it started itself.</summary>
+    private void DenyUnlessOwned(string taskId)
+    {
+        if (!string.IsNullOrEmpty(taskId) && _ownTasks.ContainsKey(taskId))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("unknown or foreign task");
     }
 
     private static string[] Strings(JsonObject parameters)
@@ -165,6 +359,9 @@ public sealed class Bridge
             // The view is already disposed.
         }
     }
+
+    /// <summary>Declared commands plus extra commands granted through permissions.</summary>
+    public sealed record ExtPolicy(HashSet<string> OwnCommands, HashSet<string>? AllowedCommands);
 
     private static string LoadScript()
     {

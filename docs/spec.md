@@ -171,7 +171,9 @@
 | `env` | object | `{}` | 注入的环境变量，支持占位符 |
 | `inheritEnv` | bool | `false` | 是否继承内核的环境（默认不继承，避免"服务环境"污染） |
 
-`interpreter: auto` 时按扩展名猜（`.ps1`→pwsh，`.py`→python，`.js`→node，`.dll`→dotnet，`.cmd`→cmd）。
+`interpreter: auto` 时按扩展名猜（`.ps1`→pwsh，`.py`→python，`.js`→node，`.dll`→dotnet，`.cmd`/`.bat`→cmd，其他→`exe`）。未知取值在加载时直接拒绝（扩展不加载并记警告），不会静默当 `exe` 跑。
+
+`entryArgs` 的位置：`exe` 是前置（`entryArgs` 在前、入口在后），其余解释器都是入口在前、`entryArgs` 追加在后（`pwsh` 还会在最前面加 `-NoProfile -File`）。
 
 > `dotnet` 用**随盘 dotnet 运行时**跑入口 dll（内核自己的宿主优先），不依赖机器的全局安装。
 

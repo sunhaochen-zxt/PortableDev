@@ -116,9 +116,17 @@ internal static class SystemProcesses
         if (handle == IntPtr.Zero)
         {
             var error = Marshal.GetLastWin32Error();
-            return error == 87
-                ? Error("ERR_PROC_NOT_FOUND", "no process with pid " + pid)
-                : Error("ERR_ELEVATION", "cannot open pid " + pid + ": access denied (try --elevated)");
+            if (error == 2 || error == 87)
+            {
+                return Error("ERR_PROC_NOT_FOUND", "no process with pid " + pid);
+            }
+
+            if (error == 5)
+            {
+                return Error("ERR_ELEVATION", "cannot open pid " + pid + ": access denied (try --elevated)");
+            }
+
+            return Error("ERR_IO", "cannot open pid " + pid + ": win32=" + error);
         }
 
         try

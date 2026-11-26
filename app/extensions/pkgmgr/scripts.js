@@ -330,6 +330,9 @@ async function runScript(options) {
   };
 
   const dispatch = async (request) => {
+    if (finished) {
+      return;
+    }
     const requestId = request && request.id !== undefined ? request.id : "";
     const command2 = String((request && request.cmd) || "");
     const requestArgs = (request && request.args) || {};
@@ -408,7 +411,7 @@ async function runScript(options) {
         return;
       }
       if (command2 === "path.add" || command2 === "env.set" || command2 === "reg.set" || command2 === "reg.del" || command2 === "launch") {
-        const args2 = Object.assign({}, requestArgs, { task: task, path: undefined });
+        const args2 = Object.assign({}, requestArgs, { task: task });
         if (args2.path !== undefined) {
           args2.path = expandText(args2.path, context);
         }
@@ -461,21 +464,43 @@ async function runScript(options) {
 
   let exit = await new Promise((resolve) => {
     child.on("error", (error) => {
+      finished = true;
       failure = new ScriptError("ERR_SCRIPT", "cannot start the package script: " + error.message, 1);
       resolve(null);
     });
-    child.on("exit", (code) => resolve(code));
+    child.on("exit", (code) => {
+      finished = true;
+      resolve(code);
+    });
   });
   await chain;
 
+  let procTimeout = null;
   try {
-    await procCall;
+    await Promise.race([
+      procCall,
+      new Promise((_, reject) => {
+        procTimeout = setTimeout(() => {
+          reject(new ScriptError("ERR_TIMEOUT", "package script did not finish within " + Math.round((timeoutMs + 120000) / 1000) + "s", 25));
+        }, timeoutMs + 120000);
+      }),
+    ]);
   } catch (error) {
+    if (procTimeout) {
+      clearTimeout(procTimeout);
+      procTimeout = null;
+    }
     procPipes.close();
+    if (error && error.code === "ERR_TIMEOUT") {
+      throw error;
+    }
     if (error && error.code) {
       throw new ScriptError(error.code, "package script could not be started: " + (error.message || String(error)), error.exitCode || 1);
     }
     throw new ScriptError("ERR_SCRIPT", "package script could not be started: " + String(error), 1);
+  }
+  if (procTimeout) {
+    clearTimeout(procTimeout);
   }
   if (procResult) {
     if (procResult.timedOut === true) {

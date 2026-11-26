@@ -16,6 +16,7 @@ public sealed class MainForm : Form
     private readonly List<JsonObject> _pages = new();
     private WebView2 _webView = new();
     private KernelLink? _link;
+    private Bridge? _bridge;
     private bool _initialized;
     private long _navStart;
     private string _baseStatus = string.Empty;
@@ -45,7 +46,13 @@ public sealed class MainForm : Form
         Controls.Add(_navigation);
         Controls.Add(_status);
         Shown += async (_, _) => await InitializeAsync().ConfigureAwait(true);
-        FormClosed += (_, _) => DisposeLink();
+        FormClosed += (_, _) =>
+        {
+            _smokeTimer?.Stop();
+            _smokeTimer?.Dispose();
+            _smokeTimer = null;
+            DisposeLink();
+        };
     }
 
     private void DisposeLink()
@@ -115,8 +122,8 @@ public sealed class MainForm : Form
             core.SetVirtualHostNameToFolderMapping("pd.local", _options.Extensions, CoreWebView2HostResourceAccessKind.Allow);
 
             var look = ReadLook();
-            var bridge = new Bridge(_webView, _link, NavigateToAsync);
-            await bridge.AttachAsync(look.Theme, look.Locale).ConfigureAwait(true);
+            _bridge = new Bridge(_webView, _link, NavigateToAsync, Bridge.LoadPolicies(_options.Extensions));
+            await _bridge.AttachAsync(System.Text.Json.JsonSerializer.Serialize(look.Theme), System.Text.Json.JsonSerializer.Serialize(look.Locale)).ConfigureAwait(true);
 
             core.NavigationCompleted += OnNavigationCompleted;
             if (_options.Smoke is not null || _options.SmokeCheck is not null)
@@ -141,6 +148,7 @@ public sealed class MainForm : Form
 
     private async Task<bool> EnsureWebViewAsync()
     {
+        CleanupStaleWebViewData();
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
@@ -177,6 +185,46 @@ public sealed class MainForm : Form
             : Environment.ProcessId.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8];
         var folder = Path.Combine(local, name);
         return await CoreWebView2Environment.CreateAsync(null, folder, browserOptions).ConfigureAwait(true);
+    }
+
+    private static void CleanupStaleWebViewData()
+    {
+        try
+        {
+            var local = Path.Combine(Path.GetTempPath(), "pd-window");
+            if (!Directory.Exists(local))
+            {
+                return;
+            }
+
+            foreach (var dir in Directory.GetDirectories(local))
+            {
+                var name = Path.GetFileName(dir);
+                var dash = name.IndexOf('-');
+                var pidPart = dash < 0 ? name : name.Substring(0, dash);
+                if (!int.TryParse(pidPart, CultureInfo.InvariantCulture, out var pid))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    System.Diagnostics.Process.GetProcessById(pid).Dispose();
+                }
+                catch (ArgumentException)
+                {
+                    try { Directory.Delete(dir, true); } catch (Exception) { }
+                }
+                catch (Exception)
+                {
+                    // Unknown state: leave it alone.
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Cleanup must never block startup.
+        }
     }
 
     private void RecreateWebView()
@@ -243,6 +291,7 @@ public sealed class MainForm : Form
     }
 
     private int _navRetries;
+    private int _navGeneration;
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs args)
     {
@@ -276,6 +325,7 @@ public sealed class MainForm : Form
     private async Task FinishSmokeAsync(CoreWebView2NavigationCompletedEventArgs args, string? file = null)
     {
         file ??= _options.Smoke;
+        var generation = _navGeneration;
         var report = new JsonObject { ["ok"] = false, ["status"] = _status.Text };
         if (!args.IsSuccess)
         {
@@ -332,6 +382,12 @@ public sealed class MainForm : Form
             report["error"] = ex.Message;
         }
 
+        if (generation != _navGeneration)
+        {
+            // Superseded by a newer navigation; do not write a stale report.
+            return;
+        }
+
         WriteSmoke(report);
         var holdText = Environment.GetEnvironmentVariable("PD_WINDOW_SMOKE_HOLD_MS");
         if (int.TryParse(holdText, out var holdMs) && holdMs > 0)
@@ -362,20 +418,43 @@ public sealed class MainForm : Form
             return;
         }
 
-        await NavigateToPageAsync(item.Page).ConfigureAwait(true);
+        try
+        {
+            await NavigateToPageAsync(item.Page).ConfigureAwait(true);
+        }
+        catch (Exception)
+        {
+            // Disposed during close (async void event path); never crash the process.
+        }
     }
 
     private async Task NavigateToPageAsync(JsonObject page)
     {
+        _navGeneration++;
+        _navRetries = 0;
         var extension = JsonUtil.String(page, "extension") ?? string.Empty;
         var entry = JsonUtil.String(page, "entry") ?? string.Empty;
+        if (entry.StartsWith("http:", StringComparison.OrdinalIgnoreCase)
+            || entry.StartsWith("https:", StringComparison.OrdinalIgnoreCase)
+            || entry.Contains('\\')
+            || entry.Contains("..", StringComparison.Ordinal)
+            || entry.Contains(':')
+            || entry.Contains('?')
+            || entry.Contains('#')
+            || entry.Contains('\0'))
+        {
+            throw new InvalidOperationException("unsafe page entry: " + entry);
+        }
+
         while (entry.StartsWith("/", StringComparison.Ordinal))
         {
             entry = entry[1..];
         }
 
+        var safePath = string.Join("/", entry.Split('/').Select(Uri.EscapeDataString));
+        _bridge?.SetPageContext(extension);
         _navStart = Environment.TickCount64;
-        _webView.CoreWebView2.Navigate("https://pd.local/" + Uri.EscapeDataString(extension) + "/" + entry);
+        _webView.CoreWebView2.Navigate("https://pd.local/" + Uri.EscapeDataString(extension) + "/" + safePath);
         _status.Text = (JsonUtil.String(page, "title") ?? extension) + " · " + extension;
         await Task.CompletedTask.ConfigureAwait(true);
     }
@@ -398,6 +477,8 @@ public sealed class MainForm : Form
                 return;
             }
         }
+
+        throw new InvalidOperationException("unknown page: " + pageId);
     }
 
     private (string Theme, string Locale) ReadLook()

@@ -197,7 +197,7 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 | 措施 | 说明 |
 |---|---|
 | 一个扩展一个源 | `https://pd.local/<扩展名>/`，扩展之间不能直接读对方的文件 |
-| CSP | 默认 `default-src 'self'; connect-src 'self'; img-src 'self' data:`，不允许外链脚本 |
+| CSP | 目标是默认 `default-src 'self'; connect-src 'self'; img-src 'self' data:`，不允许外链脚本；**尚未实现**，目前靠页面自身约束 |
 | 禁用远程内容 | 页面里的 `<script src="https://...">` 一律被 CSP 拦掉 |
 | 无 Node 集成 | 页面只有 `window.pd` 一个出口，没有 `require`、没有文件系统 |
 | 桥在主线程外 | 大表格不阻塞渲染 |
@@ -211,7 +211,7 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 
 | 项 | 做法 |
 |---|---|
-| 主题 | 壳把 `ui.theme` 解析成 `dark` / `light`，注入 `pd.theme` 和 `<html data-theme>`；页面只用 CSS 变量 |
+| 主题 | 壳把 `ui.theme` 解析成 `dark` / `light`，注入 `pd.theme` 和 `<html data-theme>`；页面只用 CSS 变量。`system` 与非法值目前按 `dark` 处理（跟随系统主题尚未实现） |
 | 语言 | `ui.language` 注入 `pd.locale`，页面自己决定翻译 |
 | DPI | WebView2 跟随系统缩放；壳不额外缩放 |
 | 键盘 | 壳提供 `Ctrl+1..9` 切页、`Ctrl+R` 重载、`F5`；页面自己处理其余快捷键 |
@@ -240,7 +240,7 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 4. 页面调一个没权限的命令 → Promise reject，提示 `ERR_UNSUPPORTED`；
 5. 关掉页面标签 → 任务不中断；
 6. 内核被 `pd kernel stop` → 壳显示横幅并能重启内核；
-7. 页面里写 `<script src="https://example.com/x.js">` → 被 CSP 拦下；
+7. 页面里写 `<script src="https://example.com/x.js">` → 应被 CSP 拦下（**尚未实现**，目前靠页面自身不引用外链）；
 8. 两个 `ui` 扩展各有页面 → 侧边栏都出现，互不干扰。
 
 ---

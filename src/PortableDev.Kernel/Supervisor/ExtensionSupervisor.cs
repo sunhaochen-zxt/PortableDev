@@ -88,10 +88,24 @@ public sealed class ExtensionSupervisor
         => DeliverToTaskOwner(taskId, Kinds.Ctl, data, sessionId);
 
     /// <summary>Routes a storage grant reply back to the extension that asked (spec 5.4).</summary>
-    public bool DeliverGrantReply(string taskId, JsonObject data)
-        => DeliverToTaskOwner(taskId, Kinds.Ctl, data);
+    public bool DeliverGrantReply(string taskId, JsonObject data, string? senderName = null)
+    {
+        // Only the extension that was asked (the storage.grant provider) may answer; any other
+        // extension could otherwise forge grants into another task.
+        var granter = FindProvider("storage.grant");
+        if (senderName is not null && granter is not null && !string.Equals(senderName, granter, StringComparison.Ordinal))
+        {
+            _kernel.Logger.Warn("grant.spoof", "grant reply from an extension that was not asked", new JsonObject { ["extension"] = senderName });
+            return false;
+        }
+
+        return DeliverToTaskOwner(taskId, Kinds.Ctl, data);
+    }
 
     /// <summary>Sends a message to whichever extension currently owns the given task.</summary>
+    public bool IsReady(string name)
+        => _runtime.TryGetValue(name, out var runtime) && runtime.State == "ready";
+
     public bool DeliverToTaskOwner(string taskId, string kind, JsonObject data, string? sessionId = null)
     {
         // Extensions address tasks by ExtensionId; clients know only their own wire id.
@@ -112,6 +126,12 @@ public sealed class ExtensionSupervisor
 
         if (task is null)
         {
+            return false;
+        }
+
+        if (sessionId is not null && !string.Equals(task.SessionId, sessionId, StringComparison.Ordinal))
+        {
+            _kernel.Logger.Warn("ctl.spoof", "reply for another session's task", new JsonObject { ["task"] = taskId });
             return false;
         }
 

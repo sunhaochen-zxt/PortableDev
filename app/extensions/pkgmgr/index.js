@@ -83,16 +83,26 @@ function callCapability(capability, op, args, timeoutMs) {
 const pendingExecs = new Map();
 let execCounter = 0;
 
+function cmdQuotePart(value) {
+  return "\"" + String(value).replace(/%/g, "%%").replace(/"/g, "\"\"") + "\"";
+}
+
+function buildCmdLine(entry, args) {
+  const parts = [entry].concat(args || []).map((part) => cmdQuotePart(part));
+  return "\"" + parts.join(" ") + "\"";
+}
+
 function execOnClient(taskId, payload, timeoutMs) {
   return new Promise((resolve, reject) => {
     execCounter += 1;
-    const key = String(taskId);
+    const execId = "e" + execCounter;
+    const key = String(taskId) + ":" + execId;
     const timer = setTimeout(() => {
       pendingExecs.delete(key);
       reject(new PkgError("ERR_TIMEOUT", "the client did not answer the exec request", 25));
     }, timeoutMs || 86400000);
     pendingExecs.set(key, { resolve, reject, timer });
-    send({ v: 1, kind: "evt", id: taskId, seq: 1, data: Object.assign({ type: "exec", execId: "e" + execCounter }, payload) });
+    send({ v: 1, kind: "evt", id: taskId, seq: 1, data: Object.assign({ type: "exec", execId: execId }, payload) });
   });
 }
 
@@ -1470,12 +1480,18 @@ async function runPackage(message) {
       throw new PkgError("ERR_PKG_INVALID", "run target does not exist: " + command, 3);
     }
     const cwd = flags.cwd ? path.resolve(base, String(flags.cwd)) : (launchCwd ? path.resolve(base, launchCwd) : base);
+    if (cwd !== base && !cwd.startsWith(base + path.sep)) {
+      throw new PkgError("ERR_UNSUPPORTED", "the run cwd must stay inside the package store path", 11);
+    }
 
     // Launchers are usually .cmd/.bat; CreateProcess needs an executable, so wrap them in the shell.
     let commandArgs = launchArgs.concat(childArgs);
+    let verbatimArgs = false;
     if (/\.(cmd|bat)$/i.test(command)) {
-      commandArgs = ["/c", command].concat(commandArgs);
+      const cmdLine = buildCmdLine(command, commandArgs);
+      commandArgs = ["/d", "/s", "/c", cmdLine];
       command = process.env.ComSpec || "cmd.exe";
+      verbatimArgs = true;
     }
 
     const environment = {};
@@ -1491,11 +1507,18 @@ async function runPackage(message) {
     for (const [name, value] of Object.entries(launchEnv)) {
       environment[name] = expandRun(String(value));
     }
+    for (const name of Object.keys(environment)) {
+      const upper = String(name).toUpperCase();
+      if (upper === "PD_PIPE" || upper === "PD_INVOCATION_ID" || upper === "PD_EXTENSION" || upper === "PD_DOTNET" || upper === "PD_KERNEL_ABI" || upper.startsWith("PD_") || upper.startsWith("PD_INVOCATION")) {
+        delete environment[name];
+      }
+    }
 
     io.event("step", { stepId: "run", title: "run", state: "running" });
     const reply = await execOnClient(message.id, {
       command: command,
       args: commandArgs,
+      verbatimArgs: verbatimArgs,
       cwd: cwd,
       env: environment,
       detach: flags.detach === true,
@@ -1612,11 +1635,22 @@ connect({
         return;
       }
       if (action === "exec.reply") {
-        const entry = pendingExecs.get(String(message.id));
+        const replyExecId = message.data && message.data.execId;
+        const key = replyExecId ? String(message.id) + ":" + String(replyExecId) : String(message.id);
+        const entry = pendingExecs.get(key);
         if (entry) {
           clearTimeout(entry.timer);
-          pendingExecs.delete(String(message.id));
+          pendingExecs.delete(key);
           entry.resolve(message.data || {});
+        } else if (!replyExecId) {
+          for (const [k, v] of pendingExecs) {
+            if (k === String(message.id) || k.startsWith(String(message.id) + ":")) {
+              clearTimeout(v.timer);
+              pendingExecs.delete(k);
+              v.resolve(message.data || {});
+              break;
+            }
+          }
         }
         return;
       }

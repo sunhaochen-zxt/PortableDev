@@ -17,7 +17,18 @@ internal static class Program
 
         // One window per stick: a second launch just exits (smoke included, so the
         // concurrent-launch case is covered by window-e2e).
-        var mutex = new Mutex(true, "PortableDev.Window." + RootKey(options.Root), out var created);
+        Mutex mutex;
+        bool created;
+        try
+        {
+            mutex = new Mutex(true, "PortableDev.Window." + RootKey(options.Root), out created);
+        }
+        catch (AbandonedMutexException)
+        {
+            // A previous crash left the mutex abandoned; we own it now so relaunch must work.
+            mutex = new Mutex(true, "PortableDev.Window." + RootKey(options.Root), out created);
+            created = true;
+        }
         if (!created)
         {
             mutex.Dispose();
@@ -38,7 +49,8 @@ internal static class Program
 
     private static string RootKey(string root)
     {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(root.TrimEnd(Path.DirectorySeparatorChar)));
-        return Convert.ToHexString(hash.AsSpan(0, 8));
+        var normalized = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(hash);
     }
 }

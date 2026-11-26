@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -27,6 +28,7 @@ public sealed class PdShell : IDisposable
     private int _cancelRequested;
     private bool _disposed;
     private int? _preferExitCode;
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _execCts = new();
 
     public PdShell(ShellOptions options, string root, string pipeName)
     {
@@ -296,6 +298,11 @@ public sealed class PdShell : IDisposable
             var envelope = await _client!.ReceiveAsync().ConfigureAwait(false);
             if (envelope is null)
             {
+                foreach (var pair in _execCts)
+                {
+                    try { pair.Value.Cancel(); } catch { }
+                }
+
                 if (!_done)
                 {
                     _renderer.Error(ErrorCodes.Io, "kernel disconnected before the command finished", null);
@@ -333,7 +340,17 @@ public sealed class PdShell : IDisposable
                     break;
 
                 case Kinds.Ctl:
+                {
+                    var action = JsonUtil.String(envelope.Data, "action");
+                    if (string.Equals(action, CtlActions.Cancel, StringComparison.Ordinal)
+                        && envelope.Id is not null
+                        && _execCts.TryGetValue(envelope.Id, out var pending))
+                    {
+                        try { pending.Cancel(); } catch { }
+                    }
+
                     break;
+                }
 
                 default:
                     if (_options.Trace)
@@ -353,6 +370,10 @@ public sealed class PdShell : IDisposable
         var execId = JsonUtil.String(request, "execId") ?? string.Empty;
         var exitCode = ExitCodes.Internal;
         JsonObject? error = null;
+        var cts = new CancellationTokenSource();
+        var ctsKey = taskId ?? string.Empty;
+        _execCts[ctsKey] = cts;
+        var cancelled = false;
 
         try
         {
@@ -390,6 +411,7 @@ public sealed class PdShell : IDisposable
                 StandardOutput = stdio.Stdout,
                 StandardError = stdio.Stderr,
                 Detached = detached,
+                DisableArgumentQuoting = JsonUtil.Bool(request, "verbatimArgs") == true,
             };
 
             var (process, job) = ProcessSpawner.Spawn(spec, detached ? null : new JobLimits());
@@ -402,15 +424,53 @@ public sealed class PdShell : IDisposable
                 }
                 else
                 {
-                    process.WaitForExit();
-                    process.TryGetExitCode(out exitCode);
+                    // Wait off the pump thread so incoming cancel/disconnect keeps flowing.
+                    try
+                    {
+                        await Task.Run(() =>
+                        {
+                            while (!process.WaitForExit(TimeSpan.FromMilliseconds(200)))
+                            {
+                                cts.Token.ThrowIfCancellationRequested();
+                            }
+                        }, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        cancelled = true;
+                    }
+
+                    if (cancelled || cts.Token.IsCancellationRequested)
+                    {
+                        cancelled = true;
+                        try { job?.Terminate(); } catch { }
+                    }
+                    else if (!process.TryGetExitCode(out exitCode))
+                    {
+                        exitCode = ExitCodes.Internal;
+                    }
                 }
+            }
+
+            if (cancelled)
+            {
+                exitCode = ExitCodes.Cancelled;
+                error = new JsonObject { ["code"] = ErrorCodes.Cancelled, ["message"] = "cancelled" };
             }
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException or ArgumentException)
         {
             exitCode = ExitCodes.Internal;
             error = new JsonObject { ["code"] = ErrorCodes.Io, ["message"] = ex.Message };
+        }
+        finally
+        {
+            if (_execCts.TryGetValue(ctsKey, out var current) && ReferenceEquals(current, cts))
+            {
+                _execCts.TryRemove(ctsKey, out _);
+            }
+
+            cts.Dispose();
         }
 
         var replyData = new JsonObject

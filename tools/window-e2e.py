@@ -155,6 +155,18 @@ def main():
         check("loop reported", bool(loop_report), (loop.stdout[-300:], loop.stderr[-300:]))
         check("page rendered kernel version", "pd " in str(loop_report.get("versionRendered", "")), loop_report)
         check("loop ok", loop_report.get("ok") is True, loop_report)
+
+        print("follow: streaming log tail through the bridge path")
+        shell_dll = os.path.abspath(os.path.join("src", "PortableDev.Shell", "bin", "Debug", "net8.0", "win-x64", "pd.dll"))
+        follow_proc = subprocess.Popen([DOTNET, shell_dll, "--root", ROOT, "--json", "log", "--tail", "3", "--follow"],
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       encoding="utf-8", errors="replace", env=env)
+        try:
+            follow_out, _ = follow_proc.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            follow_proc.kill()
+            follow_out, _ = follow_proc.communicate(timeout=10)
+        check("follow streams records", '"type":"log"' in (follow_out or "").replace(" ", ""), (follow_out or "")[:300])
     finally:
         stop_kernel(ROOT, env)
         try:

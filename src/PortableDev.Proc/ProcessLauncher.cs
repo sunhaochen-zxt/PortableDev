@@ -27,6 +27,9 @@ public sealed record ProcessStartSpec
     /// </summary>
     public bool Detached { get; init; }
 
+    /// <summary>Skip MSVCRT quoting and join arguments verbatim (the caller pre-quoted them).</summary>
+    public bool DisableArgumentQuoting { get; init; }
+
     /// <summary>Inheritable stdio handles: pass all three, or none.</summary>
     public IntPtr? StandardInput { get; init; }
 
@@ -107,6 +110,8 @@ public static class ProcessSpawner
             throw new ArgumentException("FileName is required", nameof(spec));
         }
 
+        ValidateEnvironment(spec.Environment);
+
         var job = limits is null ? null : JobObject.Create(limits);
         if (job is null)
         {
@@ -133,6 +138,8 @@ public static class ProcessSpawner
         {
             throw new ArgumentException("FileName is required", nameof(spec));
         }
+
+        ValidateEnvironment(spec.Environment);
 
         return Create(spec, job, ownsJob: false).Process;
     }
@@ -213,6 +220,27 @@ public static class ProcessSpawner
         }
     }
 
+    private static void ValidateEnvironment(IReadOnlyDictionary<string, string>? environment)
+    {
+        if (environment is null)
+        {
+            return;
+        }
+
+        foreach (var pair in environment)
+        {
+            if (pair.Key.Contains('\0') || pair.Key.Contains('='))
+            {
+                throw new ArgumentException("invalid environment variable name: '" + pair.Key + "'", nameof(environment));
+            }
+
+            if (pair.Value.Contains('\0'))
+            {
+                throw new ArgumentException("invalid environment variable value for '" + pair.Key + "'", nameof(environment));
+            }
+        }
+    }
+
     private static NativeMethods.StartupInfo BuildStartup(ProcessStartSpec spec, out bool inheritHandles)
     {
         var provided = (spec.StandardInput is null ? 0 : 1)
@@ -251,7 +279,9 @@ public static class ProcessSpawner
         builder.Append(Quote(spec.FileName));
         foreach (var argument in spec.Arguments)
         {
-            builder.Append(' ').Append(Quote(argument));
+            // Callers that pre-quote for a non-MSVCRT parser (cmd.exe) set DisableArgumentQuoting
+            // so their quoting survives verbatim; MSVCRT quoting would corrupt it.
+            builder.Append(' ').Append(spec.DisableArgumentQuoting ? argument : Quote(argument));
         }
 
         return builder.ToString();
