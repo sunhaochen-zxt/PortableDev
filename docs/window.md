@@ -251,14 +251,20 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 
 - Windows 壳 `src/PortableDev.Window`（WinForms + WebView2 控件，`pd-window.exe`）：
   侧边栏列出所有扩展声明的页面，右侧加载页面；
-- 页面来源：`pd ui pages --json`（内核内置命令，扫描 `ext.json` 的 `pages`）；
+- 页面来源：`pd ui pages --json`（内核内置命令，扫描 `ext.json` 的 `pages`；非法声明会被拒绝并记日志：
+  entry 只允许扩展目录内的相对路径（禁 `/`、`\\` 开头、盘符、`..`、NUL），id 在扩展内唯一，`nav` 只认
+  `sidebar`/`menu`/`hidden`，其余回退为 `sidebar`）；
 - 虚拟主机：`https://pd.local/<扩展名>/<entry>`，映射到扩展目录（命令行 --extensions 指定，默认探测）；
 - 宿主桥 `window.pd`：`exec` / `on` / `off` / `cancel` / `reply` / `env` / `navigate`，另有便捷方法
   `run(argv)`（exec + 收集事件直到 done）；`config()` 尚未实现；
 - 事件按任务转发（`evt` / `evt:<id>`），prompt 带 `promptId`，页面用 `pd.reply` 回；
 - 内置 `ui` 扩展：概览 / 软件包 / 日志三个页面，只通过 `window.pd` 调命令；
-- 测试：`tools/window-e2e.py`（8 项）——无头 self-test 验证内核链路与页面清单；
-  `--smoke <文件>` 启动真实 WebView2、加载首页并断言 `window.pd` 注入成功；
+- 稳定性：窗口在 `Shown` 后才初始化；WebView2 初始化失败重试 3 次（每次换新的用户数据目录，
+  旧实例占用不再以 `0x800700AA` 卡死）；失败写 `<盘根>/state/logs/window-error.log`（HResult + 堆栈 + 重试号）；
+  同一盘根同时只开一个窗口（互斥量，第二个直接退出）；关窗释放内核连接；`--root` 会去掉尾部分隔符与多余引号；
+- 测试：`tools/window-e2e.py`——无头 self-test 验证内核链路与页面清单；`--smoke <文件>`
+  启动真实 WebView2、加载首页并断言 `window.pd` 注入成功；另有真实 apphost 部署、并发双窗口、
+  无 ui 扩展、非法 page entry 四组用例；
 - 部署：`tools/deploy-dev.py` 生成 `.run-app/`（app 二进制 + 扩展 + 已初始化的盘根 + 启动器），
   窗口壳在管道不存在时会用 `DOTNET_ROOT/dotnet.exe` 自动拉起内核，双击启动器即可用。
 

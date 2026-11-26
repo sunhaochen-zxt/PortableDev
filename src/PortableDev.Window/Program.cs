@@ -15,16 +15,13 @@ internal static class Program
             return SelfTest.RunAsync(options).GetAwaiter().GetResult();
         }
 
-        // One window per stick: a second launch just exits (smoke runs may overlap on purpose).
-        Mutex? mutex = null;
-        if (options.Smoke is null)
+        // One window per stick: a second launch just exits (smoke included, so the
+        // concurrent-launch case is covered by window-e2e).
+        var mutex = new Mutex(true, "PortableDev.Window." + RootKey(options.Root), out var created);
+        if (!created)
         {
-            mutex = new Mutex(true, "PortableDev.Window." + RootKey(options.Root), out var created);
-            if (!created)
-            {
-                mutex.Dispose();
-                return 0;
-            }
+            mutex.Dispose();
+            return 0;
         }
 
         try

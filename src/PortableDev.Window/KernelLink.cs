@@ -60,7 +60,19 @@ public sealed class KernelLink : IAsyncDisposable
             }
 
             var link = new KernelLink(stream) { Root = root, StickId = stickId };
-            await link.HandshakeAsync().ConfigureAwait(false);
+            try
+            {
+                // A wedged kernel must not hang the shell past the overall deadline.
+                await link.HandshakeAsync().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is TimeoutException or IOException or ProtocolException or OperationCanceledException)
+            {
+                last = ex;
+                stream.Dispose();
+                await Task.Delay(200).ConfigureAwait(false);
+                continue;
+            }
+
             link._pump = Task.Run(link.PumpAsync);
             return link;
         }
@@ -160,6 +172,7 @@ public sealed class KernelLink : IAsyncDisposable
             var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeoutMs)).ConfigureAwait(false);
             if (finished != waiter.Task)
             {
+                _done.TryRemove(id, out _);
                 throw new TimeoutException("kernel did not answer within " + timeoutMs + "ms");
             }
 
