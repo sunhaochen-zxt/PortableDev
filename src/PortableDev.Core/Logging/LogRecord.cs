@@ -277,7 +277,7 @@ public sealed class LogRecord
                 sensitive = true;
             }
 
-            clean[name] = value?.DeepClone();
+            clean[name] = SanitizeNode(value, ref sensitive, ref redacted, 0);
         }
 
         var ts = JsonUtil.String(clean, "ts") ?? TimeUtil.NowIso();
@@ -303,6 +303,59 @@ public sealed class LogRecord
             Fields = clean,
             Sensitive = sensitive,
         };
+    }
+
+    /// <summary>
+    /// Recursively enforces the same field rules inside nested values: a nested "env" object is
+    /// a whole snapshot too, and nested secret-looking names must mark the record sensitive.
+    /// Depth and node counts are bounded so a hostile record cannot blow the stack or memory.
+    /// </summary>
+    private static JsonNode? SanitizeNode(JsonNode? node, ref bool sensitive, ref int redacted, int depth)
+    {
+        if (depth >= 8)
+        {
+            redacted++;
+            return null;
+        }
+
+        switch (node)
+        {
+            case null:
+                return null;
+            case JsonObject obj:
+            {
+                var clean = new JsonObject();
+                foreach (var (name, value) in obj)
+                {
+                    if (LogRedaction.IsBulkSnapshot(name))
+                    {
+                        redacted++;
+                        continue;
+                    }
+
+                    if (LogRedaction.IsSensitive(name))
+                    {
+                        sensitive = true;
+                    }
+
+                    clean[name] = SanitizeNode(value, ref sensitive, ref redacted, depth + 1);
+                }
+
+                return clean;
+            }
+            case JsonArray array:
+            {
+                var clean = new JsonArray();
+                foreach (var item in array)
+                {
+                    clean.Add(SanitizeNode(item, ref sensitive, ref redacted, depth + 1));
+                }
+
+                return clean;
+            }
+            default:
+                return node.DeepClone();
+        }
     }
 
     private static readonly HashSet<string> KnownKeys = new(StringComparer.Ordinal)

@@ -20,6 +20,7 @@ internal static class Program
 
         var requestPath = args[0];
         string? fakePath = null;
+        string? resultArg = null;
         var noElevate = false;
         for (var index = 1; index < args.Length; index++)
         {
@@ -30,6 +31,10 @@ internal static class Program
             else if (args[index] == "--no-elevate")
             {
                 noElevate = true;
+            }
+            else if (args[index] == "--result" && index + 1 < args.Length)
+            {
+                resultArg = args[++index];
             }
         }
 
@@ -45,7 +50,14 @@ internal static class Program
             return 2;
         }
 
-        var resultPath = request["result"]?.GetValue<string>() ?? Path.ChangeExtension(requestPath, ".result.json");
+        // Explicit argv wins; the value inside the request file is honoured only when it points
+        // into the stick temp dir, because the request file is swappable while UAC is pending.
+        var resultPath = resultArg ?? request["result"]?.GetValue<string>() ?? Path.ChangeExtension(requestPath, ".result.json");
+        if (!ResultPathAllowed(resultPath))
+        {
+            Console.Error.WriteLine("pd-elevate: result path must be inside the stick temp directory: " + resultPath);
+            return 2;
+        }
 
         if (fakePath is null && !noElevate && !IsAdministrator())
         {
@@ -266,22 +278,19 @@ internal static class Program
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        var command = new ProcessStartInfo
+        // Never route this through cmd.exe: argument quoting for cmd is not MSVCRT quoting, so a
+        // path containing & | ^ or %VAR% would inject a second elevated command.
+        const int SymbolicLinkDirectory = 0x2;
+        const int AllowUnprivilegedCreate = 0x4;
+        if (!Native.CreateSymbolicLink(target, source, SymbolicLinkDirectory | AllowUnprivilegedCreate))
         {
-            FileName = "cmd.exe",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        command.ArgumentList.Add("/c");
-        command.ArgumentList.Add("mklink");
-        command.ArgumentList.Add("/J");
-        command.ArgumentList.Add(target);
-        command.ArgumentList.Add(source);
-        using var process = Process.Start(command) ?? throw new IOException("cannot run mklink");
-        process.WaitForExit();
-        if (process.ExitCode != 0)
-        {
-            throw new IOException("mklink failed with exit code " + process.ExitCode);
+            var firstError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+            // Older Windows rejects the unprivileged-create flag; we are elevated anyway.
+            if (!Native.CreateSymbolicLink(target, source, SymbolicLinkDirectory))
+            {
+                throw new IOException("cannot create link " + target + ": win32 " + firstError + "/" +
+                    System.Runtime.InteropServices.Marshal.GetLastWin32Error());
+            }
         }
 
         return null;
@@ -299,13 +308,26 @@ internal static class Program
             return existing;
         }
 
-        var info = new DirectoryInfo(target);
-        var linkTarget = info.Exists ? info.LinkTarget : null;
-        if (info.Exists)
+        // Only a link may be removed here; a plain directory would be real user data (or a
+        // junction-free path) and must never be deleted just because a request said so.
+        FileAttributes attributes;
+        try
         {
-            Directory.Delete(target, recursive: false);
+            attributes = File.GetAttributes(target);
+        }
+        catch (Exception)
+        {
+            return null;
         }
 
+        if ((attributes & FileAttributes.ReparsePoint) == 0)
+        {
+            throw new IOException("refusing to remove a non-link: " + target);
+        }
+
+        var info = new DirectoryInfo(target);
+        var linkTarget = info.LinkTarget;
+        Directory.Delete(target, recursive: false);
         return linkTarget is null ? null : new JsonObject { ["target"] = linkTarget };
     }
 
@@ -393,6 +415,31 @@ internal static class Program
         }
     }
 
+    private static class Native
+    {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        internal static extern bool CreateSymbolicLink(string filePath, string targetPath, int flags);
+    }
+
+    /// <summary>The result file must live in the stick temp dir (or %TEMP%); never a requested absolute path.</summary>
+    private static bool ResultPathAllowed(string path)
+    {
+        string baseDir;
+        var root = Environment.GetEnvironmentVariable("PD_ROOT");
+        baseDir = string.IsNullOrWhiteSpace(root) ? Path.GetTempPath() : Path.Combine(root, "state", "tmp");
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var baseFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(baseDir));
+            return full.StartsWith(baseFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     private static void WriteResult(string path, bool ok, string? error, JsonArray results)
     {
         var document = new JsonObject
@@ -408,6 +455,9 @@ internal static class Program
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        File.WriteAllText(path, document.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        // Exclusive create: never follow a pre-created file or link planted at this path.
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false));
+        writer.Write(document.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
     }
 }

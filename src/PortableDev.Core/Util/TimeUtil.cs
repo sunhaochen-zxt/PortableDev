@@ -20,7 +20,7 @@ public static class TimeUtil
         var unit = value[^1];
         if (!char.IsLetter(unit))
         {
-            return int.TryParse(value, out var seconds) ? TimeSpan.FromSeconds(seconds) : null;
+            return int.TryParse(value, out var seconds) && seconds >= 0 ? TimeSpan.FromSeconds(seconds) : null;
         }
 
         var numberPart = value[..^1];

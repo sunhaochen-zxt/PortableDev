@@ -250,7 +250,7 @@ public sealed class ExtensionSupervisor
     /// <summary>Routes a call.ok / call.err back to the caller; a different extension cannot answer it.</summary>
     public void RouteCallReply(string from, Envelope reply)
     {
-        if (reply.Id is null || !_pendingCalls.TryRemove(reply.Id, out var pending))
+        if (reply.Id is null || !_pendingCalls.TryGetValue(reply.Id, out var pending))
         {
             _kernel.Logger.Debug("call.orphan", "call reply has no caller", new JsonObject { ["id"] = reply.Id });
             return;
@@ -258,12 +258,20 @@ public sealed class ExtensionSupervisor
 
         if (!string.Equals(pending.Provider, from, StringComparison.Ordinal))
         {
+            // Validate BEFORE removing: a forged reply must not delete the real pending entry
+            // (that would drop the provider's genuine answer and hang the caller until timeout).
             _kernel.Logger.Warn("call.spoof", "call reply came from a different extension", new JsonObject
             {
                 ["id"] = reply.Id,
                 ["expected"] = pending.Provider,
                 ["actual"] = from,
             });
+            return;
+        }
+
+        if (!_pendingCalls.TryRemove(new KeyValuePair<string, PendingCall>(reply.Id, pending)))
+        {
+            _kernel.Logger.Debug("call.orphan", "call reply lost a race with cleanup", new JsonObject { ["id"] = reply.Id });
             return;
         }
 
@@ -750,7 +758,9 @@ public sealed class ExtensionSupervisor
 
     private async Task<bool> StartProcessAsync(ExtensionRuntime runtime, ExtensionManifest manifest, CancellationToken cancellationToken)
     {
-        if (runtime.Restarts >= manifest.Lifecycle.MaxRestarts && manifest.Lifecycle.Restart == "never")
+        // The budget is about restarts, not the initial start: Restarts==0 must always be allowed.
+        // (The old condition only applied to restart="never", i.e. exactly the case that never restarts.)
+        if (runtime.Restarts > 0 && runtime.Restarts >= manifest.Lifecycle.MaxRestarts)
         {
             runtime.State = "failed";
             return false;
@@ -894,6 +904,23 @@ public sealed class ExtensionSupervisor
         }
     }
 
+    /// <summary>Answers every caller waiting on a dead provider instead of letting them time out.</summary>
+    private void FailPendingCallsFor(string provider, string reason)
+    {
+        foreach (var pair in _pendingCalls.ToArray())
+        {
+            if (!string.Equals(pair.Value.Provider, provider, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (_pendingCalls.TryRemove(new KeyValuePair<string, PendingCall>(pair.Key, pair.Value)))
+            {
+                _ = SendCallErrorAsync(pair.Value.From, pair.Key, ErrorCodes.ExtTimeout, reason);
+            }
+        }
+    }
+
     private void OnProcessExited(ExtensionRuntime runtime, Process process)
     {
         if (!ReferenceEquals(runtime.Process, process))
@@ -907,6 +934,7 @@ public sealed class ExtensionSupervisor
         runtime.Connection = null;
         _kernel.Logger.Provider.Detach(runtime.Manifest.Name);
         FailInFlight(runtime, $"extension '{runtime.Manifest.Name}' exited while a task was running");
+        FailPendingCallsFor(runtime.Manifest.Name, $"extension '{runtime.Manifest.Name}' exited while a capability call was pending");
         runtime.State = exitCode == 0 ? "exited" : "crashed";
         _kernel.Logger.Warn("ext.exit", "extension process exited", new JsonObject
         {
@@ -929,7 +957,13 @@ public sealed class ExtensionSupervisor
 
                 try
                 {
-                    await runtime.StartGate.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    // WaitAsync(TimeSpan) returns false on timeout instead of throwing; ignoring
+                    // the result double-starts the extension and corrupts the gate count.
+                    if (!await runtime.StartGate.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false))
+                    {
+                        return;
+                    }
+
                     try
                     {
                         if (runtime.Process is null or { HasExited: true })
@@ -1072,8 +1106,8 @@ public sealed class ExtensionSupervisor
         switch (interpreter)
         {
             case "exe":
+                // FileName is already the entry; adding it again passed the path as an argument.
                 args.AddRange(manifest.EntryArgs);
-                args.Add(entry);
                 return (entry, args.ToArray());
             case "pwsh":
                 args.AddRange(["-NoProfile", "-File", entry]);

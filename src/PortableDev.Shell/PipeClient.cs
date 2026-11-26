@@ -89,6 +89,11 @@ public sealed class PipeClient : IDisposable
         {
             return null;
         }
+        catch (ObjectDisposedException)
+        {
+            // The pipe was closed while a read was pending (handshake timeout or shutdown).
+            return null;
+        }
         catch (OperationCanceledException)
         {
             return null;

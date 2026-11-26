@@ -13,7 +13,7 @@ public sealed class KernelLink : IAsyncDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonObject>> _done = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly TaskCompletionSource<JsonArray> _pagesSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<JsonArray> _pagesSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _pump;
     private string? _pagesTaskId;
     private long _counter;
@@ -101,10 +101,20 @@ public sealed class KernelLink : IAsyncDisposable
         StableRoot = JsonUtil.String(reply.Data, "stableRoot") ?? string.Empty;
     }
 
-    public async Task<string> ExecAsync(string[] argv)
+    private string NextRequestId()
+        => "r" + Interlocked.Increment(ref _counter).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private TaskCompletionSource<JsonObject> RegisterRequest(string id)
     {
-        var id = "r" + Interlocked.Increment(ref _counter).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        _done[id] = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var source = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _done[id] = source;
+        return source;
+    }
+
+    /// <summary>Sends an already-registered request; the id exists before the frame goes out so
+    /// callers can subscribe to events before the kernel can emit them.</summary>
+    private async Task SendRequestAsync(string id, string[] argv)
+    {
         var envelope = Envelope.Make(Kinds.Req, new JsonObject
         {
             ["argv"] = new JsonArray(argv.Select(argument => (JsonNode?)argument).ToArray()),
@@ -120,7 +130,13 @@ public sealed class KernelLink : IAsyncDisposable
             _done.TryRemove(id, out _);
             throw;
         }
+    }
 
+    public async Task<string> ExecAsync(string[] argv)
+    {
+        var id = NextRequestId();
+        RegisterRequest(id);
+        await SendRequestAsync(id, argv).ConfigureAwait(false);
         return id;
     }
 
@@ -160,9 +176,10 @@ public sealed class KernelLink : IAsyncDisposable
     /// <summary>Runs a command and collects its events (used by the `pd.run` bridge helper).
     /// Only the first <paramref name="maxEvents"/> events are kept; a chatty task must not be
     /// able to grow the caller without bound.</summary>
-    public async Task<JsonObject> RunWithEventsAsync(string[] argv, JsonArray events, int timeoutMs = 180000, int maxEvents = 5000)
+    public async Task<JsonObject> RunWithEventsAsync(string[] argv, JsonArray events, int timeoutMs = 180000, int maxEvents = 5000, Action<string>? onTaskId = null)
     {
-        var id = await ExecAsync(argv).ConfigureAwait(false);
+        var id = NextRequestId();
+        var waiter = RegisterRequest(id);
         void Handler(string taskId, JsonObject data)
         {
             if (!string.Equals(taskId, id, StringComparison.Ordinal))
@@ -175,14 +192,18 @@ public sealed class KernelLink : IAsyncDisposable
                 return;
             }
 
-            events.Add(data.DeepClone());
+            if (events.Count < maxEvents)
+            {
+                events.Add(data.DeepClone());
+            }
         }
 
+        // Subscribe before sending: a fast command can emit events before the send returns.
         EventReceived += Handler;
         try
         {
-            var waiter = _done.GetValueOrDefault(id)
-                ?? throw new InvalidOperationException("request was not registered: " + id);
+            await SendRequestAsync(id, argv).ConfigureAwait(false);
+            onTaskId?.Invoke(id);
             var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeoutMs)).ConfigureAwait(false);
             if (finished != waiter.Task)
             {
@@ -206,14 +227,23 @@ public sealed class KernelLink : IAsyncDisposable
 
     public async Task<JsonArray> RequestPagesAsync()
     {
-        _pagesTaskId = await ExecAsync(["ui", "pages"]).ConfigureAwait(false);
+        var id = NextRequestId();
+        var signal = new TaskCompletionSource<JsonArray>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pagesSignal = signal;
+        _pagesTaskId = id;
+        RegisterRequest(id);
         try
         {
-            return await _pagesSignal.Task.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+            await SendRequestAsync(id, ["ui", "pages"]).ConfigureAwait(false);
+            return await signal.Task.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             throw new TimeoutException("ui pages did not answer within 20s");
+        }
+        finally
+        {
+            _pagesTaskId = null;
         }
     }
 
@@ -364,7 +394,8 @@ public sealed class KernelLink : IAsyncDisposable
         var settingsFile = Path.Combine(root, "config", "settings.json");
         if (File.Exists(settingsFile))
         {
-            prefix = JsonUtil.String(JsonNode.Parse(File.ReadAllText(settingsFile)) as JsonObject, "kernel.pipePrefix") ?? prefix;
+            // settings.json is nested ({"kernel": {...}}); read the section first.
+            prefix = JsonUtil.String(JsonUtil.Object(JsonNode.Parse(File.ReadAllText(settingsFile)) as JsonObject, "kernel"), "pipePrefix") ?? prefix;
         }
 
         return (stickId, prefix);

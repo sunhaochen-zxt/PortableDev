@@ -1,13 +1,19 @@
 // Unpack extension: extract an archive into a grant directory, with path and size guards.
+//
+// Guard strategy: entry names and link entries are rejected from the tar listing before
+// anything is written; the byte/file limits are enforced *while* extracting (the child is
+// killed and the destination removed as soon as a limit is crossed), so a bomb cannot fill
+// the disk before it is noticed. A post-extraction walk then rejects links/specials.
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 const { connect, ready } = require("./protocol");
 
 const ROOT = process.env.PD_ROOT || ".";
 
 const MAX_FILES_DEFAULT = 200000;
 const MAX_BYTES_DEFAULT = 4 * 1024 * 1024 * 1024;
+const MONITOR_INTERVAL_MS = 100;
 
 function UnpackError(code, message) {
   this.code = code;
@@ -42,12 +48,9 @@ function isInside(root, candidate) {
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-function listEntries(archive, kind) {
-  if (kind === "zip" || kind === "tar.gz") {
-    const output = execFileSync("tar", ["-tf", archive], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    return output.split("\n").map((line) => line.trim()).filter(Boolean);
-  }
-  throw new UnpackError("ERR_UNSUPPORTED", "cannot list a " + kind + " archive yet");
+function listEntries(archive) {
+  const output = execFileSync("tar", ["-tf", archive], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return output.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
 function assertSafeEntries(entries) {
@@ -57,6 +60,51 @@ function assertSafeEntries(entries) {
       throw new UnpackError("ERR_UNSUPPORTED", "archive entry escapes the destination: " + entry);
     }
   }
+}
+
+// A link entry must never reach the disk: lift()/writes would follow it out of the sandbox.
+function assertNoLinkEntries(archive) {
+  const output = execFileSync("tar", ["-tvf", archive], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  for (const line of output.split("\n")) {
+    if (line.length === 0) {
+      continue;
+    }
+    const mode = line[0];
+    if (mode === "l" || mode === "h") {
+      throw new UnpackError("ERR_UNSUPPORTED", "archive contains a link entry: " + line.slice(0, 160));
+    }
+  }
+}
+
+function measure(dir) {
+  let files = 0;
+  let bytes = 0;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let names;
+    try {
+      names = fs.readdirSync(current);
+    } catch (error) {
+      continue;
+    }
+    for (const name of names) {
+      const full = path.join(current, name);
+      let stat;
+      try {
+        stat = fs.lstatSync(full);
+      } catch (error) {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        stack.push(full);
+      } else {
+        files += 1;
+        bytes += stat.size;
+      }
+    }
+  }
+  return { files, bytes };
 }
 
 function walkStats(dir) {
@@ -84,27 +132,46 @@ function walkStats(dir) {
   return { files, bytes };
 }
 
-function scanEntries(archive, kind) {
-  let output;
-  try {
-    output = execFileSync("tar", ["-tvf", archive], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  } catch (error) {
-    throw new UnpackError("ERR_IO", "cannot list the archive: " + (error.message || String(error)));
-  }
-  let declaredBytes = 0;
-  for (const line of output.split("\n")) {
-    if (line.length === 0) {
-      continue;
-    }
-    if (line[0] === "l" || line[0] === "h") {
-      throw new UnpackError("ERR_UNSUPPORTED", "archive contains a link entry: " + line.slice(0, 160));
-    }
-    const match = /^\S+\s+\S+\s+\S+\s+(\d+)\s/.exec(line);
-    if (match) {
-      declaredBytes += Number(match[1]);
-    }
-  }
-  return declaredBytes;
+// Runs tar and watches the destination; the first crossing of a limit kills the extraction.
+function extractWithLimits(archive, dest, limits) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("tar", ["-xf", archive, "-C", dest], { stdio: "ignore", windowsHide: true });
+    let settled = false;
+    let timer = null;
+    const finish = (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer !== null) {
+        clearInterval(timer);
+      }
+      if (error) {
+        try { child.kill(); } catch (killError) { /* already gone */ }
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+
+    timer = setInterval(() => {
+      const current = measure(dest);
+      if (current.bytes > limits.maxBytes) {
+        finish(new UnpackError("ERR_UNSUPPORTED", "extraction exceeded the byte limit (" + limits.maxBytes + " bytes)"));
+      } else if (current.files > limits.maxFiles) {
+        finish(new UnpackError("ERR_UNSUPPORTED", "extraction exceeded the file limit (" + limits.maxFiles + ")"));
+      }
+    }, MONITOR_INTERVAL_MS);
+
+    child.on("error", (error) => finish(new UnpackError("ERR_IO", "cannot extract the archive: " + (error.message || String(error)))));
+    child.on("exit", (code) => {
+      if (code === 0) {
+        finish(null);
+      } else {
+        finish(new UnpackError("ERR_IO", "tar exited with " + code));
+      }
+    });
+  });
 }
 
 function lift(dir, levels) {
@@ -124,7 +191,7 @@ function lift(dir, levels) {
   }
 }
 
-function extract(args) {
+async function extract(args) {
   const archive = path.resolve(String(args.archive || ""));
   const dest = path.resolve(String(args.dest || ""));
   if (!fs.existsSync(archive)) {
@@ -144,43 +211,39 @@ function extract(args) {
     throw new UnpackError("ERR_UNSUPPORTED", "the destination must be inside the stick staging directory");
   }
 
-  const entries = listEntries(archive, kind);
-  if (args.sanitize !== false) {
-    assertSafeEntries(entries);
-  }
+  assertSafeEntries(listEntries(archive));
+  assertNoLinkEntries(archive);
 
-  const maxFiles = Number(args.maxFiles) > 0 ? Number(args.maxFiles) : MAX_FILES_DEFAULT;
-  const maxBytes = Number(args.maxBytes) > 0 ? Number(args.maxBytes) : MAX_BYTES_DEFAULT;
-  const declaredBytes = scanEntries(archive, kind);
-  if (declaredBytes > maxBytes) {
-    throw new UnpackError("ERR_UNSUPPORTED", "archive declares " + declaredBytes + " bytes (limit " + maxBytes + ")");
-  }
-  if (entries.length > maxFiles) {
-    throw new UnpackError("ERR_UNSUPPORTED", "archive has " + entries.length + " entries (limit " + maxFiles + ")");
-  }
+  const limits = {
+    maxFiles: Number(args.maxFiles) > 0 ? Number(args.maxFiles) : MAX_FILES_DEFAULT,
+    maxBytes: Number(args.maxBytes) > 0 ? Number(args.maxBytes) : MAX_BYTES_DEFAULT,
+  };
 
   fs.mkdirSync(dest, { recursive: true });
-  execFileSync("tar", ["-xf", archive, "-C", dest], { stdio: "ignore", maxBuffer: 64 * 1024 * 1024 });
+  try {
+    await extractWithLimits(archive, dest, limits);
+    // Reject links before strip/lift: lift() would otherwise follow a link out of the sandbox.
+    walkStats(dest);
+    const strip = Number(args.strip) > 0 ? Number(args.strip) : 0;
+    if (strip > 0) {
+      lift(dest, strip);
+    }
 
-  // Reject links before strip/lift: lift() would otherwise follow a link out of the sandbox.
-  walkStats(dest);
-  const strip = Number(args.strip) > 0 ? Number(args.strip) : 0;
-  if (strip > 0) {
-    lift(dest, strip);
+    const stats = walkStats(dest);
+    if (stats.bytes > limits.maxBytes || stats.files > limits.maxFiles) {
+      throw new UnpackError("ERR_UNSUPPORTED", "extracted archive exceeds the limits (" + stats.bytes + " bytes, " + stats.files + " files)");
+    }
+    return { dest, files: stats.files, bytes: stats.bytes, kind };
+  } catch (error) {
+    // Never leave a partially validated tree (possibly containing links) behind.
+    try { fs.rmSync(dest, { recursive: true, force: true }); } catch (removeError) { /* best effort */ }
+    throw error;
   }
-
-  const stats = walkStats(dest);
-  if (stats.bytes > maxBytes) {
-    fs.rmSync(dest, { recursive: true, force: true });
-    throw new UnpackError("ERR_UNSUPPORTED", "extracted size " + stats.bytes + " exceeds the limit " + maxBytes);
-  }
-
-  return { dest, files: stats.files, bytes: stats.bytes, kind };
 }
 
 let send = () => {};
 
-function handleCall(message) {
+async function handleCall(message) {
   const id = message.id;
   const capability = message.data && message.data.cap;
   const op = (message.data && message.data.op) || "";
@@ -190,7 +253,7 @@ function handleCall(message) {
       send({ v: 1, kind: "call.err", id, data: { error: { code: "ERR_UNSUPPORTED", message: "unknown " + capability + "/" + op } } });
       return;
     }
-    const result = extract(args);
+    const result = await extract(args);
     send({ v: 1, kind: "call.ok", id, data: { result } });
   } catch (error) {
     send({ v: 1, kind: "call.err", id, data: { error: { code: error.code || "ERR_IO", message: error.message || String(error) } } });
@@ -205,7 +268,7 @@ connect({
       return;
     }
     if (message.kind === "call") {
-      handleCall(message);
+      handleCall(message).catch(() => { /* errors are reported as call.err */ });
     }
   },
 });

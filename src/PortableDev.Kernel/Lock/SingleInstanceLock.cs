@@ -218,7 +218,7 @@ public sealed class SingleInstanceLock : IDisposable
 
             return (pid, heartbeat, root);
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
             return (null, null, null);
         }

@@ -216,6 +216,17 @@ public sealed class ExtensionClient : IDisposable
         });
     }
 
+    /// <summary>
+    /// Publishes one key/value event (spec 4.4 / TaskContext.KvAsync): the text renderer prints the
+    /// optional title and the "items" object, so callers must never flatten the pairs into the event.
+    /// </summary>
+    public Task KvAsync(string taskKey, string title, JsonObject items)
+        => EventAsync(taskKey, EventTypes.Kv, new JsonObject
+        {
+            ["title"] = title,
+            ["items"] = items.DeepClone(),
+        });
+
     public Task LogAsync(string taskKey, string level, string message)
         => EventAsync(taskKey, EventTypes.Log, new JsonObject { ["level"] = level, ["msg"] = message });
 

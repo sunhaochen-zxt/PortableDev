@@ -125,6 +125,16 @@ public sealed class MainForm : Form
             _bridge = new Bridge(_webView, _link, NavigateToAsync, Bridge.LoadPolicies(_options.Extensions));
             await _bridge.AttachAsync(System.Text.Json.JsonSerializer.Serialize(look.Theme), System.Text.Json.JsonSerializer.Serialize(look.Locale)).ConfigureAwait(true);
 
+            // The shell only ever shows local extension pages: block any other navigation and
+            // all popup windows, so a package page cannot turn the shell into a browser.
+            core.NavigationStarting += (_, navigation) =>
+            {
+                if (!IsLocalPageUrl(navigation.Uri))
+                {
+                    navigation.Cancel = true;
+                }
+            };
+            core.NewWindowRequested += (_, window) => window.Handled = true;
             core.NavigationCompleted += OnNavigationCompleted;
             if (_options.Smoke is not null || _options.SmokeCheck is not null)
             {
@@ -145,6 +155,12 @@ public sealed class MainForm : Form
             HandleFailure(ex);
         }
     }
+
+    /// <summary>True only for the virtual host the shell itself maps; everything else is foreign.</summary>
+    private static bool IsLocalPageUrl(string? uri)
+        => !string.IsNullOrEmpty(uri)
+            && uri.StartsWith("https://pd.local/", StringComparison.OrdinalIgnoreCase)
+            && !uri.Contains("..", StringComparison.Ordinal);
 
     private async Task<bool> EnsureWebViewAsync()
     {
@@ -488,9 +504,11 @@ public sealed class MainForm : Form
             var path = Path.Combine(_options.Root, "config", "settings.json");
             if (File.Exists(path) && JsonNode.Parse(File.ReadAllText(path)) is JsonObject settings)
             {
-                var theme = JsonUtil.String(settings, "ui.theme") ?? "light";
-                var locale = JsonUtil.String(settings, "ui.language") ?? "zh-CN";
-                return (theme == "light" ? "light" : "dark", locale);
+                // settings.json is nested ({"ui": {...}}); read the section first.
+                var look = JsonUtil.Object(settings, "ui");
+                var theme = JsonUtil.String(look, "theme") ?? "light";
+                var locale = JsonUtil.String(look, "language") ?? "zh-CN";
+                return (string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light", locale);
             }
         }
         catch (Exception)

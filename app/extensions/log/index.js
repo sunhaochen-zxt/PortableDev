@@ -216,7 +216,17 @@ function startFollow(send, id, flags) {
         const file = unitFile(unit);
         if (!fs.existsSync(file)) continue;
         const size = fs.statSync(file).size;
-        const previous = offsets.get(file) || 0;
+        if (!offsets.has(file)) {
+          // First sight: start at the current end. The initial query already sent history,
+          // so starting at 0 would duplicate every existing line.
+          offsets.set(file, size);
+          continue;
+        }
+        let previous = offsets.get(file);
+        if (size < previous) {
+          // The file was rotated/replaced; read the new file from the beginning.
+          previous = 0;
+        }
         if (size <= previous) continue;
         const fd = fs.openSync(file, "r");
         try {

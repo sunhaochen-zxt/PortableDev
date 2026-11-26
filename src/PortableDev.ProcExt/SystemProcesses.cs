@@ -1,8 +1,11 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json.Nodes;
+using PortableDev.Core.Protocol;
+using PortableDev.Core.Util;
 
 namespace PortableDev.ProcExt;
 
@@ -13,6 +16,7 @@ internal static class SystemProcesses
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint ProcessTerminate = 0x0001;
     private const uint TokenQuery = 0x0008;
+    private const int ErrorAccessDenied = 5;
 
     private static readonly HashSet<string> CriticalNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -102,38 +106,58 @@ internal static class SystemProcesses
     {
         if (pid <= 4)
         {
-            return Error("ERR_UNSUPPORTED", "pid " + pid + " is a system process PD refuses to touch");
+            return Error(ErrorCodes.Unsupported, "pid " + pid + " is a system process PD refuses to touch");
         }
 
+        if (IsSelfOrAncestor(pid))
+        {
+            return Error(ErrorCodes.Unsupported, "pid " + pid + " is PD itself or one of its ancestors; refusing to end it");
+        }
+
+        // Identity is sampled once here, then re-queried through the terminate handle below: a pid
+        // that was recycled between the two points must never be killed.
         var described = Describe(pid);
         var level = described["level"]?.GetValue<int>() ?? 0;
         if (level == 2 && !forceCritical)
         {
-            return Error("ERR_UNSUPPORTED", "critical process: pass --force-critical to end it anyway");
+            return Error(ErrorCodes.Unsupported, "critical process: pass --force-critical to end it anyway");
         }
 
+        var expectedStarted = JsonUtil.String(described, "startTime");
         var handle = OpenProcess(ProcessTerminate | ProcessQueryLimitedInformation, false, pid);
         if (handle == IntPtr.Zero)
         {
             var error = Marshal.GetLastWin32Error();
             if (error == 2 || error == 87)
             {
-                return Error("ERR_PROC_NOT_FOUND", "no process with pid " + pid);
+                return Error(ErrorCodes.ProcNotFound, "no process with pid " + pid);
             }
 
-            if (error == 5)
+            if (error == ErrorAccessDenied)
             {
-                return Error("ERR_ELEVATION", "cannot open pid " + pid + ": access denied (try --elevated)");
+                return AccessDenied(pid);
             }
 
-            return Error("ERR_IO", "cannot open pid " + pid + ": win32=" + error);
+            return Error(ErrorCodes.Io, "cannot open pid " + pid + ": win32=" + error);
         }
 
         try
         {
+            var actualStarted = StartTime(handle);
+            if (!string.Equals(expectedStarted, actualStarted, StringComparison.Ordinal))
+            {
+                return Error(ErrorCodes.ProcNotFound, "pid " + pid + " was reused; refusing to end the new process");
+            }
+
             if (!TerminateProcess(handle, 1))
             {
-                return Error("ERR_IO", "TerminateProcess failed: " + Marshal.GetLastWin32Error());
+                var error = Marshal.GetLastWin32Error();
+                if (error == ErrorAccessDenied)
+                {
+                    return AccessDenied(pid);
+                }
+
+                return Error(ErrorCodes.Io, "TerminateProcess failed: " + error);
             }
         }
         finally
@@ -142,6 +166,59 @@ internal static class SystemProcesses
         }
 
         return new JsonObject { ["ok"] = true, ["pid"] = pid, ["level"] = level };
+    }
+
+    /// <summary>Access denied means "elevate" only while we are not elevated; PPL refuses even then.</summary>
+    private static JsonObject AccessDenied(int pid)
+        => IsElevated()
+            ? Error(ErrorCodes.ProcProtected, "pid " + pid + " is protected; not even an elevated process can end it")
+            : Error(ErrorCodes.Elevation, "cannot open pid " + pid + ": access denied (try --elevated)");
+
+    private static bool IsElevated()
+    {
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>PD never ends itself or anything above it in its own parent chain (shell / kernel / proc).</summary>
+    private static bool IsSelfOrAncestor(int pid)
+    {
+        var self = Environment.ProcessId;
+        if (pid == self)
+        {
+            return true;
+        }
+
+        var parents = new Dictionary<int, int>();
+        foreach (var entry in Enumerate())
+        {
+            parents[entry.Pid] = entry.ParentPid;
+        }
+
+        var current = self;
+        for (var guard = 0; guard < 1024; guard++)
+        {
+            if (!parents.TryGetValue(current, out var parent) || parent <= 0 || parent == current)
+            {
+                return false;
+            }
+
+            if (parent == pid)
+            {
+                return true;
+            }
+
+            current = parent;
+        }
+
+        return false;
     }
 
     public static JsonObject Error(string code, string message) => new()

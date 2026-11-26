@@ -305,8 +305,7 @@ path.add / env.set / reg.set / reg.del / launch / assert
 `source` 是盘上的路径（用占位符），`target` 是机器上的位置。
 `link` 需要一次提权；`arg` / `env` 不需要。
 
-> 这里的 `link` 和 `persist` 是同一套联接机制，只是方向不同（`persist` 见 3.12）。
-> 实现上只有一个"建联接"原语，不要写两遍。
+> `link` 和 `persist`（3.12）共用同一套联接原语，不要写两遍。
 
 ### 3.8 注册表 `registry`
 

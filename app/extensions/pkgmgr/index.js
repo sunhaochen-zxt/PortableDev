@@ -538,6 +538,8 @@ async function install(message, options) {
   let grantPath = null;
   let scoopStaging = null;
   const replacedOld = [];
+  // Declared outside try/catch so the failure path can restore replaced packages with it.
+  let depChain = [];
   const dropScoopStaging = () => {
     const staging = scoopStaging;
     scoopStaging = null;
@@ -655,7 +657,7 @@ async function install(message, options) {
     const version = validVersion(manifest.version);
     const manager = sources();
     const depPlan = await planDependencies({ manifest: manifest, pkgId: pkgId, event: event, flags: flags, manager: manager });
-    const depChain = (opts.chain || []).concat([pkgId + "@" + version]);
+    depChain = (opts.chain || []).concat([pkgId + "@" + version]);
 
     if (resolvedPackage) {
       if (!flags.as && String(manifest.id) !== resolvedPackage.id) {
@@ -695,22 +697,26 @@ async function install(message, options) {
     }
 
     throwIfCancelled(id);
-    await installDependencyPlan({ plan: depPlan, chain: depChain, taskId: taskId, id: id, ctx: (message.data && message.data.ctx) || {}, flags: flags, event: event });
 
+    // Conflicts are checked before anything is written: a package we replace is removed
+    // later on purpose, so it must not count as a conflict here.
     if (flags.force !== true) {
       const installed = await listInstalled();
       const byId = new Set(installed.map((item) => item.id));
+      const replaced = new Set(Array.isArray(manifest.replaces) ? manifest.replaces.filter((name) => typeof name === "string") : []);
       const mine = Array.isArray(manifest.conflicts)
-        ? manifest.conflicts.filter((name) => typeof name === "string") : [];
+        ? manifest.conflicts.filter((name) => typeof name === "string" && !replaced.has(name)) : [];
       const hitMine = mine.find((name) => byId.has(name));
       if (hitMine) {
         throw new PkgError("ERR_DEP_UNSATISFIED", pkgId + " conflicts with installed " + hitMine + "; remove it first or install with --force", 24);
       }
-      const hitTheirs = installed.find((item) => (item.conflicts || []).includes(pkgId));
+      const hitTheirs = installed.find((item) => !replaced.has(item.id) && (item.conflicts || []).includes(pkgId));
       if (hitTheirs) {
         throw new PkgError("ERR_DEP_UNSATISFIED", "installed " + hitTheirs.id + " conflicts with " + pkgId + "; remove it first or install with --force", 24);
       }
     }
+
+    await installDependencyPlan({ plan: depPlan, chain: depChain, taskId: taskId, id: id, ctx: (message.data && message.data.ctx) || {}, flags: flags, event: event });
 
     // Packages this one replaces must go first (they cannot coexist); keep their data.
     // On later failure each removed package is reinstalled best-effort below.
@@ -1543,13 +1549,36 @@ async function removeCommand(message) {
     if (flags.force !== true) {
       const installed = await listInstalled();
       const removing = new Set(targets.map((item) => item.pkg));
+      const manager = sources();
       const blocked = [];
       for (const target of targets) {
         const provides = Array.isArray(target.record.provides)
           ? target.record.provides.filter((name) => typeof name === "string") : [];
-        const dependents = installed.filter((item) =>
-          !removing.has(item.id) && item.id !== target.pkg &&
-          (item.requires || []).some((dep) => dep && (dep.id === target.pkg || provides.includes(dep.id))));
+        const dependents = installed.filter((item) => {
+          if (removing.has(item.id) || item.id === target.pkg) {
+            return false;
+          }
+          return (item.requires || []).some((dep) => {
+            if (!dep) {
+              return false;
+            }
+            if (dep.id === target.pkg) {
+              return true;
+            }
+            if (!provides.includes(dep.id)) {
+              return false;
+            }
+            // Another installed package may still provide the virtual name: only block
+            // when this removal leaves no provider satisfying the declared range.
+            let constraint = null;
+            try { constraint = manager.parseConstraint(dep.range || ""); } catch (error) { constraint = null; }
+            const remaining = installed.filter((other) =>
+              !removing.has(other.id) && other.id !== target.pkg &&
+              Array.isArray(other.provides) && other.provides.includes(dep.id) &&
+              (constraint === null || manager.satisfies(String(other.version), constraint)));
+            return remaining.length === 0;
+          });
+        });
         if (dependents.length > 0) {
           blocked.push(target.pkg + " (required by " + dependents.map((item) => item.id).join(", ") + ")");
         }

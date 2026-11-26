@@ -511,7 +511,9 @@ public sealed class ClientConnection : IMessageSink
                         }
                     }
 
-                    if (envelope.Data["type"]?.GetValue<string>() == EventTypes.Ext)
+                    // Tolerant read: a non-string type must not throw (that used to kill the
+                    // extension's connection via the crash path).
+                    if (string.Equals(JsonUtil.String(envelope.Data, "type"), EventTypes.Ext, StringComparison.Ordinal))
                     {
                         await _kernel.Sessions.BroadcastExtensionEventAsync(envelope).ConfigureAwait(false);
                     }

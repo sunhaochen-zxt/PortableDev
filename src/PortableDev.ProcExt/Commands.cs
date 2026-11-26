@@ -66,6 +66,25 @@ internal static class Commands
                     break;
                 }
 
+                case "proc.system":
+                {
+                    var filter = JsonUtil.String(args, "filter");
+                    var result = JsonUtil.Bool(args, "elevated") == true
+                        ? Elevated.Run(new JsonObject { ["action"] = "system", ["filter"] = filter })
+                        : SystemProcesses.Snapshot(filter);
+                    if (result["error"] is JsonObject systemError)
+                    {
+                        await client.CallErrorAsync(
+                            callId,
+                            JsonUtil.String(systemError, "code") ?? ErrorCodes.Internal,
+                            JsonUtil.String(systemError, "message") ?? "cannot enumerate system processes").ConfigureAwait(false);
+                        break;
+                    }
+
+                    await client.CallOkAsync(callId, result).ConfigureAwait(false);
+                    break;
+                }
+
                 default:
                     await client.CallErrorAsync(callId, ErrorCodes.Unsupported, "capability not implemented yet: " + capability)
                         .ConfigureAwait(false);
@@ -167,7 +186,9 @@ internal static class Commands
             var timedOut = !exited;
             if (!exited)
             {
-                job?.Terminate();
+                // The registry owns the job: terminating through it disposes the job exactly once,
+                // so a concurrent proc.kill cannot race this path onto a disposed handle.
+                Managed.TryTerminate(procId);
                 process.WaitForExit(TimeSpan.FromSeconds(3));
             }
 
@@ -201,8 +222,9 @@ internal static class Commands
         }
         finally
         {
+            // Remove disposes the job only while this spawner still owns the entry; a concurrent
+            // TryTerminate (or the timeout path above) already did it otherwise.
             Managed.Remove(procId);
-            job?.Dispose();
             process.Dispose();
         }
     }
@@ -223,7 +245,7 @@ internal static class Commands
             case "snapshot":
             {
                 var snapshot = Managed.Snapshot();
-                await client.EventAsync(taskKey, EventTypes.Kv, new JsonObject { ["managed"] = snapshot.Count })
+                await client.KvAsync(taskKey, "managed processes", new JsonObject { ["managed"] = snapshot.Count })
                     .ConfigureAwait(false);
                 await client.DoneAsync(taskKey, ExitCodes.Ok, summary: snapshot.Count + " managed process(es)")
                     .ConfigureAwait(false);
@@ -293,7 +315,7 @@ internal static class Commands
                     break;
                 }
 
-                await client.EventAsync(taskKey, EventTypes.Kv, new JsonObject { ["process"] = found.DeepClone() })
+                await client.KvAsync(taskKey, "managed process", new JsonObject { ["process"] = found.DeepClone() })
                     .ConfigureAwait(false);
                 await client.DoneAsync(taskKey, ExitCodes.Ok, summary: "pid " + infoPid).ConfigureAwait(false);
                 break;
@@ -438,7 +460,7 @@ internal static class Commands
         => (JsonUtil.String(error, "code") ?? ErrorCodes.Internal) switch
         {
             ErrorCodes.BadArgs => ExitCodes.Args,
-            ErrorCodes.Unsupported => ExitCodes.Rejected,
+            ErrorCodes.Unsupported or ErrorCodes.ProcProtected => ExitCodes.Rejected,
             ErrorCodes.Elevation => ExitCodes.Permission,
             ErrorCodes.ProcNotFound => ExitCodes.NotFound,
             _ => ExitCodes.Internal,

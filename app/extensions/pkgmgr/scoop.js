@@ -100,7 +100,12 @@ function convertManifest(manifest, manifestName) {
   }
 
   // The bucket may carry a 64-bit variant; plain top-level fields are the fallback.
-  const arch = (manifest["64bit"] && typeof manifest["64bit"] === "object") ? manifest["64bit"] : manifest;
+  // Buckets use both {"64bit": {...}} and {"architecture": {"64bit": {...}}}.
+  const nested = manifest.architecture && typeof manifest.architecture === "object" && !Array.isArray(manifest.architecture)
+    ? manifest.architecture["64bit"] : null;
+  const direct = manifest["64bit"] && typeof manifest["64bit"] === "object" && !Array.isArray(manifest["64bit"])
+    ? manifest["64bit"] : null;
+  const arch = nested && typeof nested === "object" ? nested : (direct || manifest);
   const urls = asList(arch.url);
   const hashes = asList(arch.hash);
   const pairs = [];
@@ -121,16 +126,27 @@ function convertManifest(manifest, manifestName) {
   }
 
   const primary = pairs[0];
-  if (primary.kind === "exe") {
-    // A single-file installer cannot be told apart from a portable exe, and running
-    // installers silently is out of scope: only manifests without installer scripts qualify.
-    const scripted = manifest.installer || manifest.uninstaller || manifest.pre_install || manifest.post_install;
-    if (scripted !== undefined && scripted !== null && !(typeof scripted === "object" && Object.keys(scripted).length === 0)) {
-      const text = JSON.stringify(scripted);
-      if (/script/i.test(text)) {
-        return { skip: "installer/uninstaller script not supported" };
-      }
+
+  // Any lifecycle hook means the bucket expects code we never run: the installed tree would be
+  // incomplete, so skip the package instead of installing something broken. This applies to
+  // every installer kind (zip manifests carry pre/post install hooks too).
+  // shortcuts/psmodulepath are features we cannot honor; installing without them silently
+  // produces an incomplete package, so skip those manifests too.
+  for (const hook of ["installer", "uninstaller", "pre_install", "post_install", "pre_uninstall", "post_uninstall", "shortcuts", "psmodulepath"]) {
+    const value = manifest[hook];
+    if (value === undefined || value === null) {
+      continue;
     }
+    if (typeof value === "string" && value.trim() === "") {
+      continue;
+    }
+    if (Array.isArray(value) && value.length === 0) {
+      continue;
+    }
+    if (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0) {
+      continue;
+    }
+    return { skip: "manifest carries " + hook + " hooks, which this installer cannot run" };
   }
 
   const bins = [];
@@ -225,14 +241,15 @@ function convertManifest(manifest, manifestName) {
 
 // Groups converted manifests into our index.json shape.
 function buildIndex(name, converted) {
-  const packages = {};
+  // Prototype-less map: a bucket file such as constructor.json must not hit Object.prototype.
+  const packages = Object.create(null);
   let skipped = 0;
   for (const item of converted) {
     if (!item || item.skip) {
       skipped += 1;
       continue;
     }
-    const bucket = packages[item.id] || (packages[item.id] = { latest: item.version, title: item.entry.title || item.id, versions: {} });
+    const bucket = packages[item.id] || (packages[item.id] = { latest: item.version, title: item.entry.title || item.id, versions: Object.create(null) });
     if (item.entry.title && bucket.title === item.id) {
       bucket.title = item.entry.title;
     }

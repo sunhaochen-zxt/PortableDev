@@ -26,7 +26,7 @@
 v2\app\
   pd.exe                  壳（命令行）
   pd-kernel.exe           内核（常驻服务）
-  window.exe              窗口壳
+  pd-window.exe           窗口壳
   runtime\                自包含 .NET 运行时
   extensions\             内置扩展（只读基线）
     storage\
@@ -75,10 +75,10 @@ v2\app\
 |---|---|---|---|---|
 | `schema` | `1` | 整数 | 内核 | — |
 | `root.stableRoot` | `C:\Dev` | 绝对路径、不带盘符变量 | 内核、storage | **是** |
-| `root.stickRoot` | `""`（自动检测） | 路径或空 | 内核 | **是** |
+| `root.stickRoot` | `""`（自动检测） | 路径或空 | 内核 | 否 |
 | `kernel.pipePrefix` | `portabledev` | 字符串 | 内核 | **是** |
-| `kernel.logLevel` | `info` | `debug` / `info` / `warn` / `error` | 内核 | 否 |
-| `kernel.idleExit` | `0`（不退出） | `0` 或时长（`10m`） | 内核 | 否 |
+| `kernel.logLevel` | `info` | `debug` / `info` / `warn` / `error` | 内核 | **是** |
+| `kernel.idleExit` | `0`（不退出） | `0` 或时长（`10m`） | 内核 | **是** |
 | `kernel.startTimeout` | `5s` | 1–60s | 内核 | 否 |
 | `kernel.envMode` | `full` | `full` / `proxy-only` | 内核 | 否 |
 | `install.allowScripts` | `local` | `local` / `always` / `never` | pkgmgr | 否 |
@@ -91,10 +91,10 @@ v2\app\
 | `gc.keepGenerations` | `50` | 5–500 | 内核 | 否 |
 | `gc.keepBlobs` | `true` | bool | 内核 | 否 |
 | `gc.stagingMaxAge` | `24h` | 时长 | 内核 | 否 |
-| `log.level` | `info` | 同上 | 日志扩展 | 否 |
-| `log.maxSizeMB` | `50` | 1–1000 | 日志扩展 | 否 |
-| `log.keepFiles` | `10` | 1–100 | 日志扩展 | 否 |
-| `log.encryption` | `none` | `none`（预留 `aes`） | 日志扩展 | **是** |
+| `log.level` | `info` | 同上 | 日志扩展 | **是** |
+| `log.maxSizeMB` | `50` | 1–1000 | 日志扩展 | **是** |
+| `log.keepFiles` | `10` | 1–100 | 日志扩展 | **是** |
+| `log.encryption` | `none` | `none`（预留 `aes`） | 日志扩展 | 否 |
 | `log.retentionDays` | `30` | 1–3650 | 日志扩展 | 否 |
 | `log.auditRetentionDays` | `7` | 1–3650 | 日志扩展 | 否 |
 | `log.batchBytes` | `65536` | 4096–1048576 | 日志扩展 | 否 |
@@ -102,8 +102,8 @@ v2\app\
 | `network.timeout` | `30s` | 1–600s | download | 否 |
 | `network.retries` | `3` | 0–10 | download | 否 |
 | `network.proxy` | `system` | `system` / `none` / URL | download | 否 |
-| `elevation.mode` | `on-demand` | `on-demand` | 内核 | **是** |
-| `recovery.intentDefault` | `adopt` | `adopt` / `drop` | 内核 | 否 |
+| `elevation.mode` | `on-demand` | `on-demand` | 内核 | 否 |
+| `recovery.intentDefault` | `adopt` | `adopt` / `drop` | 内核 | **是** |
 | `ui.theme` | `light` | `dark` / `light` / `system` | 窗口壳 | 否 |
 | `ui.language` | `zh-CN` | `zh-CN` / `en` | 两个壳 | 否 |
 
@@ -149,16 +149,16 @@ v2\app\
 | 层 | 机制 | 用途 |
 |---|---|---|
 | 系统层 | Named Mutex `Local\portabledev-<stickId>` | 防止**同一会话**起两个内核 |
-| 文件层 | `state\lock`（JSON）+ 心跳 | 跨会话/跨用户检测、给人看、`doctor` 用 |
+| 文件层 | `state\lock.json`（JSON）+ 心跳 | 跨会话/跨用户检测、给人看、`doctor` 用 |
 
 为什么用 `Local\` 而不是 `Global\`：`Global\` 在别的会话先占同名对象时会让内核直接起不来，
 而且标准用户在 `Global\` 下创建对象有额外失败可能。**`Local\` 一定拿得到，跨会话靠心跳检测**。
 
 跨会话的情况（同一台机器、两个登录会话插同一块盘）：
-`Local\` 会各自成功，此时用 `state\lock` 的心跳判断——心跳新鲜就拒绝启动，并报
+`Local\` 会各自成功，此时用 `state\lock.json` 的心跳判断——心跳新鲜就拒绝启动，并报
 `ERR_BUSY` + "另一个会话已经在用这块盘（PID xxx）"。这种情况本身很罕见，真实、但不需要 Mutex 兜。
 
-`state\lock` 内容：
+`state\lock.json` 内容：
 
 ```json
 { "schema": 1, "pid": 8123, "machineId": "b1c2...",

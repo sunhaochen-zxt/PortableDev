@@ -141,7 +141,7 @@ python -u tools/pd-e2e.py .run
 | `pd run` / `pd shell` 的 `--propagate` 端到端 | 开关与映射已实现，命令本身还等 `pkgmgr`/`storage` 落地 |
 | 真终端交互 | CI 只有重定向管道；交互 prompt 需要人工在控制台验一次 |
 | 颜色与宽表 | 逻辑已写，重定向下不生效，未做视觉验收 |
-| 窗口壳 | `window.exe` 属于另一块（window.md） |
+| 窗口壳 | `pd-window.exe` 属于另一块（window.md） |
 ## 补充修复（2026-11-25 第二轮）
 
 - `Ctrl+C` 在**连接/自动拉起阶段**也能取消（第一次按下取消连接，退出码 130）；任务运行中仍走

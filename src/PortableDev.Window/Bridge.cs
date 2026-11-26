@@ -25,6 +25,14 @@ public sealed class Bridge
         "list", "ls", "info", "search", "outdated", "doctor", "help", "env", "version", "log", "ui",
     };
 
+    /// <summary>Flags that make an otherwise read-only command destructive; pages never get these.</summary>
+    private static readonly Dictionary<string, string[]> DeniedFlags = new(StringComparer.Ordinal)
+    {
+        ["log"] = ["--vacuum"],
+        ["doctor"] = ["--fix"],
+        ["gc"] = ["--blobs", "--keep"],
+    };
+
     public Bridge(WebView2 webView, KernelLink link, Func<string, Task> navigate, Dictionary<string, ExtPolicy> policies)
     {
         _webView = webView;
@@ -92,10 +100,24 @@ public sealed class Bridge
                 }
 
                 HashSet<string>? allowed = null;
+                var uiAllowed = false;
                 foreach (var node in JsonUtil.Array(manifest, "permissions") ?? new JsonArray())
                 {
-                    if (node is not JsonObject permission
-                        || !string.Equals(JsonUtil.String(permission, "kind"), "commands", StringComparison.Ordinal))
+                    if (node is not JsonObject permission)
+                    {
+                        continue;
+                    }
+
+                    var kind = JsonUtil.String(permission, "kind");
+                    if (string.Equals(kind, "ui", StringComparison.Ordinal))
+                    {
+                        // spec 4.4: only an extension that declared the ui permission may
+                        // drive the kernel from its pages.
+                        uiAllowed = JsonUtil.Bool(permission, "allow") == true;
+                        continue;
+                    }
+
+                    if (!string.Equals(kind, "commands", StringComparison.Ordinal))
                     {
                         continue;
                     }
@@ -107,7 +129,7 @@ public sealed class Bridge
                     }
                 }
 
-                policies[name] = new ExtPolicy(own, allowed);
+                policies[name] = new ExtPolicy(own, allowed, uiAllowed);
             }
             catch (Exception)
             {
@@ -169,6 +191,12 @@ public sealed class Bridge
 
     private void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
+        // Only pages served from the shell's own virtual host may talk to the bridge.
+        if (args.Source is null || !args.Source.StartsWith("https://pd.local/", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         JsonObject? message;
         try
         {
@@ -209,7 +237,10 @@ public sealed class Bridge
                     DenyUnlessAllowed(argv);
                     var events = new JsonArray();
                     var timeout = JsonUtil.Int(parameters, "timeoutMs") ?? 180000;
-                    var done = await _link.RunWithEventsAsync(argv, events, timeout, MaxEvents).ConfigureAwait(false);
+                    // Register the task so prompt replies from this run are accepted (exec did
+                    // this already; run used to leave its task unknown).
+                    var done = await _link.RunWithEventsAsync(argv, events, timeout, MaxEvents,
+                        taskId => _ownTasks[taskId] = true).ConfigureAwait(false);
                     Reply(id, new JsonObject { ["done"] = done.DeepClone(), ["events"] = events });
                     return;
                 }
@@ -270,12 +301,13 @@ public sealed class Bridge
         }
         catch (Exception ex)
         {
+            var code = ex is BridgeDeniedException denied ? denied.Code : "ERR_IO";
             Post(new JsonObject
             {
                 ["type"] = "reply",
                 ["id"] = id,
                 ["ok"] = false,
-                ["error"] = new JsonObject { ["code"] = "ERR_IO", ["message"] = ex.Message },
+                ["error"] = new JsonObject { ["code"] = code, ["message"] = ex.Message },
             });
         }
     }
@@ -291,7 +323,7 @@ public sealed class Bridge
             return;
         }
 
-        throw new InvalidOperationException(
+        throw new BridgeDeniedException("ERR_UNSUPPORTED",
             "the current page is not allowed to run '" + string.Join(' ', argv.Take(2)) + "'");
     }
 
@@ -303,12 +335,36 @@ public sealed class Bridge
             return false;
         }
 
+        if (string.Equals(command, "config", StringComparison.Ordinal))
+        {
+            // window.md: only the read-only forms are exposed to pages.
+            return argv.Length > 1
+                && (string.Equals(argv[1], "get", StringComparison.Ordinal) || string.Equals(argv[1], "list", StringComparison.Ordinal));
+        }
+
         if (ReadOnlyCommands.Contains(command))
         {
-            return command != "config" || (argv.Length > 1 && argv[1] == "get");
+            if (DeniedFlags.TryGetValue(command, out var denied))
+            {
+                foreach (var argument in argv.Skip(1))
+                {
+                    if (denied.Any(flag => string.Equals(argument, flag, StringComparison.OrdinalIgnoreCase)
+                        || argument.StartsWith(flag + "=", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
 
         if (_pageExtension is null || !_policies.TryGetValue(_pageExtension, out var policy))
+        {
+            return false;
+        }
+
+        if (!policy.UiAllowed)
         {
             return false;
         }
@@ -325,7 +381,7 @@ public sealed class Bridge
             return;
         }
 
-        throw new InvalidOperationException("unknown or foreign task");
+        throw new BridgeDeniedException("ERR_BAD_ARGS", "unknown or foreign task");
     }
 
     private static string[] Strings(JsonObject parameters)
@@ -361,7 +417,15 @@ public sealed class Bridge
     }
 
     /// <summary>Declared commands plus extra commands granted through permissions.</summary>
-    public sealed record ExtPolicy(HashSet<string> OwnCommands, HashSet<string>? AllowedCommands);
+    public sealed record ExtPolicy(HashSet<string> OwnCommands, HashSet<string>? AllowedCommands, bool UiAllowed);
+
+    /// <summary>A policy denial carries its own error code instead of surfacing as a generic IO failure.</summary>
+    private sealed class BridgeDeniedException : Exception
+    {
+        public BridgeDeniedException(string code, string message) : base(message) => Code = code;
+
+        public string Code { get; }
+    }
 
     private static string LoadScript()
     {

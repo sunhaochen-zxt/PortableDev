@@ -28,8 +28,14 @@ def copy_binaries(source, target):
         raise SystemExit("missing build output: " + source)
     for name in os.listdir(source):
         full = os.path.join(source, name)
-        if os.path.isfile(full) and not name.endswith((".pdb", ".xml")):
-            shutil.copy2(full, os.path.join(target, name))
+        if os.path.isfile(full):
+            if not name.endswith((".pdb", ".xml")):
+                shutil.copy2(full, os.path.join(target, name))
+            continue
+        # Native assets live in subfolders such as runtimes/win-x64/native; a flat copy
+        # silently dropped them (e.g. WebView2Loader.dll resolution paths).
+        if os.path.isdir(full):
+            shutil.copytree(full, os.path.join(target, name), dirs_exist_ok=True)
 
 
 def write_lines(path, lines):

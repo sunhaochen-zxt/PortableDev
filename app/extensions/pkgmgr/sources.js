@@ -53,6 +53,43 @@ function hashFile(file) {
   return digest.digest("hex");
 }
 
+// Kernel ABI range check (spec 2.4): " >=1 ", " >=1 <3 ", " ==2 ", " ^2 " (>=2 <3).
+// An unparsable range is a non-match, never a silent pass.
+function abiSatisfies(abi, text) {
+  const tokens = String(text || "").trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return true;
+  }
+
+  for (const token of tokens) {
+    const match = /^(>=|<=|==|>|<|\^|~)(\d+)$/.exec(token);
+    if (!match) {
+      if (/^\d+$/.test(token)) {
+        if (abi !== Number(token)) {
+          return false;
+        }
+        continue;
+      }
+      return false;
+    }
+
+    const value = Number(match[2]);
+    const op = match[1];
+    const ok = op === ">=" ? abi >= value
+      : op === "<=" ? abi <= value
+      : op === "==" ? abi === value
+      : op === ">" ? abi > value
+      : op === "<" ? abi < value
+      : op === "^" || op === "~" ? (abi >= value && abi < value + 1)
+      : false;
+    if (!ok) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function compareVersions(left, right) {
   const split = (value) => {
     const text = String(value || "");
@@ -161,7 +198,8 @@ function validateIndex(document, expectedName) {
 }
 
 function indexFromDirectory(directory) {
-  const packages = {};
+  // Prototype-less map: a package id such as "constructor" must not hit Object.prototype.
+  const packages = Object.create(null);
   let names = [];
   try { names = fs.readdirSync(directory).filter((name) => name.toLowerCase().endsWith(".pdpkg")).sort(); } catch (error) { names = []; }
   for (const name of names) {
@@ -174,7 +212,7 @@ function indexFromDirectory(directory) {
     }
     if (!manifest || !PACKAGE_ID.test(String(manifest.id || "")) || !VERSION.test(String(manifest.version || ""))) { continue; }
     const sha256 = hashFile(file);
-    const entry = packages[manifest.id] || (packages[manifest.id] = { latest: manifest.version, title: manifest.title || manifest.id, versions: {} });
+    const entry = packages[manifest.id] || (packages[manifest.id] = { latest: manifest.version, title: manifest.title || manifest.id, versions: Object.create(null) });
     const manifestProvides = Array.isArray(manifest.provides)
       ? manifest.provides.filter((name) => typeof name === "string" && PACKAGE_ID.test(name))
       : undefined;
@@ -310,6 +348,9 @@ function createSourceManager(options) {
     const cache = cacheFor(source);
     fs.mkdirSync(cache.dir, { recursive: true });
     const subdir = String(source.subdir || "bucket").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    if (subdir.split("/").includes("..") || /^[A-Za-z]:/.test(subdir)) {
+      throw new SourceError("ERR_BAD_ARGS", "scoop subdir must stay inside the bucket archive: " + subdir, 2);
+    }
     const dest = path.join(cache.dir, "bucket.zip");
     // Unpack only writes inside the stick staging directory; convert there, then clean up.
     const extractDir = path.join(root, "staging", "scoop-" + String(source.name).replace(/[^a-z0-9-]/gi, "_").slice(0, 48));
@@ -394,13 +435,26 @@ function createSourceManager(options) {
 
     const cache = cacheFor(source);
     fs.mkdirSync(cache.dir, { recursive: true });
-    const dest = cache.index + ".part";
-    await call("download.fetch", "get", { url: source.url, dest: dest, maxBytes: 32 * 1024 * 1024 });
+    const dest = cache.index + ".part-" + process.pid;
+    try {
+      await call("download.fetch", "get", { url: source.url, dest: dest, maxBytes: 32 * 1024 * 1024 });
+    } catch (error) {
+      fs.rmSync(dest, { force: true });
+      // A stale index is better than failing: the user can still install what it knows.
+      if (cached) {
+        return { index: cached.index, source: source, stale: true };
+      }
+      throw error;
+    }
+
     let parsed;
     try {
       parsed = readIndexFile(dest, source.name);
     } catch (error) {
       fs.rmSync(dest, { force: true });
+      if (cached) {
+        return { index: cached.index, source: source, stale: true };
+      }
       throw error;
     }
     fs.renameSync(dest, cache.index);
@@ -454,7 +508,7 @@ function createSourceManager(options) {
         const platform = versionEntry.platform || "win-x64";
         if (platform !== "win-x64") { reasons.push(id + "@" + version + ": platform " + platform); continue; }
         const minKernel = versionEntry.minKernel;
-        if (typeof minKernel === "string" && minKernel.startsWith(">=") && kernelAbi < Number(minKernel.slice(2))) {
+        if (typeof minKernel === "string" && minKernel.trim().length > 0 && !abiSatisfies(kernelAbi, minKernel)) {
           reasons.push(id + "@" + version + ": needs kernel ABI " + minKernel);
           continue;
         }
@@ -554,7 +608,11 @@ function createSourceManager(options) {
     const sha256 = String(resolved.entry.sha256 || "").toLowerCase();
     const blob = path.join(root, "cache", "blobs", sha256);
     if (fs.existsSync(blob)) {
-      return { path: blob, cached: true, sha256: sha256, size: fs.statSync(blob).size };
+      // The blob name is its hash: re-verify instead of trusting a possibly corrupted cache.
+      if (hashFile(blob) === sha256) {
+        return { path: blob, cached: true, sha256: sha256, size: fs.statSync(blob).size };
+      }
+      fs.rmSync(blob, { force: true });
     }
 
     const local = resolved.source.kind === "dir" || resolved.source.kind === "builtin";

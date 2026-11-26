@@ -154,8 +154,8 @@ pd [全局开关] <命令> [参数...]
 | `pd kernel status` | 内核是否在跑、连不连得上 | 否 | 能 | `--json` | 4 |
 | `pd kernel ps` | 各扩展进程 | 否 | 能 | `--json` | — |
 | `pd kernel ext list` | 装了哪些扩展 | 否 | 能 | `--json` | — |
-| `pd kernel restart <名>` | 重启扩展 | 否 | 能 | — | 20 |
-| `pd kernel stop` | 停止内核 | 否 | 能 | `--force` | 4 |
+| `pd kernel restart <名>` | 重启扩展 | **是** | 能 | — | 20 |
+| `pd kernel stop` | 停止内核 | **是** | 能 | `--force` | 4 |
 | `pd kernel log` | 内核自己的兜底日志 | 否 | 能 | `--tail <n>` | — |
 | `pd recover` | 处理上次崩溃留下的 intent | **是** | 能 | `--adopt` `--drop` `--dry-run` | 3/4/10 |
 
@@ -198,10 +198,10 @@ pd [全局开关] <命令> [参数...]
 
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
-| `pd proc list` | 受管进程列表 | 否 | 能 | `--kind` `--json` | — |
-| `pd proc info <pid\|id>` | 一个进程的详情 | 否 | 能 | `--json` | 2/20 |
+| `pd proc list` | 受管进程列表 | **是**（整个 proc 命令串行；子命令级并行未实现） | 能 | `--kind` `--json` | — |
+| `pd proc info <pid\|id>` | 一个进程的详情 | **是**（同上） | 能 | `--json` | 2/20 |
 | `pd proc kill <pid>` | 结束进程（受管或系统） | **是** | 能 | `--tree` `--elevated` `--force-critical` `--yes` | 2/8/11/20/25 |
-| `pd proc system` | 整机进程枚举 | 否 | 能 | `--elevated` `--filter` `--json` | 2/8 |
+| `pd proc system` | 整机进程枚举 | **是**（同上） | 能 | `--elevated` `--filter` `--json` | 2/8 |
 
 ---
 
@@ -574,11 +574,11 @@ pd proc system [--filter <词>] [--elevated] [--json]
 | 3 | `ERR_INDEX_INVALID`、`ERR_PKG_INVALID`、`ERR_HASH` |
 | 4 | `ERR_ENV`、`ERR_PROTOCOL` |
 | 8 | `ERR_ELEVATION` |
-| 10 | `ERR_BUSY` |
+| 10 | `ERR_BUSY`、`ERR_LOG_PROVIDER_CONFLICT` |
 | 11 | `ERR_UNSUPPORTED`、`ERR_PKG_PLATFORM`、`ERR_PROC_PROTECTED` |
 | 12 | `ERR_ASSERT` |
 | 15 | `ERR_SOURCE_UNREACHABLE`、`ERR_NET` |
-| 20 | `ERR_PKG_NOT_FOUND`、`ERR_EXT_MISSING`、`ERR_PROC_NOT_FOUND` |
+| 20 | `ERR_PKG_NOT_FOUND`、`ERR_EXT_MISSING`、`ERR_PROC_NOT_FOUND`、`ERR_LOG_PROVIDER_MISSING`、`ERR_AUDIT_EXPIRED` |
 | 21 | `ERR_PKG_AMBIGUOUS` |
 | 22 | `ERR_PKG_YANKED` |
 | 23 | `ERR_OFFLINE_MISS` |

@@ -9,7 +9,9 @@ import re
 import sys
 from pathlib import Path
 
-DOCS = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
+# 默认检查仓库里的 docs/（而不是当前目录：从仓库根跑时会把 kernel.md 之类全漏掉）。
+DEFAULT_DOCS = Path(__file__).resolve().parent.parent / "docs"
+DOCS = Path(sys.argv[1]) if len(sys.argv) > 1 else (DEFAULT_DOCS if DEFAULT_DOCS.is_dir() else Path("."))
 
 # 1. 收集文档
 # 审阅/报告类文件不是规范，不参与一致性检查
@@ -18,7 +20,11 @@ if not files:
     print("没有找到 .md 文件")
     sys.exit(2)
 
+# README 也是规范的一部分（构建/测试/结构说明），一起检查
 text = {f.name: f.read_text(encoding="utf-8") for f in files}
+readme = DOCS.parent / "README.md"
+if readme.is_file() and "README.md" not in text:
+    text["README.md"] = readme.read_text(encoding="utf-8")
 problems = []
 
 # 2. 链接检查：](xxx.md) 或 ](xxx.md#anchor)
@@ -84,7 +90,7 @@ flag_re = re.compile(r"`(--[a-z][a-z0-9-]*)`")
 declared_flags = set(m.group(1) for m in flag_re.finditer(commands_body))
 # 文档里明确说"没有这种开关"的，不算
 # 不是 pd 自己的开关：文档里举的外部程序参数 / 占位符
-nonexistent_flags = {"--no-junction", "--user-data-dir", "--x"}
+nonexistent_flags = {"--no-junction", "--user-data-dir", "--x", "--no-incremental"}  # 外部工具开关
 for name, body in text.items():
     for m in flag_re.finditer(body):
         flag = m.group(1)
@@ -110,6 +116,22 @@ if catalog.exists():
         problems.append(f"[设置] kernel.md 2.1: 代码里的设置键 {key} 未写入文档")
     for key in sorted(doc_keys - code_keys):
         problems.append(f"[设置] kernel.md 2.1: 文档里的设置键 {key} 在代码里不存在")
+
+# 10a. 错误码常量：ErrorCodes.cs 里的每个 ERR_* 都必须写进 spec.md，反之亦然；
+#      commands.md 6.3 映射表里的码必须真实存在。
+error_codes_file = DOCS.parent / "src" / "PortableDev.Core" / "Protocol" / "ErrorCodes.cs"
+if error_codes_file.exists():
+    source = error_codes_file.read_text(encoding="utf-8")
+    code_values = set(re.findall(r'\"(ERR_[A-Z_]+)\"', source))
+    for code in sorted(code_values - declared_errs):
+        problems.append(f"[错误码] ErrorCodes.cs: {code} 未在 spec.md 6.2 声明")
+    for code in sorted(declared_errs - code_values):
+        problems.append(f"[错误码] spec.md 6.2: {code} 在 ErrorCodes.cs 里不存在")
+    exit_map = re.search(r"### 6\\.3 退出码与错误码的对应(.*?)(?:\n## |\Z)", commands_body, re.S)
+    if exit_map:
+        for code in sorted(set(re.findall(r"`(ERR_[A-Z_]+)`", exit_map.group(1)))):
+            if code not in code_values:
+                problems.append(f"[错误码] commands.md 6.3: {code} 在 ErrorCodes.cs 里不存在")
 
 # 10. 扩展命令：ext.json 注册的命令必须出现在 commands.md（pd <name>）
 ext_root = DOCS.parent / "app" / "extensions"

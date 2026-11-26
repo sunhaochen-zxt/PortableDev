@@ -16,6 +16,8 @@ public sealed class StdioPipes : IDisposable
     // "\.pipe" without any escaping games: two backslashes, dot, backslash, "pipe", backslash.
     private static readonly string PipePrefix = new string(['\\', '\\', '.', '\\', 'p', 'i', 'p', 'e', '\\']);
 
+    private int _disposed;
+
     private StdioPipes(IntPtr stdin, IntPtr stdout, IntPtr stderr)
     {
         Stdin = stdin;
@@ -23,11 +25,11 @@ public sealed class StdioPipes : IDisposable
         Stderr = stderr;
     }
 
-    public IntPtr Stdin { get; }
+    public IntPtr Stdin { get; private set; }
 
-    public IntPtr Stdout { get; }
+    public IntPtr Stdout { get; private set; }
 
-    public IntPtr Stderr { get; }
+    public IntPtr Stderr { get; private set; }
 
     /// <summary>Opens the three pipes; names may be bare (`pd-x-in`) or full (with the pipe prefix).</summary>
     public static StdioPipes Open(string stdinName, string stdoutName, string stderrName)
@@ -123,9 +125,22 @@ public sealed class StdioPipes : IDisposable
 
     public void Dispose()
     {
-        if (Stdin != IntPtr.Zero) CloseHandle(Stdin);
-        if (Stdout != IntPtr.Zero) CloseHandle(Stdout);
-        if (Stderr != IntPtr.Zero) CloseHandle(Stderr);
+        // Idempotent: the spawner disposes in a finally block and callers may dispose again.
+        // Zero the handles before closing so a second call cannot close a recycled handle value.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        var stdin = Stdin;
+        var stdout = Stdout;
+        var stderr = Stderr;
+        Stdin = IntPtr.Zero;
+        Stdout = IntPtr.Zero;
+        Stderr = IntPtr.Zero;
+        if (stdin != IntPtr.Zero) CloseHandle(stdin);
+        if (stdout != IntPtr.Zero) CloseHandle(stdout);
+        if (stderr != IntPtr.Zero) CloseHandle(stderr);
     }
 
     private const int StandardInput = -10;

@@ -40,7 +40,8 @@ public sealed class CommandRouter
         var head = ctx.Argv[0];
         if (_kernel.Registry.Commands.TryResolve(head, out var entry) && entry.ExtensionName is not null)
         {
-            return await RunSerializedAsync(entry.Mutates && !entry.Parallel, ctx,
+            // spec 4.1: extension commands are exclusive by default; only parallel:true opts out.
+            return await RunSerializedAsync(!entry.Parallel, ctx,
                 () => _kernel.Supervisor.InvokeAsync(ctx, entry, ctx.Argv[1..])).ConfigureAwait(false);
         }
 

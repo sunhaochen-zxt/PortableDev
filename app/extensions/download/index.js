@@ -28,12 +28,59 @@ function parseTarget(url) {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new DownloadError("ERR_UNSUPPORTED", "only http(s) URLs can be fetched: " + String(url));
   }
+  assertNotInternal(parsed);
   return parsed;
+}
+
+// Refuse link-local metadata endpoints and RFC1918 targets so a hostile index cannot use the
+// user's machine as a proxy into its LAN. Loopback stays allowed (local mirrors and tests); set
+// PD_DOWNLOAD_ALLOW_PRIVATE=1 to opt out for a private mirror.
+function assertNotInternal(parsed) {
+  if (process.env.PD_DOWNLOAD_ALLOW_PRIVATE === "1") {
+    return;
+  }
+
+  const host = String(parsed.hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "::1" || host.startsWith("127.")) {
+    return;
+  }
+
+  const octets = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!octets) {
+    return;
+  }
+
+  const [first, second] = [Number(octets[1]), Number(octets[2])];
+  const internal = first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254) ||
+    first === 0;
+  if (internal) {
+    throw new DownloadError("ERR_UNSUPPORTED", "refusing to fetch an internal address: " + host +
+      " (set PD_DOWNLOAD_ALLOW_PRIVATE=1 for a private mirror)");
+  }
+}
+
+function hashFile(file) {
+  const digest = crypto.createHash("sha256");
+  const fd = fs.openSync(file, "r");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    let read;
+    while ((read = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      digest.update(buffer.subarray(0, read));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return digest.digest("hex");
 }
 
 function downloadHttp(url, target, expected, timeoutMs, maxBytes) {
   return new Promise((resolve, reject) => {
-    const temp = target + ".part";
+    // Unique temp name: two concurrent fetches of the same blob must not interleave writes.
+    const temp = target + ".part-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
     let settled = false;
     let redirects = 0;
 
@@ -75,7 +122,8 @@ function downloadHttp(url, target, expected, timeoutMs, maxBytes) {
           return;
         }
 
-        if (status < 200 || status >= 400) {
+        if (status < 200 || status >= 300) {
+          // Covers 3xx without Location (a redirect we cannot follow) and every error status.
           response.resume();
           finish(reject, new DownloadError("ERR_SOURCE_UNREACHABLE", "http " + status + " for " + currentUrl));
           return;
@@ -169,9 +217,16 @@ async function fetchBlob(args) {
   if (fs.existsSync(target)) {
     const stat = fs.statSync(target);
     if (stat.isFile() && stat.size > 0) {
-      return { path: target, bytes: stat.size, cached: true, sha256 };
+      // A cached blob must still hash to its own name: disk corruption or a tampered cache
+      // would otherwise be trusted forever (index-spec section 7 requires re-verification).
+      const actual = hashFile(target);
+      if (actual === sha256) {
+        return { path: target, bytes: stat.size, cached: true, sha256 };
+      }
+      fs.rmSync(target, { force: true });
+    } else {
+      fs.rmSync(target, { force: true });
     }
-    fs.rmSync(target, { force: true });
   }
 
   if (args.offline === true) {

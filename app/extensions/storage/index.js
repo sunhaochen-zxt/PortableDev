@@ -409,7 +409,7 @@ function abort(args, caller) {
   grants.delete(path.basename(stagingPath));
   removeDir(stagingPath);
   if (task !== null) {
-    fs.rmSync(path.join(INTENTS, task + ".json"), { force: true });
+    fs.rmSync(path.join(INTENTS, safeTask(task) + ".json"), { force: true });
   }
   logInfo("storage.abort", "staging grant aborted", { task });
   return { removed: true };
@@ -464,7 +464,8 @@ function recordWrite(args) {
     throw new StorageError("ERR_BAD_ARGS", "record.write needs a record with an id");
   }
   const id = packageId(record.id, "record.write package id");
-  writeJson(path.join(RECORDS, id + ".json"), record);
+  // Atomic: a crash mid-write must not corrupt the record the kernel reads on recovery.
+  writeJsonAtomic(path.join(RECORDS, id + ".json"), record);
   return { ok: true };
 }
 
@@ -1591,11 +1592,59 @@ async function wireDeleteRegistry(args) {
   return wireSetRegistry({ task: args.task, hive: args.hive, key: args.key, name: args.name, value: null });
 }
 
+// Launchers live directly under the stable root as <name>.cmd. A lexical inside() check is not
+// enough: C:\Dev\current\<pkg> is a junction into the CAS, so a path that only looks inside could
+// resolve through a link and overwrite store binaries. Require a direct .cmd child whose real
+// path still sits directly under the stable root.
+function realPathOfExisting(target) {
+  let current = path.resolve(target);
+  const missing = [];
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) {
+      break;
+    }
+    missing.unshift(path.basename(current));
+    current = parent;
+  }
+
+  let real = current;
+  try {
+    real = fs.realpathSync.native(current);
+  } catch (error) {
+    real = current;
+  }
+
+  return missing.length > 0 ? path.join(real, ...missing) : real;
+}
+
+function assertLauncherPath(file, op) {
+  const base = path.resolve(stableRoot());
+  const target = path.resolve(file);
+  if (!inside(base, target) || path.dirname(target).toLowerCase() !== base.toLowerCase()) {
+    throw new StorageError("ERR_UNSUPPORTED", op + " only accepts launchers directly under the stable root");
+  }
+  if (!/\.cmd$/i.test(target)) {
+    throw new StorageError("ERR_UNSUPPORTED", op + " only accepts .cmd launchers");
+  }
+  // The stable root itself may be a junction onto the stick (C:\Dev -> stick in the
+  // default setup), so compare against its resolved form, not the literal setting.
+  let realBase = base;
+  try {
+    realBase = fs.realpathSync.native(base);
+  } catch (error) {
+    realBase = base;
+  }
+
+  const real = path.resolve(realPathOfExisting(target));
+  if (path.dirname(real).toLowerCase() !== path.resolve(realBase).toLowerCase()) {
+    throw new StorageError("ERR_UNSUPPORTED", op + " path crosses a link or junction");
+  }
+}
+
 async function wireWriteLauncher(args) {
   const file = path.resolve(String(args.path || ""));
-  if (!inside(stableRoot(), file)) {
-    throw new StorageError("ERR_UNSUPPORTED", "launcher.write only accepts paths under the stable root");
-  }
+  assertLauncherPath(file, "launcher.write");
   const content = String(args.content || "");
   if (content.includes("\u0000")) {
     throw new StorageError("ERR_BAD_ARGS", "launcher content contains a NUL");
@@ -1619,9 +1668,7 @@ async function wireWriteLauncher(args) {
 
 async function wireRemoveLauncher(args) {
   const file = path.resolve(String(args.path || ""));
-  if (!inside(stableRoot(), file)) {
-    throw new StorageError("ERR_UNSUPPORTED", "launcher.remove only accepts paths under the stable root");
-  }
+  assertLauncherPath(file, "launcher.remove");
   const before = readLauncher(file);
   if (before === null) {
     return { before, after: null, changed: false };
@@ -2002,11 +2049,24 @@ function readSettingNumber(section, key, fallback) {
 }
 
 function launcherContent(record, launcher) {
-  const exe = path.join(stableRoot(), "current", record.id, expandText(record, launcher.exe));
+  const relative = String((launcher && launcher.exe) || "");
+  if (path.isAbsolute(relative) || /^[A-Za-z]:/.test(relative) || relative.replace(/\\/g, "/").split("/").includes("..")) {
+    throw new StorageError("ERR_PKG_INVALID", "launcher exe must stay inside the package: " + relative);
+  }
+
+  const base = path.join(stableRoot(), "current", record.id);
+  const exe = path.join(base, expandText(record, relative));
   if (/["\r\n\u0000]/.test(exe)) {
     throw new StorageError("ERR_PKG_INVALID", "launcher exe contains an illegal character");
   }
-  return "@echo off\r\nsetlocal\r\nstart \"\" \"" + exe + "\" %*\r\n";
+
+  const resolved = path.resolve(exe);
+  if (!resolved.toLowerCase().startsWith(path.resolve(base).toLowerCase() + path.sep)) {
+    throw new StorageError("ERR_PKG_INVALID", "launcher exe escapes the package directory: " + relative);
+  }
+
+  // Percent signs expand inside a batch file even in quotes; double them. %* stays a pass-through.
+  return "@echo off\r\nsetlocal\r\nstart \"\" \"" + exe.replace(/%/g, "%%") + "\" %*\r\n";
 }
 
 function readAllRecords() {

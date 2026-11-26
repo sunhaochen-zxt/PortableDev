@@ -399,6 +399,16 @@ async function runScript(options) {
         if (!target) {
           throw new ScriptError("ERR_BAD_ARGS", "link needs target", 2);
         }
+
+        // A link outside the stick/stable root needs elevation; ordinary scripts must not
+        // trigger a UAC prompt behind the user's back (elevated scripts are not implemented).
+        const targetRoots = [context.root, context.stableRoot, context.home]
+          .filter((value) => typeof value === "string" && value.length > 0)
+          .map((value) => path.resolve(value).toLowerCase());
+        const resolvedTarget = path.resolve(target).toLowerCase();
+        if (!targetRoots.some((base) => resolvedTarget === base || resolvedTarget.startsWith(base + path.sep))) {
+          throw new ScriptError("ERR_UNSUPPORTED", "link target is outside the stick and the stable root; elevated wiring needs an elevated script (not implemented): " + target, 11);
+        }
         const relative = relativeInside(context.contentRoot, source);
         if (relative !== null) {
           // The content is renamed into the store after the script; point the link at the final path.
@@ -412,6 +422,16 @@ async function runScript(options) {
       }
       if (command2 === "path.add" || command2 === "env.set" || command2 === "reg.set" || command2 === "reg.del" || command2 === "launch") {
         const args2 = Object.assign({}, requestArgs, { task: task });
+        if (command2 === "reg.set" || command2 === "reg.del") {
+          // Ordinary package scripts run unelevated; forwarding HKLM would make storage try to
+          // elevate on their behalf, bypassing the (still unimplemented) elevated-script gate.
+          const hive = String(args2.hive || "HKCU").toUpperCase();
+          if (hive !== "HKCU") {
+            failedRequests += 1;
+            reply(requestId, { ok: false, error: { code: "ERR_UNSUPPORTED", message: "package scripts may only write HKCU; HKLM requires an elevated script (not implemented)" } });
+            return;
+          }
+        }
         if (args2.path !== undefined) {
           args2.path = expandText(args2.path, context);
         }

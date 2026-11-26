@@ -66,7 +66,9 @@ internal static class AdminMode
 
         try
         {
-            var baseDir = Path.GetFullPath(GetTmpBase());
+            // GetTempPath() may keep its trailing separator; appending another one would make
+            // every child path fail the prefix test (so every result is rejected when PD_ROOT is unset).
+            var baseDir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(GetTmpBase()));
             var full = Path.GetFullPath(candidate);
             return full.StartsWith(baseDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(full, baseDir, StringComparison.OrdinalIgnoreCase);
@@ -145,9 +147,13 @@ internal static class Elevated
             var payload = (JsonObject)request.DeepClone();
             File.WriteAllText(requestPath, payload.ToJsonString());
 
-            var entry = Assembly.GetEntryAssembly()?.Location
-                ?? throw new InvalidOperationException("cannot locate the extension entry assembly");
-            var host = Environment.ProcessPath ?? "dotnet";
+            // Host detection mirrors PortableDev.Elevate: only the dotnet muxer needs the managed
+            // dll as its first argument. An apphost *is* the entry point, so "proc.exe proc.dll
+            // --admin ..." would pass the dll as argv[0] and Program.Main would never see --admin.
+            var processPath = Environment.ProcessPath;
+            var host = processPath ?? "dotnet";
+            var hostedByDotnet = processPath is null
+                || string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase);
             var noElevate = Environment.GetEnvironmentVariable("PD_PROC_NO_ELEVATE") == "1";
             var startInfo = new ProcessStartInfo
             {
@@ -155,17 +161,36 @@ internal static class Elevated
                 UseShellExecute = !noElevate,
                 CreateNoWindow = noElevate,
             };
+
+            var arguments = new List<string>();
+            if (hostedByDotnet)
+            {
+                var entry = Assembly.GetEntryAssembly()?.Location;
+                if (string.IsNullOrEmpty(entry))
+                {
+                    throw new InvalidOperationException("cannot locate the extension entry assembly");
+                }
+
+                arguments.Add(Path.GetFullPath(entry));
+            }
+
+            arguments.Add("--admin");
+            arguments.Add(requestPath);
+            arguments.Add(resultPath);
+
             if (!noElevate)
             {
+                // ShellExecute ("runas") takes one command line, so quote every token ourselves.
                 startInfo.Verb = "runas";
-                startInfo.Arguments = "\"" + entry + "\" --admin \"" + requestPath + "\" \"" + resultPath + "\"";
+                startInfo.Arguments = string.Join(' ', arguments.Select(Quote));
             }
             else
             {
-                startInfo.ArgumentList.Add(entry);
-                startInfo.ArgumentList.Add("--admin");
-                startInfo.ArgumentList.Add(requestPath);
-                startInfo.ArgumentList.Add(resultPath);
+                // ShellExecute is off, so ArgumentList preserves the tokens verbatim.
+                foreach (var argument in arguments)
+                {
+                    startInfo.ArgumentList.Add(argument);
+                }
             }
 
             using var process = Process.Start(startInfo)
@@ -204,4 +229,6 @@ internal static class Elevated
             try { File.Delete(resultPath); } catch (Exception) { }
         }
     }
+
+    private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
 }

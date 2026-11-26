@@ -28,14 +28,24 @@ public sealed class AbiRange
         foreach (var token in text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var op = token.StartsWith(">=", StringComparison.Ordinal) ? ">="
+                : token.StartsWith("<=", StringComparison.Ordinal) ? "<="
                 : token.StartsWith("==", StringComparison.Ordinal) ? "=="
                 : token.StartsWith("<", StringComparison.Ordinal) ? "<"
                 : token.StartsWith(">", StringComparison.Ordinal) ? ">"
+                : token.StartsWith("^", StringComparison.Ordinal) ? "^"
                 : string.Empty;
 
             if (op.Length == 0 || !int.TryParse(token[op.Length..], out var value))
             {
                 return false;
+            }
+
+            // spec 2.4 lists five comparators: ^N and ~N mean "this ABI and nothing newer".
+            if (op is "^")
+            {
+                range._terms.Add((">=", value));
+                range._terms.Add(("<", value + 1));
+                continue;
             }
 
             range._terms.Add((op, value));
@@ -52,6 +62,7 @@ public sealed class AbiRange
             var ok = op switch
             {
                 ">=" => abi >= value,
+                "<=" => abi <= value,
                 "==" => abi == value,
                 "<" => abi < value,
                 ">" => abi > value,
