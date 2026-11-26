@@ -179,7 +179,7 @@
 
 ```
 proc.exe --admin <请求文件>      # ShellExecuteEx runas，一次 UAC
-   ├─ 提升 SeDebugPrivilege
+   ├─ （SeDebugPrivilege 未显式提升，靠管理员令牌，已知限制）
    ├─ 枚举 / 结束（单次请求）
    ├─ 结果写文件
    └─ 退出（不连内核、不常驻）
@@ -189,6 +189,8 @@ proc.exe --admin <请求文件>      # ShellExecuteEx runas，一次 UAC
 
 - 每次操作一次 UAC，UAC 取消 → `ERR_ELEVATION`（8）；
 - 请求文件单次消费，放受控临时目录；提权实例只执行请求文件里的一个任务；
+- 请求内容用 SHA-256 绑定（`--sha256`，由调用方按落盘字节计算），提权侧先校验摘要再执行；
+  结果路径经 `--result` 传入且限定在 `<盘>\state\tmp` 下，结果文件独占创建；
 - 受保护进程（PPL）即便提权也可能拒绝 → `ERR_PROC_PROTECTED`，如实报告；
 - 结束操作写审计日志（pid / name / startTime / level / 是否提权），不进账本；
 - 树结束按 ppid 快照"尽力而为"（跨用户进程无法可靠挂 job，不承诺 100%）。

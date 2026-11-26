@@ -90,7 +90,7 @@ flag_re = re.compile(r"`(--[a-z][a-z0-9-]*)`")
 declared_flags = set(m.group(1) for m in flag_re.finditer(commands_body))
 # 文档里明确说"没有这种开关"的，不算
 # 不是 pd 自己的开关：文档里举的外部程序参数 / 占位符
-nonexistent_flags = {"--no-junction", "--user-data-dir", "--x", "--no-incremental"}  # 外部工具开关
+nonexistent_flags = {"--no-junction", "--user-data-dir", "--x", "--no-incremental", "--result"}  # 外部工具/内部助手参数，不是 pd 开关
 for name, body in text.items():
     for m in flag_re.finditer(body):
         flag = m.group(1)

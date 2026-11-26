@@ -101,6 +101,9 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
 - HKLM 写入、以及稳定根/用户目录之外的 `link`/`copy` 目标，由 `src/PortableDev.Elevate`
   的 `pd-elevate` 助手执行：一次请求文件列出一批 op，结果文件回传每个 op 的 `before`；
   非管理员时助手用 `runas` 自重启（UAC），取消则整批失败；
+- **请求完整性**：请求文件落盘后算 SHA-256，经 `--sha256 <hex>` 传给提权实例；提权侧读同一份字节、
+  先校验摘要再解析执行（UAC 弹窗等待期间被替换 → 直接拒绝并返回 2）；结果路径通过 `--result` 传入且必须
+  落在 `<盘>\state\tmp` 下，结果用独占创建写入（不跟随预置文件/链接）；
 - **HKCU 读写也优先走同一助手**（--no-elevate，不需要 UAC）：机器上 `reg.exe` 被策略禁用时仍能读写
   HKCU；只有助手不存在/起不来时才回退 `reg.exe`；
 - 部署要保证 `dotnet` 在扩展的 PATH 上（或用自包含发布），并同时放 `pd-elevate.runtimeconfig.json` /

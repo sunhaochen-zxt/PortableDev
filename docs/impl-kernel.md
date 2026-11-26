@@ -148,6 +148,9 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
   查询；显式取消走 `ctl cancel`（扩展在 await 边界检查并回滚，见 impl-pkgmgr §2.1）。
 - 日志提供者冲突：同一 priority 的两个 `log.ingest` 提供者都被拒绝（记 `log.provider` 错误，记录走兜底文件），
   低 priority 者优先接管。
+- 日志投递队列：内核到提供者之间是有界队列（8192 条、`DropOldest`）。队列满时丢弃最旧的记录，并用通道的
+  `itemDropped` 回调计数（`DropOldest` 下 `TryWrite` 恒返 true，靠返回值计数永远是 0），随后补写一条
+  `log.dropped` 警告记录；`Flush()`/`Dispose()` 也会 drain 队列，所以通道按多读者配置，提供者状态字段加锁。
 - 内置命令先入命令表：扩展与内置重名时拒绝的是扩展，内置命令不会被静默顶掉。
 - 单实例锁：若 lock.json 的 root 与当前盘根不一致（复制盘），返回明确的 Busy 提示；坏 lock 文件全异常兜底。
 - 配置并发：`SettingsStore` 内部加锁，`config set/unset` 改为独占命令；`AtomicFile` 对 rename 冲突做重试。
