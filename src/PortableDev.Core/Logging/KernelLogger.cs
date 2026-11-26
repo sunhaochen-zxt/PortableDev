@@ -76,7 +76,7 @@ public sealed class KernelLogger : ILogSink, IDisposable
             return;
         }
 
-        var dropped = LogRedaction.Validate(fields);
+        var dropped = LogRedaction.Redact(fields, out var sensitive);
         var record = new LogRecord
         {
             Ts = TimeUtil.NowIso(),
@@ -94,6 +94,7 @@ public sealed class KernelLogger : ILogSink, IDisposable
             Trace = trace,
             Task = task,
             Fields = fields,
+            Sensitive = sensitive,
         };
 
         Write(record);

@@ -202,6 +202,10 @@ internal static class Program
 
     private static JsonNode? RegistrySet(JsonObject op, JsonObject? fake, bool delete)
     {
+        var hiveName = (op["hive"]?.GetValue<string>() ?? "HKCU").ToUpperInvariant();
+        var rawKey = op["key"]?.GetValue<string>() ?? "";
+        AssertRegistryWriteAllowed(hiveName, rawKey);
+
         var before = RegistryGet(op, fake);
         if (fake is not null)
         {
@@ -278,6 +282,7 @@ internal static class Program
     {
         var target = Path.GetFullPath(op["target"]?.GetValue<string>() ?? "");
         var source = Path.GetFullPath(op["source"]?.GetValue<string>() ?? "");
+        AssertFileTargetAllowed(target, "link.create");
         if (fake is not null)
         {
             var links = fake["links"] as JsonObject ?? new JsonObject();
@@ -320,6 +325,7 @@ internal static class Program
     private static JsonNode? LinkRemove(JsonObject op, JsonObject? fake)
     {
         var target = Path.GetFullPath(op["target"]?.GetValue<string>() ?? "");
+        AssertFileTargetAllowed(target, "link.remove");
         if (fake is not null)
         {
             var links = fake["links"] as JsonObject ?? new JsonObject();
@@ -356,6 +362,7 @@ internal static class Program
     {
         var target = Path.GetFullPath(op["target"]?.GetValue<string>() ?? "");
         var source = Path.GetFullPath(op["source"]?.GetValue<string>() ?? "");
+        AssertFileTargetAllowed(target, "copy.create");
         if (fake is not null)
         {
             var copies = fake["copies"] as JsonObject ?? new JsonObject();
@@ -381,6 +388,7 @@ internal static class Program
     private static JsonNode? CopyRemove(JsonObject op, JsonObject? fake)
     {
         var target = Path.GetFullPath(op["target"]?.GetValue<string>() ?? "");
+        AssertFileTargetAllowed(target, "copy.remove");
         if (fake is not null)
         {
             var copies = fake["copies"] as JsonObject ?? new JsonObject();
@@ -392,7 +400,7 @@ internal static class Program
 
         if (Directory.Exists(target))
         {
-            Directory.Delete(target, recursive: true);
+            SafeDeleteDirectory(target);
         }
         else if (File.Exists(target))
         {
@@ -404,15 +412,160 @@ internal static class Program
 
     private static void CopyTree(string source, string target)
     {
+        if (IsReparsePoint(source))
+        {
+            throw new IOException("refusing to copy reparse point: " + source);
+        }
+
         Directory.CreateDirectory(target);
         foreach (var file in Directory.GetFiles(source))
         {
-            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+            if (IsReparsePoint(file))
+            {
+                throw new IOException("refusing to copy file link: " + file);
+            }
+
+            var destination = Path.Combine(target, Path.GetFileName(file));
+            if (File.Exists(destination) && IsReparsePoint(destination))
+            {
+                throw new IOException("refusing to overwrite link target: " + destination);
+            }
+
+            File.Copy(file, destination, overwrite: true);
         }
 
         foreach (var directory in Directory.GetDirectories(source))
         {
             CopyTree(directory, Path.Combine(target, Path.GetFileName(directory)));
+        }
+    }
+
+    /// <summary>Deletes a directory tree without ever recursing into nested junctions or symlinks.</summary>
+    private static void SafeDeleteDirectory(string path)
+    {
+        if (IsReparsePoint(path))
+        {
+            Directory.Delete(path, recursive: false);
+            return;
+        }
+
+        foreach (var file in Directory.GetFiles(path))
+        {
+            File.Delete(file);
+        }
+
+        foreach (var sub in Directory.GetDirectories(path))
+        {
+            SafeDeleteDirectory(sub);
+        }
+
+        Directory.Delete(path, recursive: false);
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static readonly string[] DeniedRegistryFragments =
+    [
+        @"\CurrentVersion\Run",
+        @"\CurrentVersion\Policies",
+        @"\Image File Execution Options",
+        @"\Winlogon",
+        @"\Windows Defender",
+    ];
+
+    /// <summary>Enforces least-privilege registry write boundaries for both HKCU and HKLM.</summary>
+    private static void AssertRegistryWriteAllowed(string hive, string keyPath)
+    {
+        var normalized = (keyPath ?? string.Empty).Trim().TrimStart('\\');
+        if (normalized.Length == 0 || normalized.Contains("..", StringComparison.Ordinal) || normalized.Any(char.IsControl))
+        {
+            throw new UnauthorizedAccessException("refusing unsafe registry key: " + keyPath);
+        }
+
+        var allowed = hive switch
+        {
+            "HKCU" => string.Equals(normalized, "Environment", StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith(@"Software\", StringComparison.OrdinalIgnoreCase),
+            "HKLM" => string.Equals(normalized, @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment", StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith(@"SOFTWARE\", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+
+        if (!allowed)
+        {
+            throw new UnauthorizedAccessException($"refusing registry write outside allowed prefixes: {hive}\\{normalized}");
+        }
+
+        foreach (var fragment in DeniedRegistryFragments)
+        {
+            if (normalized.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException($"refusing registry write to sensitive system key: {hive}\\{normalized}");
+            }
+        }
+    }
+
+    /// <summary>Blocks destructive elevated file ops against drive roots and core Windows directories.</summary>
+    private static void AssertFileTargetAllowed(string target, string op)
+    {
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(target));
+        var root = Path.TrimEndingDirectorySeparator(Path.GetPathRoot(full) ?? string.Empty);
+        if (string.IsNullOrEmpty(full) || string.Equals(full, root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedAccessException($"refusing {op} on drive root: {target}");
+        }
+
+        var protectedRoots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            Environment.GetFolderPath(Environment.SpecialFolder.SystemX86),
+        };
+        foreach (var dir in protectedRoots)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                continue;
+            }
+
+            var protectedFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir));
+            if (string.Equals(full, protectedFull, StringComparison.OrdinalIgnoreCase)
+                || full.StartsWith(protectedFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException($"refusing {op} inside Windows system directory: {target}");
+            }
+        }
+
+        var exactBlocked = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        };
+        foreach (var dir in exactBlocked)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                continue;
+            }
+
+            var exactFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir));
+            if (string.Equals(full, exactFull, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException($"refusing {op} on root directory: {target}");
+            }
         }
     }
 

@@ -31,6 +31,9 @@ var tests = new List<(string Name, Func<Task> Body)>
     ("protocol.envelope-version", EnvelopeVersionRejected),
     ("settings.concurrent-set", SettingsConcurrentSet),
     ("logging.provider-conflict", LogProviderConflict),
+    ("logging.kernel-redacts-sensitive", KernelLoggerRedactsSensitive),
+    ("logging.provider-drop-accounting", LogProviderCountsDrops),
+    ("settings.unset-resets-default", SettingsUnsetResetsDefault),
 };
 
 var failures = 0;
@@ -288,8 +291,67 @@ static Task LogExtensionSanitize()
     Assert(record.BootId == "b-true" && record.Unit == "echo", "trusted fields win");
     Assert(record.Fields is not null && !record.Fields.ContainsKey("env"), "bulk snapshot removed");
     Assert(record.Fields is not null && record.Fields.ContainsKey("token"), "named value kept");
+    Assert(record.Fields?["token"]?.GetValue<string>() == LogRedaction.RedactedPlaceholder, "sensitive value masked");
     Assert(record.Sensitive, "sensitive marked");
-    Assert(LogUtil(record).Contains("_sensitive", StringComparison.Ordinal), "marker emitted");
+    var serialized = LogUtil(record);
+    Assert(serialized.Contains("_sensitive", StringComparison.Ordinal), "marker emitted");
+    Assert(!serialized.Contains("abc", StringComparison.Ordinal), "plaintext secret must not hit disk");
+    return Task.CompletedTask;
+}
+
+static Task KernelLoggerRedactsSensitive()
+{
+    var dir = TempDir();
+    var options = new LogOptions(dir, "kernel") { Level = LogLevel.Debug };
+    using (var logger = new KernelLogger(options, "boot-1", "pd-x", "m-x"))
+    {
+        logger.Info("auth.probe", "checked token", new JsonObject
+        {
+            ["github_token"] = "ghp_supersecret",
+            ["env"] = new JsonObject { ["SECRET"] = "nope" },
+        });
+    }
+
+    var content = File.ReadAllText(options.PrimaryPath);
+    Assert(content.Contains("\"_sensitive\":true", StringComparison.Ordinal), "kernel record marked sensitive");
+    Assert(content.Contains(LogRedaction.RedactedPlaceholder, StringComparison.Ordinal), "kernel secret masked");
+    Assert(!content.Contains("ghp_supersecret", StringComparison.Ordinal), "plaintext kernel secret must not hit disk");
+    return Task.CompletedTask;
+}
+
+static Task LogProviderCountsDrops()
+{
+    var dir = TempDir();
+    var options = new LogOptions(dir, "kernel") { Level = LogLevel.Debug };
+    using var logger = new KernelLogger(options, "boot-1", "pd-x", "m-x");
+    logger.Provider.Attach("log-ext", priority: 10);
+    for (var i = 0; i < 9000; i++)
+    {
+        logger.Provider.TryWrite(new LogRecord
+        {
+            Ts = TimeUtil.NowIso(),
+            Pri = 6,
+            Level = "info",
+            Msg = "flood " + i,
+            Evt = "flood",
+            BootId = "boot-1",
+            Unit = "kernel",
+        });
+    }
+
+    Assert(logger.Provider.Dropped > 0, $"expected drops > 0, got {logger.Provider.Dropped}");
+    return Task.CompletedTask;
+}
+
+static Task SettingsUnsetResetsDefault()
+{
+    var file = Path.Combine(TempDir(), "settings.json");
+    var store = SettingsStore.Load(file);
+    var set = store.Set("network.timeout", "90s");
+    Assert(set.Ok, "set succeeded");
+    Assert(store.GetJsonString("network.timeout") == "\"90s\"", "updated json");
+    Assert(store.Unset("network.timeout", out var def) && def is not null, "unset succeeded");
+    Assert(store.GetString("network.timeout") == "30s", "reset to default");
     return Task.CompletedTask;
 }
 

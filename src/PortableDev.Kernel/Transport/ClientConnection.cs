@@ -15,9 +15,12 @@ public sealed class ClientConnection : IMessageSink
 {
     private readonly Stream _stream;
     private readonly IKernelServices _kernel;
+    private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
+
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, TaskContext> _tasks = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Task, byte> _inFlightRequests = new();
     private readonly HashSet<string> _features = new(StringComparer.Ordinal);
     private const int MaxConcurrentTasks = 8;
 
@@ -57,16 +60,54 @@ public sealed class ClientConnection : IMessageSink
     public async Task SendAsync(Envelope envelope)
     {
         var bytes = envelope.ToBytes();
-        await _writeGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        CancellationTokenSource writeCts;
         try
         {
-            await FrameCodec.WriteFrameAsync(_stream, bytes, _lifetime.Token).ConfigureAwait(false);
-            await _stream.FlushAsync(_lifetime.Token).ConfigureAwait(false);
+            writeCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         }
-        finally
+        catch (ObjectDisposedException)
         {
-            _writeGate.Release();
+            throw new IOException("connection already closed");
         }
+
+        using (writeCts)
+        {
+            writeCts.CancelAfter(WriteTimeout);
+            try
+            {
+                await _writeGate.WaitAsync(writeCts.Token).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                throw new IOException("connection already closed");
+            }
+            catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+            {
+                // A stalled peer must not freeze extension event loops or trigger watchdog kills.
+                TryCancelLifetime();
+                throw new IOException("pipe write timed out");
+            }
+
+            try
+            {
+                await FrameCodec.WriteFrameAsync(_stream, bytes, writeCts.Token).ConfigureAwait(false);
+                await _stream.FlushAsync(writeCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+            {
+                TryCancelLifetime();
+                throw new IOException("pipe write timed out");
+            }
+            finally
+            {
+                try { _writeGate.Release(); } catch (ObjectDisposedException) { }
+            }
+        }
+    }
+
+    private void TryCancelLifetime()
+    {
+        try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
     }
 
     private async Task RunCoreAsync()
@@ -153,6 +194,19 @@ public sealed class ClientConnection : IMessageSink
             if (_isExtension)
             {
                 await _kernel.Supervisor.OnConnectionClosedAsync(_extensionName).ConfigureAwait(false);
+            }
+
+            var activeRequests = _inFlightRequests.Keys.ToArray();
+            if (activeRequests.Length > 0)
+            {
+                try
+                {
+                    await Task.WhenAll(activeRequests).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // Best-effort drain before releasing synchronization primitives.
+                }
             }
 
             _writeGate.Dispose();
@@ -257,7 +311,7 @@ public sealed class ClientConnection : IMessageSink
             switch (envelope.Kind)
             {
                 case Kinds.Req:
-                    _ = HandleRequestAsync(envelope);
+                    TrackRequest(HandleRequestAsync(envelope));
                     break;
                 case Kinds.Ctl:
                     await HandleCtlAsync(envelope).ConfigureAwait(false);
@@ -269,6 +323,16 @@ public sealed class ClientConnection : IMessageSink
                     break;
             }
         }
+    }
+
+    private void TrackRequest(Task task)
+    {
+        _inFlightRequests[task] = 0;
+        _ = task.ContinueWith(
+            completed => _inFlightRequests.TryRemove(completed, out _),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private async Task HandleRequestAsync(Envelope request)

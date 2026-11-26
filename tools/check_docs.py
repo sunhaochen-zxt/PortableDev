@@ -116,6 +116,15 @@ if catalog.exists():
         problems.append(f"[设置] kernel.md 2.1: 代码里的设置键 {key} 未写入文档")
     for key in sorted(doc_keys - code_keys):
         problems.append(f"[设置] kernel.md 2.1: 文档里的设置键 {key} 在代码里不存在")
+    # 核对 RestartRequired 与 kernel.md 2.1 第 5 列“改后要重启吗”一致
+    code_restart = dict(re.findall(r'new\("([A-Za-z][A-Za-z0-9.]*)"[^\n]*?RestartRequired:\s*(true|false)', catalog.read_text(encoding="utf-8")))
+    if settings_block:
+        for row in re.finditer(r"^\|\s*`([A-Za-z][A-Za-z0-9.]*)`\s*\|[^|]*\|[^|]*\|[^|]*\|\s*([^|]+?)\s*\|", settings_block.group(1), re.M):
+            key, col = row.group(1), row.group(2).strip().replace("*", "")
+            if key in code_restart and col in ("是", "否"):
+                doc_bool = "true" if col == "是" else "false"
+                if doc_bool != code_restart[key]:
+                    problems.append(f"[设置] kernel.md 2.1: {key} 重启要求文档写「{col}」，但代码为 RestartRequired={code_restart[key]}")
 
 # 10a. 错误码常量：ErrorCodes.cs 里的每个 ERR_* 都必须写进 spec.md，反之亦然；
 #      commands.md 6.3 映射表里的码必须真实存在。

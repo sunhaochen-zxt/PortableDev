@@ -275,6 +275,8 @@ public sealed class LogRecord
             if (LogRedaction.IsSensitive(name))
             {
                 sensitive = true;
+                clean[name] = LogRedaction.RedactedPlaceholder;
+                continue;
             }
 
             clean[name] = SanitizeNode(value, ref sensitive, ref redacted, 0);
@@ -336,6 +338,8 @@ public sealed class LogRecord
                     if (LogRedaction.IsSensitive(name))
                     {
                         sensitive = true;
+                        clean[name] = LogRedaction.RedactedPlaceholder;
+                        continue;
                     }
 
                     clean[name] = SanitizeNode(value, ref sensitive, ref redacted, depth + 1);

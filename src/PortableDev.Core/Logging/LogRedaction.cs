@@ -23,7 +23,10 @@ public static class LogRedaction
     /// <summary>Field names that would smuggle a whole environment snapshot into a record.</summary>
     private static readonly string[] BulkSnapshotNames = ["env", "environment"];
 
-    /// <summary>Field names whose values should be marked sensitive (encryption will use this later).</summary>
+    /// <summary>Placeholder emitted in place of sensitive values while log encryption is off.</summary>
+    public const string RedactedPlaceholder = "[REDACTED]";
+
+    /// <summary>Field names whose values must be masked and marked sensitive.</summary>
     private static readonly string[] SensitivePrefixes = ["secret", "token", "password", "credential", "apikey", "api_key", "auth"];
 
     /// <summary>True when the field is a whole snapshot rather than one named value.</summary>
@@ -67,14 +70,26 @@ public static class LogRedaction
         : $"{count} environment variables injected";
 
     /// <summary>
-    /// Removes whole-snapshot dumps recursively instead of throwing (logging must never fail the caller).
-    /// Named values (including secrets) are allowed and get marked sensitive by <see cref="LogRecord"/>.
+    /// Removes whole-snapshot dumps recursively instead of throwing (logging must never fail the caller),
+    /// and masks sensitive-named values so plaintext credentials never hit disk.
     /// </summary>
-    public static int Validate(JsonObject? fields) => fields is null ? 0 : RemoveBulkSnapshots(fields);
+    public static int Validate(JsonObject? fields) => Redact(fields, out _);
 
-    private static int RemoveBulkSnapshots(JsonObject obj)
+    /// <summary>Recursively removes bulk snapshots, masks sensitive values, and reports whether any sensitive key was seen.</summary>
+    public static int Redact(JsonObject? fields, out bool sensitive)
+    {
+        sensitive = false;
+        return fields is null ? 0 : RedactObject(fields, ref sensitive, 0);
+    }
+
+    private static int RedactObject(JsonObject obj, ref bool sensitive, int depth)
     {
         var removed = 0;
+        if (depth >= 8)
+        {
+            return 0;
+        }
+
         foreach (var name in obj.Select(pair => pair.Key).ToArray())
         {
             var value = obj[name];
@@ -85,22 +100,42 @@ public static class LogRedaction
                 continue;
             }
 
-            if (value is JsonObject nested)
+            if (IsSensitive(name))
             {
-                removed += RemoveBulkSnapshots(nested);
+                sensitive = true;
+                obj[name] = RedactedPlaceholder;
+                continue;
             }
-            else if (value is JsonArray array)
-            {
-                foreach (var item in array)
-                {
-                    if (item is JsonObject child)
-                    {
-                        removed += RemoveBulkSnapshots(child);
-                    }
-                }
-            }
+
+            removed += RedactNode(value, ref sensitive, depth + 1);
         }
 
         return removed;
+    }
+
+    private static int RedactNode(JsonNode? node, ref bool sensitive, int depth)
+    {
+        if (depth >= 8)
+        {
+            return 0;
+        }
+
+        if (node is JsonObject nested)
+        {
+            return RedactObject(nested, ref sensitive, depth);
+        }
+
+        if (node is JsonArray array)
+        {
+            var removed = 0;
+            foreach (var item in array)
+            {
+                removed += RedactNode(item, ref sensitive, depth + 1);
+            }
+
+            return removed;
+        }
+
+        return 0;
     }
 }

@@ -224,11 +224,20 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
             Logger?.Info("kernel.shutdown", "shutdown requested", new JsonObject { ["force"] = force });
         }
 
-        // Give the in-flight task (typically `kernel stop` itself) a moment to publish its done event
-        // before the server token tears the client connections down.
+        // Give `kernel stop` a moment to publish its done event; on graceful stop (non-force),
+        // also wait up to 10s for remaining active tasks to finish (architecture.md 3.1 / 4.2).
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromMilliseconds(150)).ConfigureAwait(false);
+            if (!force && State is not null)
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (State.ActiveTasks > 0 && DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(50)).ConfigureAwait(false);
+                }
+            }
+
             try
             {
                 _shutdown.Cancel();

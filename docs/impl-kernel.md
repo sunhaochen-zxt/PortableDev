@@ -153,7 +153,9 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
   `log.dropped` 警告记录；`Flush()`/`Dispose()` 也会 drain 队列，所以通道按多读者配置，提供者状态字段加锁。
 - 内置命令先入命令表：扩展与内置重名时拒绝的是扩展，内置命令不会被静默顶掉。
 - 单实例锁：若 lock.json 的 root 与当前盘根不一致（复制盘），返回明确的 Busy 提示；坏 lock 文件全异常兜底。
-- 配置并发：`SettingsStore` 内部加锁，`config set/unset` 改为独占命令；`AtomicFile` 对 rename 冲突做重试。
+- 配置并发：`SettingsStore` 所有读写路径与 `Unset` 均在 `_gate` 锁内执行，`config set/unset` 为独占命令；`AtomicFile` 对 rename 冲突做重试。
+- 敏感日志遮蔽：`LogRedaction` 递归丢弃 `env`/`environment` 全量快照，并将命中 `secret`/`token`/`password` 等敏感字段的值替换为 `[REDACTED]` 同时标 `_sensitive: true`（内核与扩展日志统一生效，避免加密未开时明文落盘）。
+- 慢客户端与优雅关停：`ClientConnection.SendAsync` 设 5s 写超时（超时即断开慢连接，防止阻塞扩展事件循环），断连前短暂 drain 在途请求；非 `--force` 的 `kernel stop` 等待 `ActiveTasks` 归零（上限 10s）再取消服务器令牌。
 - 能力调用加 30 分钟防泄漏超时；扩展声明 `inheritEnv` 时才继承宿主环境（默认仍隔离）。
 - 管道服务预建 16 个 accept 循环（最多 64 实例），消除"所有管道实例都忙"的窗口。
 - 协议：Envelope 版本必须为 1；握手完成后的协议错误不再回 hello.err；进程退出事件按进程实例比对，
