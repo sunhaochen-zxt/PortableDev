@@ -305,7 +305,13 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
             }
 
             var records = new List<LogRecord>();
-            foreach (var line in File.ReadLines(Logger.FallbackPath))
+            // The kernel logger keeps this file open for append; read with a share mode that
+            // tolerates the writer, otherwise every replay fails with "cannot access the file".
+            using var fallback = new FileStream(Logger.FallbackPath, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(fallback, System.Text.Encoding.UTF8);
+            string? line;
+            while ((line = reader.ReadLine()) is not null)
             {
                 if (JsonNode.Parse(line) is not JsonObject document || !LogRecord.TryParse(document, out var record))
                 {
