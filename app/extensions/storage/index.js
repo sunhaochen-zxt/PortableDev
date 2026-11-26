@@ -971,12 +971,17 @@ function runHelper(ops, noElevate) {
   const requestPath = path.join(dir, base + ".json");
   const resultPath = path.join(dir, base + ".result.json");
   writeJson(requestPath, { schema: 1, result: resultPath, ops: ops });
+  // Bind the elevated run to these exact bytes: the request file sits in a user-writable
+  // directory and must not be swappable during the UAC consent dwell.
+  const requestDigest = crypto.createHash("sha256").update(fs.readFileSync(requestPath)).digest("hex");
   let spawnError = null;
   try {
     const args = command.slice(1).concat([requestPath]);
     if (noElevate) {
       args.push("--no-elevate");
     }
+
+    args.push("--result", resultPath, "--sha256", requestDigest);
     execFileSync(command[0], args, {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 300000,

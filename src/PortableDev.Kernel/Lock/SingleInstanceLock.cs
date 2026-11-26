@@ -62,7 +62,7 @@ public sealed class SingleInstanceLock : IDisposable
         {
             if (File.Exists(stateLockFile))
             {
-                var existing = ReadLock(stateLockFile);
+                var existing = ReadLock(stateLockFile, machineId);
                 var fresh = existing.HeartbeatAt is not null &&
                             (DateTimeOffset.Now - existing.HeartbeatAt.Value) < TimeSpan.FromSeconds(StaleSeconds);
                 if (fresh)
@@ -186,13 +186,19 @@ public sealed class SingleInstanceLock : IDisposable
         AtomicFile.WriteAllText(_path, document.ToJsonString());
     }
 
-    private static (int? Pid, DateTimeOffset? HeartbeatAt, string? Root) ReadLock(string path)
+    private static (int? Pid, DateTimeOffset? HeartbeatAt, string? Root) ReadLock(string path, string currentMachineId)
     {
         try
         {
             var node = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            if (node is null)
+            {
+                return (null, null, null);
+            }
+
             var pid = JsonUtil.Int(node, "pid");
             var root = JsonUtil.String(node, "root");
+            var lockMachineId = JsonUtil.String(node, "machineId");
             var heartbeatText = JsonUtil.String(node, "heartbeatAt");
             DateTimeOffset? heartbeat = null;
             if (heartbeatText is not null && DateTimeOffset.TryParse(heartbeatText, out var parsed))
@@ -200,7 +206,9 @@ public sealed class SingleInstanceLock : IDisposable
                 heartbeat = parsed;
             }
 
-            if (pid is not null)
+            var sameMachine = string.IsNullOrWhiteSpace(lockMachineId)
+                || string.Equals(lockMachineId, currentMachineId, StringComparison.OrdinalIgnoreCase);
+            if (pid is not null && sameMachine)
             {
                 try
                 {
@@ -214,11 +222,16 @@ public sealed class SingleInstanceLock : IDisposable
                 {
                     heartbeat = null;
                 }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+                {
+                    // Another Windows session or elevated process owns this PID: treat it as alive
+                    // and keep heartbeat intact so Acquire returns ERR_BUSY instead of stealing the lock.
+                }
             }
 
             return (pid, heartbeat, root);
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or UnauthorizedAccessException)
         {
             return (null, null, null);
         }

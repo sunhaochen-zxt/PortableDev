@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 
 namespace PortableDev.ProcExt;
@@ -10,15 +12,33 @@ namespace PortableDev.ProcExt;
 /// </summary>
 internal static class AdminMode
 {
-    public static int Run(string requestPath) => Run(requestPath, GetArgvResultPath(requestPath));
+    public static int Run(string requestPath) => Run(requestPath, GetArgvResultPath(requestPath), null);
 
-    public static int Run(string requestPath, string? resultPathArg)
+    public static int Run(string requestPath, string? resultPathArg, string? expectedSha256 = null)
     {
         var result = new JsonObject { ["error"] = new JsonObject { ["code"] = "ERR_INTERNAL", ["message"] = "admin mode failed" } };
         string? resultPath = resultPathArg ?? GetArgvResultPath(requestPath);
         try
         {
-            var request = JsonNode.Parse(File.ReadAllText(requestPath)) as JsonObject ?? new JsonObject();
+            var rawBytes = File.ReadAllBytes(requestPath);
+            if (!string.IsNullOrWhiteSpace(expectedSha256))
+            {
+                var actualSha256 = Convert.ToHexString(SHA256.HashData(rawBytes)).ToLowerInvariant();
+                if (!string.Equals(actualSha256, expectedSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    result = new JsonObject
+                    {
+                        ["error"] = new JsonObject
+                        {
+                            ["code"] = "ERR_ELEVATION",
+                            ["message"] = "elevated request digest mismatch",
+                        },
+                    };
+                    goto WriteOut;
+                }
+            }
+
+            var request = JsonNode.Parse(rawBytes) as JsonObject ?? new JsonObject();
             result = Execute(request);
         }
         catch (Exception ex)
@@ -26,6 +46,7 @@ internal static class AdminMode
             result = new JsonObject { ["error"] = new JsonObject { ["code"] = "ERR_INTERNAL", ["message"] = ex.Message } };
         }
 
+    WriteOut:
         if (string.IsNullOrEmpty(resultPath) || !IsWithinTmp(resultPath))
         {
             return 1;
@@ -35,12 +56,13 @@ internal static class AdminMode
         {
             var full = Path.GetFullPath(resultPath);
             using var stream = new FileStream(full, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false));
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
             writer.Write(result.ToJsonString());
         }
         catch (Exception)
         {
             // Fail closed: never overwrite or follow a pre-created link.
+            return 1;
         }
 
         return 0;
@@ -145,7 +167,9 @@ internal static class Elevated
         try
         {
             var payload = (JsonObject)request.DeepClone();
-            File.WriteAllText(requestPath, payload.ToJsonString());
+            var payloadBytes = new UTF8Encoding(false).GetBytes(payload.ToJsonString());
+            var payloadSha256 = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant();
+            File.WriteAllBytes(requestPath, payloadBytes);
 
             // Host detection mirrors PortableDev.Elevate: only the dotnet muxer needs the managed
             // dll as its first argument. An apphost *is* the entry point, so "proc.exe proc.dll
@@ -177,6 +201,8 @@ internal static class Elevated
             arguments.Add("--admin");
             arguments.Add(requestPath);
             arguments.Add(resultPath);
+            arguments.Add("--sha256");
+            arguments.Add(payloadSha256);
 
             if (!noElevate)
             {

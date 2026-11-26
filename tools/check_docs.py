@@ -127,7 +127,7 @@ if error_codes_file.exists():
         problems.append(f"[错误码] ErrorCodes.cs: {code} 未在 spec.md 6.2 声明")
     for code in sorted(declared_errs - code_values):
         problems.append(f"[错误码] spec.md 6.2: {code} 在 ErrorCodes.cs 里不存在")
-    exit_map = re.search(r"### 6\\.3 退出码与错误码的对应(.*?)(?:\n## |\Z)", commands_body, re.S)
+    exit_map = re.search(r"### 6\.3 退出码与错误码的对应(.*?)(?:\n## |\Z)", commands_body, re.S)
     if exit_map:
         for code in sorted(set(re.findall(r"`(ERR_[A-Z_]+)`", exit_map.group(1)))):
             if code not in code_values:

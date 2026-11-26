@@ -144,7 +144,7 @@ internal static class SystemProcesses
         try
         {
             var actualStarted = StartTime(handle);
-            if (!string.Equals(expectedStarted, actualStarted, StringComparison.Ordinal))
+            if (expectedStarted is null || !string.Equals(expectedStarted, actualStarted, StringComparison.Ordinal))
             {
                 return Error(ErrorCodes.ProcNotFound, "pid " + pid + " was reused; refusing to end the new process");
             }

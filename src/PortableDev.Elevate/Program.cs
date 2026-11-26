@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text.Json.Nodes;
 using Microsoft.Win32;
@@ -21,6 +22,7 @@ internal static class Program
         var requestPath = args[0];
         string? fakePath = null;
         string? resultArg = null;
+        string? expectedSha256 = null;
         var noElevate = false;
         for (var index = 1; index < args.Length; index++)
         {
@@ -36,12 +38,26 @@ internal static class Program
             {
                 resultArg = args[++index];
             }
+            else if (args[index] == "--sha256" && index + 1 < args.Length)
+            {
+                expectedSha256 = args[++index];
+            }
         }
 
+        byte[] rawBytes;
+        string actualSha256;
         JsonObject request;
         try
         {
-            request = JsonNode.Parse(File.ReadAllText(requestPath)) as JsonObject
+            rawBytes = File.ReadAllBytes(requestPath);
+            actualSha256 = Convert.ToHexString(SHA256.HashData(rawBytes)).ToLowerInvariant();
+            if (expectedSha256 is not null && !string.Equals(actualSha256, expectedSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine("pd-elevate: request digest mismatch (possible tampering during UAC)");
+                return 2;
+            }
+
+            request = JsonNode.Parse(rawBytes) as JsonObject
                 ?? throw new InvalidOperationException("request must be a JSON object");
         }
         catch (Exception ex)
@@ -66,14 +82,18 @@ internal static class Program
             var processPath = Environment.ProcessPath!;
             var isDotnetHost = string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase);
             var selfDll = Environment.GetCommandLineArgs().FirstOrDefault() ?? string.Empty;
+            // Bind the elevated run to the exact request bytes and validated result path so the
+            // request file cannot be swapped while the UAC prompt is waiting.
+            var elevatedArgs = (isDotnetHost ? Quote(Path.GetFullPath(selfDll)) + " " : string.Empty)
+                + Quote(requestPath)
+                + " --result " + Quote(resultPath)
+                + " --sha256 " + Quote(actualSha256);
             var start = new ProcessStartInfo
             {
                 FileName = processPath,
                 UseShellExecute = true,
                 Verb = "runas",
-                Arguments = isDotnetHost
-                    ? Quote(Path.GetFullPath(selfDll)) + " " + Quote(requestPath)
-                    : Quote(requestPath),
+                Arguments = elevatedArgs,
             };
             try
             {
@@ -109,7 +129,7 @@ internal static class Program
                 entry["ok"] = false;
                 entry["error"] = new JsonObject
                 {
-                    ["code"] = ex is UnauthorizedAccessException ? "ERR_PERMISSION" : "ERR_IO",
+                    ["code"] = ex is UnauthorizedAccessException ? "ERR_ELEVATION" : "ERR_IO",
                     ["message"] = ex.Message,
                 };
                 results.Add(entry);
@@ -280,8 +300,9 @@ internal static class Program
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         // Never route this through cmd.exe: argument quoting for cmd is not MSVCRT quoting, so a
         // path containing & | ^ or %VAR% would inject a second elevated command.
-        const int SymbolicLinkDirectory = 0x2;
-        const int AllowUnprivilegedCreate = 0x4;
+        // Win32 winbase.h: SYMBOLIC_LINK_FLAG_DIRECTORY = 0x1, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE = 0x2.
+        const int SymbolicLinkDirectory = 0x1;
+        const int AllowUnprivilegedCreate = 0x2;
         if (!Native.CreateSymbolicLink(target, source, SymbolicLinkDirectory | AllowUnprivilegedCreate))
         {
             var firstError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();

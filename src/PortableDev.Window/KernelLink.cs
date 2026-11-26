@@ -202,8 +202,9 @@ public sealed class KernelLink : IAsyncDisposable
         EventReceived += Handler;
         try
         {
-            await SendRequestAsync(id, argv).ConfigureAwait(false);
+            // Notify caller before sending so prompt replies arriving immediately are accepted.
             onTaskId?.Invoke(id);
+            await SendRequestAsync(id, argv).ConfigureAwait(false);
             var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeoutMs)).ConfigureAwait(false);
             if (finished != waiter.Task)
             {

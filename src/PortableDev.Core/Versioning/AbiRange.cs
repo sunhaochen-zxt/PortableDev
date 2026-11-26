@@ -40,7 +40,7 @@ public sealed class AbiRange
                 return false;
             }
 
-            // spec 2.4 lists five comparators: ^N and ~N mean "this ABI and nothing newer".
+            // ^N means "this ABI and nothing newer" (tilde is reserved for semver ranges, not integer ABIs).
             if (op is "^")
             {
                 range._terms.Add((">=", value));

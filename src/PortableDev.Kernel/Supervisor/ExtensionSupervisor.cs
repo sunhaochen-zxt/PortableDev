@@ -197,15 +197,29 @@ public sealed class ExtensionSupervisor
             return;
         }
 
-        if (!_pendingCalls.TryAdd(id, new PendingCall(from, provider)))
+        // spec 5.6 / audit G1: mutating capabilities serialize per provider so two parallel callers
+        // cannot race on the same provider's state. Skip the gate on self-calls to avoid self-deadlock.
+        SemaphoreSlim? callGate = null;
+        if (IsMutatingCapability(provider, capability) && !string.Equals(from, provider, StringComparison.Ordinal))
         {
+            callGate = GetOrCreate(provider).MutatingCallGate;
+            await callGate.WaitAsync().ConfigureAwait(false);
+        }
+
+        var pending = new PendingCall(from, provider, callGate);
+        if (!_pendingCalls.TryAdd(id, pending))
+        {
+            pending.ReleaseGateOnce();
             await SendCallErrorAsync(from, id, ErrorCodes.Busy, "call id " + id + " is already in flight").ConfigureAwait(false);
             return;
         }
 
         if (!await StartIfNeededAsync(provider, CancellationToken.None).ConfigureAwait(false))
         {
-            _pendingCalls.TryRemove(id, out _);
+            if (_pendingCalls.TryRemove(new KeyValuePair<string, PendingCall>(id, pending)))
+            {
+                pending.ReleaseGateOnce();
+            }
             await SendCallErrorAsync(from, id, ErrorCodes.ExtTimeout, "extension " + provider + " did not become ready").ConfigureAwait(false);
             return;
         }
@@ -226,7 +240,10 @@ public sealed class ExtensionSupervisor
 
         if (!TrySend(provider, forward))
         {
-            _pendingCalls.TryRemove(id, out _);
+            if (_pendingCalls.TryRemove(new KeyValuePair<string, PendingCall>(id, pending)))
+            {
+                pending.ReleaseGateOnce();
+            }
             await SendCallErrorAsync(from, id, ErrorCodes.ExtMissing, "extension " + provider + " is not connected").ConfigureAwait(false);
         }
     }
@@ -238,6 +255,7 @@ public sealed class ExtensionSupervisor
             await Task.Delay(timeout).ConfigureAwait(false);
             if (_pendingCalls.TryRemove(id, out var pending))
             {
+                pending.ReleaseGateOnce();
                 await SendCallErrorAsync(pending.From, id, ErrorCodes.Timeout, "capability call timed out after " + TimeUtil.FormatDuration(timeout)).ConfigureAwait(false);
             }
         }
@@ -274,6 +292,8 @@ public sealed class ExtensionSupervisor
             _kernel.Logger.Debug("call.orphan", "call reply lost a race with cleanup", new JsonObject { ["id"] = reply.Id });
             return;
         }
+
+        pending.ReleaseGateOnce();
 
         TrySend(pending.From, new Envelope
         {
@@ -910,6 +930,7 @@ public sealed class ExtensionSupervisor
 
             if (_pendingCalls.TryRemove(new KeyValuePair<string, PendingCall>(pair.Key, pair.Value)))
             {
+                pair.Value.ReleaseGateOnce();
                 _ = SendCallErrorAsync(pair.Value.From, pair.Key, ErrorCodes.ExtTimeout, reason);
             }
         }
@@ -1140,7 +1161,7 @@ public sealed class ExtensionSupervisor
                 var name = JsonUtil.String(capability, "name");
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    result.Add(new Capability(name, JsonUtil.Bool(capability, "mutates") ?? false, JsonUtil.Int(capability, "version") ?? 1));
+                    result.Add(new Capability(name, JsonUtil.Bool(capability, "mutates") ?? true, JsonUtil.Int(capability, "version") ?? 1));
                 }
             }
             else
@@ -1180,13 +1201,43 @@ public sealed class ExtensionSupervisor
     private ExtensionRuntime GetOrCreate(string name)
         => _runtime.GetOrAdd(name, n => new ExtensionRuntime(_kernel.Registry.Find(n) ?? throw new InvalidOperationException($"unknown extension '{n}'")));
 
-    private sealed record PendingCall(string From, string Provider);
+    private bool IsMutatingCapability(string provider, string capability)
+    {
+        if (_runtime.TryGetValue(provider, out var runtime))
+        {
+            var live = runtime.Capabilities.FirstOrDefault(c => string.Equals(c.Name, capability, StringComparison.Ordinal));
+            if (live is not null)
+            {
+                return live.Mutates;
+            }
+        }
+
+        var manifest = _kernel.Registry.Find(provider);
+        var declared = manifest?.Provides.FirstOrDefault(p => string.Equals(p.Name, capability, StringComparison.Ordinal));
+        return declared?.Mutates ?? true;
+    }
+
+    private sealed class PendingCall(string from, string provider, SemaphoreSlim? gate)
+    {
+        private SemaphoreSlim? _gate = gate;
+
+        public string From { get; } = from;
+
+        public string Provider { get; } = provider;
+
+        public void ReleaseGateOnce()
+        {
+            Interlocked.Exchange(ref _gate, null)?.Release();
+        }
+    }
 
     private sealed class ExtensionRuntime(ExtensionManifest manifest)
     {
         public ExtensionManifest Manifest { get; } = manifest;
 
         public SemaphoreSlim StartGate { get; } = new(1, 1);
+
+        public SemaphoreSlim MutatingCallGate { get; } = new(1, 1);
 
         public Process? Process { get; set; }
 

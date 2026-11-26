@@ -335,11 +335,29 @@ public sealed class Bridge
             return false;
         }
 
+        ExtPolicy? policy = null;
+        if (_pageExtension is not null && _policies.TryGetValue(_pageExtension, out var found))
+        {
+            policy = found;
+            if (!policy.UiAllowed)
+            {
+                return false;
+            }
+        }
+
         if (string.Equals(command, "config", StringComparison.Ordinal))
         {
-            // window.md: only the read-only forms are exposed to pages.
-            return argv.Length > 1
-                && (string.Equals(argv[1], "get", StringComparison.Ordinal) || string.Equals(argv[1], "list", StringComparison.Ordinal));
+            // window.md: read-only config forms are always exposed to UI-permitted pages;
+            // mutating config subcommands require explicit commands permission.
+            if (argv.Length > 1
+                && (string.Equals(argv[1], "get", StringComparison.Ordinal) || string.Equals(argv[1], "list", StringComparison.Ordinal)))
+            {
+                return true;
+            }
+
+            return policy is not null
+                && policy.AllowedCommands is not null
+                && policy.AllowedCommands.Contains(command);
         }
 
         if (ReadOnlyCommands.Contains(command))
@@ -359,12 +377,7 @@ public sealed class Bridge
             return true;
         }
 
-        if (_pageExtension is null || !_policies.TryGetValue(_pageExtension, out var policy))
-        {
-            return false;
-        }
-
-        if (!policy.UiAllowed)
+        if (policy is null)
         {
             return false;
         }
