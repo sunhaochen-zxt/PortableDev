@@ -412,6 +412,15 @@ async function installedRecord(pkg) {
 
 // Plans dependency installs from the package manifest. Pure checks only (no writes),
 // so the dry-run path can display the plan and bail out before anything changes.
+async function listInstalled() {
+  try {
+    const result = await callCapability("storage.record", "list", {});
+    return (result && result.items) || [];
+  } catch (error) {
+    return [];
+  }
+}
+
 async function planDependencies({ manifest, pkgId, event, flags, manager }) {
   const requires = Array.isArray(manifest.requires) ? manifest.requires : [];
   if (flags["no-deps"] === true) {
@@ -437,6 +446,14 @@ async function planDependencies({ manifest, pkgId, event, flags, manager }) {
     }
     if (installed) {
       throw new PkgError("ERR_DEP_UNSATISFIED", "dependency conflict: " + dep.id + " " + installed.version + " is installed but " + pkgId + " needs " + (dep.range || "another version") + "; upgrade it explicitly first", 24);
+    }
+    const providedBy = (await listInstalled()).filter((item) =>
+      Array.isArray(item.provides) && item.provides.includes(dep.id) &&
+      manager.satisfies(String(item.version), constraint));
+    if (providedBy.length > 0) {
+      event("log", { level: "info", msg: "dependency satisfied: " + dep.id + " provided by " + providedBy[0].id + " " + providedBy[0].version });
+      plan.push({ id: dep.id, range: dep.range, ref: dep.ref, status: "satisfied", version: String(providedBy[0].version), provider: providedBy[0].id });
+      continue;
     }
     plan.push({ id: dep.id, range: dep.range, ref: dep.ref, status: "install" });
   }
@@ -520,6 +537,7 @@ async function install(message, options) {
 
   let grantPath = null;
   let scoopStaging = null;
+  const replacedOld = [];
   const dropScoopStaging = () => {
     const staging = scoopStaging;
     scoopStaging = null;
@@ -679,6 +697,23 @@ async function install(message, options) {
     throwIfCancelled(id);
     await installDependencyPlan({ plan: depPlan, chain: depChain, taskId: taskId, id: id, ctx: (message.data && message.data.ctx) || {}, flags: flags, event: event });
 
+    // Packages this one replaces must go first (they cannot coexist); keep their data.
+    // On later failure each removed package is reinstalled best-effort below.
+    for (const replacedId of (Array.isArray(manifest.replaces) ? manifest.replaces : [])) {
+      if (typeof replacedId !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(replacedId) || replacedId === pkgId) {
+        continue;
+      }
+      const oldRecord = await installedRecord(replacedId);
+      if (!oldRecord) {
+        event("log", { level: "info", msg: "replaces " + replacedId + ": not installed, nothing to remove" });
+        continue;
+      }
+      event("step", { stepId: "replace-" + replacedId, title: "replace " + replacedId, state: "running" });
+      await callCapability("storage.uninstall", "run", { task: taskId, pkg: replacedId, purgeData: false, skipGeneration: true });
+      event("step", { stepId: "replace-" + replacedId, title: "replace " + replacedId, state: "done" });
+      replacedOld.push({ id: replacedId, version: String(oldRecord.version) });
+    }
+
     let contentRoot;
     if (kind === "dir") {
       // A user directory is not inside staging, so copy it into a grant before adopting.
@@ -765,6 +800,17 @@ async function install(message, options) {
       await callCapability("storage.record", "write", { record: pinned });
     }
 
+    // Virtual capabilities live on the record so dependency checks do not need
+    // to re-read the store. Records written before this existed simply lack it.
+    if (Array.isArray(manifest.provides) && manifest.provides.length > 0) {
+      const provided = manifest.provides.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name));
+      if (provided.length > 0) {
+        const record = await callCapability("storage.record", "get", { pkg: pkgId });
+        record.provides = provided;
+        await callCapability("storage.record", "write", { record: record });
+      }
+    }
+
     for (const pending of scriptResult.pendingLinks || []) {
       await callCapability("storage.wire", "link.create", {
         task: taskId,
@@ -805,6 +851,19 @@ async function install(message, options) {
     await rollbackTask(taskId, event);
     await cleanupGrant();
     dropScoopStaging();
+    for (const old of replacedOld) {
+      try {
+        event("log", { level: "warn", msg: "restoring replaced package " + old.id + " " + old.version });
+        await runInstall(
+          { id: id, data: { argv: [old.id + "@" + old.version], ctx: (message.data && message.data.ctx) || {}, cmd: "install" } },
+          taskId,
+          (type, data) => { if (type === "log") { event("log", data); } },
+          depChain,
+        );
+      } catch (restoreError) {
+        event("log", { level: "error", msg: "could not restore " + old.id + ": " + ((restoreError && restoreError.message) || String(restoreError)) });
+      }
+    }
     // A cancelled task already received its terminal done(130) from the kernel; sending another one
     // would just be dropped, so stay quiet in that case.
     if (!isCancelled(id)) {

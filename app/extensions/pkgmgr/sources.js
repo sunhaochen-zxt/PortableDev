@@ -144,6 +144,10 @@ function validateIndex(document, expectedName) {
     if (!entry || typeof entry !== "object") { fail("package " + id); }
     if (typeof entry.latest !== "string" || entry.latest.length === 0) { fail("package " + id + " latest"); }
     if (!entry.versions || typeof entry.versions !== "object" || Array.isArray(entry.versions)) { fail("package " + id + " versions"); }
+    if (entry.provides !== undefined) {
+      if (!Array.isArray(entry.provides)) { fail("package " + id + " provides"); }
+      entry.provides = entry.provides.filter((name) => typeof name === "string" && PACKAGE_ID.test(name));
+    }
     for (const [version, versionEntry] of Object.entries(entry.versions)) {
       if (!VERSION.test(version)) { fail("package " + id + " version " + version); }
       if (!versionEntry || typeof versionEntry !== "object") { fail("package " + id + " version entry " + version); }
@@ -171,6 +175,10 @@ function indexFromDirectory(directory) {
     if (!manifest || !PACKAGE_ID.test(String(manifest.id || "")) || !VERSION.test(String(manifest.version || ""))) { continue; }
     const sha256 = hashFile(file);
     const entry = packages[manifest.id] || (packages[manifest.id] = { latest: manifest.version, title: manifest.title || manifest.id, versions: {} });
+    const manifestProvides = Array.isArray(manifest.provides)
+      ? manifest.provides.filter((name) => typeof name === "string" && PACKAGE_ID.test(name))
+      : undefined;
+    const manifestRequires = Array.isArray(manifest.requires) ? manifest.requires : undefined;
     entry.versions[manifest.version] = {
       url: name,
       sha256,
@@ -179,6 +187,12 @@ function indexFromDirectory(directory) {
       channel: manifest.channel || "stable",
       yanked: false,
     };
+    if (manifestProvides && manifestProvides.length > 0 && !entry.provides) {
+      entry.provides = manifestProvides;
+    }
+    if (manifestRequires && !entry.versions[manifest.version].requires) {
+      entry.versions[manifest.version].requires = manifestRequires;
+    }
     if (compareVersions(manifest.version, entry.latest) > 0) { entry.latest = manifest.version; }
   }
   return { schema: 1, name: "local", packages };
@@ -421,18 +435,7 @@ function createSourceManager(options) {
     const reasons = [];
     const yankedHits = [];
 
-    for (const source of sources) {
-      let loaded;
-      try {
-        loaded = await loadIndex(source, flags);
-      } catch (error) {
-        reasons.push(source.name + ": " + (error.message || String(error)));
-        if (flags["fail-fast"] === true) { throw error; }
-        continue;
-      }
-      const entry = loaded.index.packages[id];
-      if (!entry) { continue; }
-
+    const pickViable = (entry, source, loaded) => {
       const versions = Object.entries(entry.versions || {});
       const viable = [];
       for (const [version, versionEntry] of versions) {
@@ -457,16 +460,35 @@ function createSourceManager(options) {
         }
         viable.push({ version: version, entry: versionEntry, source: source, index: loaded.index, stale: loaded.stale });
       }
-      if (viable.length === 0) { continue; }
-
-      let chosen;
+      if (viable.length === 0) { return null; }
       if (constraint.kind === "exact") {
-        chosen = viable[0];
-      } else {
-        const latest = entry.latest;
-        const latestOk = viable.find((candidate) => candidate.version === latest);
-        chosen = latestOk || viable.sort((left, right) => compareVersions(right.version, left.version))[0];
+        return viable[0];
       }
+      const latestOk = viable.find((candidate) => candidate.version === entry.latest);
+      return latestOk || viable.sort((left, right) => compareVersions(right.version, left.version))[0];
+    };
+
+    const loadedBySource = new Map();
+    const loadForResolve = async (source) => {
+      if (!loadedBySource.has(source.name)) {
+        try {
+          loadedBySource.set(source.name, await loadIndex(source, flags));
+        } catch (error) {
+          reasons.push(source.name + ": " + (error.message || String(error)));
+          if (flags["fail-fast"] === true) { throw error; }
+          loadedBySource.set(source.name, null);
+        }
+      }
+      return loadedBySource.get(source.name);
+    };
+
+    for (const source of sources) {
+      const loaded = await loadForResolve(source);
+      if (!loaded) { continue; }
+      const entry = loaded.index.packages[id];
+      if (!entry) { continue; }
+      const chosen = pickViable(entry, source, loaded);
+      if (!chosen) { continue; }
 
       return {
         id: id,
@@ -477,6 +499,45 @@ function createSourceManager(options) {
         stale: chosen.stale === true,
         document: document,
         reasons: reasons,
+      };
+    }
+
+    // No package by that exact name: match virtual capabilities (entry.provides).
+    // Exact names always win; among providers the lowest-priority source wins;
+    // a same-priority tie between different packages is ambiguous.
+    const provided = [];
+    for (const source of sources) {
+      const loaded = await loadForResolve(source);
+      if (!loaded) { continue; }
+      for (const [providerId, providerEntry] of Object.entries(loaded.index.packages || {})) {
+        if (providerId === id) { continue; }
+        if (!providerEntry || !Array.isArray(providerEntry.provides) || !providerEntry.provides.includes(id)) { continue; }
+        const chosen = pickViable(providerEntry, source, loaded);
+        if (!chosen) { continue; }
+        provided.push({ providerId: providerId, source: source, chosen: chosen });
+      }
+    }
+    if (provided.length > 0) {
+      provided.sort((left, right) => (left.source.priority || 500) - (right.source.priority || 500));
+      const best = provided[0].source.priority || 500;
+      const tied = provided.filter((candidate) => (candidate.source.priority || 500) === best);
+      const distinct = [...new Set(tied.map((candidate) => candidate.providerId))];
+      if (distinct.length > 1) {
+        throw new SourceError("ERR_PKG_AMBIGUOUS", "several packages provide " + id + ": " +
+          tied.map((candidate) => candidate.providerId + " (" + candidate.source.name + ")").join(", ") +
+          "; install one of them by name", 21);
+      }
+      const winner = tied[0];
+      return {
+        id: winner.providerId,
+        version: winner.chosen.version,
+        entry: winner.chosen.entry,
+        source: winner.source,
+        index: winner.chosen.index,
+        stale: winner.chosen.stale === true,
+        document: document,
+        reasons: reasons,
+        providedBy: id,
       };
     }
 

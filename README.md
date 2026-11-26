@@ -70,6 +70,7 @@ dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dl
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）
 python -u tools/run-e2e.py                                                           # 19（pd run/shell + exec 通道）
 python -u tools/scoop-e2e.py                                                         # 22（scoop 源 + requires 递归）
+python -u tools/provides-e2e.py                                                      # 18（虚拟包 + replaces）
 python -u tools/window-e2e.py                                                        # 8（窗口壳：内核链路 + WebView2 桥）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性

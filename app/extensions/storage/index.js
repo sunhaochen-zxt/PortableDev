@@ -432,12 +432,26 @@ function recordList() {
     }
     try {
       const record = readJson(path.join(RECORDS, name));
-      items.push({ id: record.id, version: record.version, storePath: record.storePath, pinned: record.pinned === true });
+      const stored = Array.isArray(record.provides) ? record.provides.filter((name) => typeof name === "string") : null;
+      items.push({ id: record.id, version: record.version, storePath: record.storePath, pinned: record.pinned === true, provides: stored || providesOf(record) });
     } catch (error) {
       // A corrupt record is reported by doctor, not here.
     }
   }
   return { items };
+}
+
+// Virtual capabilities come from the installed manifest; a missing/unreadable one means none.
+function providesOf(record) {
+  try {
+    const manifest = readJson(path.join(record.storePath, "package.json"));
+    if (Array.isArray(manifest.provides)) {
+      return manifest.provides.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name));
+    }
+  } catch (error) {
+    // Fall through to no provides.
+  }
+  return [];
 }
 
 function recordWrite(args) {

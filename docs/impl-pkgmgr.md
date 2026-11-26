@@ -138,6 +138,7 @@ pd install <目标>
 | `tools/pkg-e2e.py` | 37 | 预演、.pdpkg/目录/远程/URL、哈希、穿越、symlink 归档、断言回滚、平台、本地 `--sha256` |
 | `tools/source-e2e.py` | 34 | index build/inspect、dir/http 源、优先级、版本范围、yanked、offline、search、disable/remove、坏索引 |
 | `tools/scoop-e2e.py` | 22 | scoop 源（zip/exe 转换安装、跳过规则）、requires 递归/冲突/循环/`--no-deps`/`--dry-run` 计划 |
+| `tools/provides-e2e.py` | 18 | 虚拟包（已装优先/优先级选择/同优先级报错 21/范围约束）、replaces 替换与旧包移除 |
 | `tools/script-e2e.py` | 22 | 本地/网络脚本策略、--no-scripts、受限请求、env/reg/link、超时、未知命令、fetch 网络开关、内核隔离 |
 | `tools/manage-e2e.py` | 93 | install/upgrade/remove/list、`--to` 升降级/重装、`--all`、`--dry-run`、`--purge`/`--keep-data`、升级安装失败回滚、home 包 remove/rollback、partial settings 保留期、任务号 metrics、错码 |
 | `tools/proc-e2e.py` | 28 | proc 协议、`proc.spawn` + stdio 代理、list/info/kill、系统枚举/结束、admin 模式 实例、主题事件、真实安装脚本 |
@@ -155,6 +156,7 @@ python -u tools/manage-e2e.py .run-manage
 python -u tools/proc-e2e.py
 python -u tools/run-e2e.py
 python -u tools/scoop-e2e.py
+python -u tools/provides-e2e.py
 ```
 
 ## 9. 还没做的
