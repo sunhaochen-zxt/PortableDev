@@ -243,7 +243,15 @@ public sealed class KernelLink : IAsyncDisposable
                 }
             }
 
-            EventReceived?.Invoke(envelope.Id, data);
+            try
+            {
+                EventReceived?.Invoke(envelope.Id, data);
+            }
+            catch (Exception ex)
+            {
+                // A subscriber must never kill the pump; without it every later call hangs.
+                _ = ex;
+            }
             if (type == EventTypes.Done)
             {
                 if (string.Equals(envelope.Id, _pagesTaskId, StringComparison.Ordinal))

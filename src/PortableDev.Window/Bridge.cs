@@ -142,13 +142,27 @@ public sealed class Bridge
 
     private void Post(JsonObject message)
     {
+        // CoreWebView2 must be touched on the UI thread, but events and replies arrive on
+        // pool threads. Posting directly either throws (swallowed below, the page hangs with
+        // no error) or kills the pump when an event forward throws; marshal everything.
+        var text = message.ToJsonString();
         try
         {
-            _webView.CoreWebView2.PostWebMessageAsJson(message.ToJsonString());
+            _webView.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    _webView.CoreWebView2?.PostWebMessageAsJson(text);
+                }
+                catch (Exception)
+                {
+                    // The page is gone or the view is closing.
+                }
+            }));
         }
         catch (Exception)
         {
-            // The page is gone or the view is closing.
+            // The view is already disposed.
         }
     }
 

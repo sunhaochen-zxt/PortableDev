@@ -119,9 +119,10 @@ public sealed class MainForm : Form
             await bridge.AttachAsync(look.Theme, look.Locale).ConfigureAwait(true);
 
             core.NavigationCompleted += OnNavigationCompleted;
-            if (_options.Smoke is not null)
+            if (_options.Smoke is not null || _options.SmokeCheck is not null)
             {
-                core.NavigationCompleted += async (_, eventArgs) => await FinishSmokeAsync(eventArgs).ConfigureAwait(true);
+                var checkFile = _options.SmokeCheck ?? _options.Smoke;
+                core.NavigationCompleted += async (_, eventArgs) => await FinishSmokeAsync(eventArgs, checkFile).ConfigureAwait(true);
             }
 
             // Navigate explicitly: relying on SelectedIndexChanged is fragile (adding items
@@ -272,9 +273,38 @@ public sealed class MainForm : Form
         }
     }
 
-    private async Task FinishSmokeAsync(CoreWebView2NavigationCompletedEventArgs args)
+    private async Task FinishSmokeAsync(CoreWebView2NavigationCompletedEventArgs args, string? file = null)
     {
+        file ??= _options.Smoke;
         var report = new JsonObject { ["ok"] = false, ["status"] = _status.Text };
+        if (!args.IsSuccess)
+        {
+            report["error"] = "navigation failed: " + args.WebErrorStatus;
+            WriteSmoke(report, file);
+            BeginInvoke(Close);
+            return;
+        }
+
+        if (_options.SmokeCheck is not null)
+        {
+            // Let the page run its own pd.* calls, then scrape what actually rendered.
+            await Task.Delay(12000).ConfigureAwait(true);
+            try
+            {
+                var envText = await _webView.CoreWebView2
+                    .ExecuteScriptAsync("document.getElementById('env') ? document.getElementById('env').innerText.slice(0, 300) : '<no #env>'")
+                    .ConfigureAwait(true);
+                var versionText = await _webView.CoreWebView2
+                    .ExecuteScriptAsync("document.getElementById('version') ? document.getElementById('version').innerText.slice(0, 200) : '<no #version>'")
+                    .ConfigureAwait(true);
+                report["envRendered"] = envText;
+                report["versionRendered"] = versionText;
+            }
+            catch (Exception ex)
+            {
+                report["scrapeError"] = ex.Message;
+            }
+        }
         try
         {
             if (!args.IsSuccess)
@@ -305,16 +335,17 @@ public sealed class MainForm : Form
         BeginInvoke(Close);
     }
 
-    private void WriteSmoke(JsonObject report)
+    private void WriteSmoke(JsonObject report, string? file = null)
     {
-        if (_smokeWritten || _options.Smoke is null)
+        file ??= _options.SmokeCheck ?? _options.Smoke;
+        if (_smokeWritten || file is null)
         {
             return;
         }
 
         _smokeWritten = true;
         _smokeTimer?.Stop();
-        File.WriteAllText(_options.Smoke, report.ToJsonString());
+        File.WriteAllText(file, report.ToJsonString());
     }
 
     private async Task ShowSelectedPageAsync()

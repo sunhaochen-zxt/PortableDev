@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace PortableDev.Window;
 
 /// <summary>Command-line options of the window shell and its self-test.</summary>
-public sealed record WindowOptions(string Root, string Extensions, string? SelfTest, string? Smoke, string? KernelDll)
+public sealed record WindowOptions(string Root, string Extensions, string? SelfTest, string? Smoke, string? SmokeCheck, string? KernelDll)
 {
     public static WindowOptions Parse(string[] args)
     {
@@ -11,6 +11,7 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
         string? extensions = null;
         string? selfTest = null;
         string? smoke = null;
+        string? smokeCheck = null;
         string? kernelDll = null;
         for (var index = 0; index < args.Length; index++)
         {
@@ -27,6 +28,9 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
                     break;
                 case "--smoke":
                     smoke = ++index < args.Length ? args[index] : smoke;
+                    break;
+                case "--smoke-check":
+                    smokeCheck = ++index < args.Length ? args[index] : smokeCheck;
                     break;
                 case "--kernel-dll":
                     kernelDll = ++index < args.Length ? args[index] : kernelDll;
@@ -53,7 +57,7 @@ public sealed record WindowOptions(string Root, string Extensions, string? SelfT
 
         // WebView2's virtual host mapping needs an absolute folder.
         extensions = Path.GetFullPath(extensions);
-        return new WindowOptions(root, extensions, selfTest, smoke, kernelDll);
+        return new WindowOptions(root, extensions, selfTest, smoke, smokeCheck, kernelDll);
     }
 
     private static string? LocateRoot()

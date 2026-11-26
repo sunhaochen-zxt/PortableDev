@@ -14,7 +14,11 @@
     const timed = await pdTimed(["log", "--tail", "50"]);
     const result = timed.result;
     const lines = (result.events || []).filter((event) => event.type === "log")
-      .map((event) => (event.level || "info") + "  " + (event.msg || ""));
+      .map((event) => {
+        const record = event.record || {};
+        const time = String(record.ts || "").slice(11, 19);
+        return ((time ? time + " " : "") + (record.level || "info") + "  " + (record.msg || "")).trim();
+      });
     out.textContent = lines.join("\n") || "（没有日志）";
     out.scrollTop = out.scrollHeight;
     showTiming("页面" + navMs() + "ms · log命令" + timed.ms + "ms");
