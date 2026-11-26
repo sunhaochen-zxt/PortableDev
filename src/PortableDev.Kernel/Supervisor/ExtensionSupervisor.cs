@@ -835,7 +835,7 @@ public sealed class ExtensionSupervisor
 
         // Framework-dependent .NET extensions (proc) must resolve the runtime shipped on the stick,
         // not whatever the machine happens to have installed.
-        if (ResolveDotnetRoot() is { Length: > 0 } dotnetRoot)
+        if (ResolveDotnetRoot(_kernel.Paths.Root) is { Length: > 0 } dotnetRoot)
         {
             startInfo.Environment["DOTNET_ROOT"] = dotnetRoot;
         }
@@ -1063,8 +1063,9 @@ public sealed class ExtensionSupervisor
         _ = _kernel.Sessions.BroadcastExtensionEventAsync(envelope);
     }
 
-    /// <summary>The dotnet host that runs a dll-based extension: our own host first, then the shipped runtime.</summary>
-    private static string ResolveDotnetExecutable()
+    /// <summary>The dotnet host that runs a dll-based extension: our own host first, then the runtime
+    /// bundled with the stick, then DOTNET_ROOT/PATH.</summary>
+    private static string ResolveDotnetExecutable(string? stickRoot)
     {
         var processPath = Environment.ProcessPath;
         if (processPath is not null
@@ -1073,26 +1074,16 @@ public sealed class ExtensionSupervisor
             return processPath;
         }
 
-        var root = ResolveDotnetRoot();
-        if (!string.IsNullOrWhiteSpace(root))
-        {
-            var candidate = Path.Combine(root, "dotnet.exe");
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return "dotnet";
+        return PortableDev.Core.Util.DotnetRuntime.ResolveHost(stickRoot);
     }
 
-    /// <summary>The dotnet root that hosts this kernel: env override, else derived from the runtime path.</summary>
-    private static string? ResolveDotnetRoot()
+    /// <summary>The dotnet root that hosts this kernel: bundled runtime, env override, else derived from the runtime path.</summary>
+    private static string? ResolveDotnetRoot(string? stickRoot)
     {
-        var configured = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        if (!string.IsNullOrWhiteSpace(configured))
+        var resolved = PortableDev.Core.Util.DotnetRuntime.ResolveRoot(stickRoot);
+        if (!string.IsNullOrWhiteSpace(resolved))
         {
-            return configured;
+            return resolved;
         }
 
         // <root>/shared/Microsoft.NETCore.App/<version> -> <root>
@@ -1135,11 +1126,11 @@ public sealed class ExtensionSupervisor
             case "node":
                 args.Add(entry);
                 args.AddRange(manifest.EntryArgs);
-                return ("node", args.ToArray());
+                return (PortableDev.Core.Util.NodeRuntime.ResolveHost(_kernel.Paths.Root), args.ToArray());
             case "dotnet":
                 args.Add(entry);
                 args.AddRange(manifest.EntryArgs);
-                return (ResolveDotnetExecutable(), args.ToArray());
+                return (ResolveDotnetExecutable(_kernel.Paths.Root), args.ToArray());
             case "cmd":
                 args.AddRange(["/c", entry]);
                 args.AddRange(manifest.EntryArgs);

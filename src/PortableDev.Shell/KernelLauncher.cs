@@ -48,6 +48,12 @@ public sealed class KernelLauncher
             WorkingDirectory = root,
         };
 
+        // Children (extensions) must find the same runtime the kernel uses.
+        if (PortableDev.Core.Util.DotnetRuntime.ResolveRoot(root) is { Length: > 0 } dotnetRoot)
+        {
+            startInfo.Environment["DOTNET_ROOT"] = dotnetRoot;
+        }
+
         foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -142,6 +148,23 @@ public sealed class KernelLauncher
             if (File.Exists(full))
             {
                 return (full, []);
+            }
+        }
+
+        // A portable stick ships the kernel as a dll and runs it with its own runtime.
+        var dllCandidates = new[]
+        {
+            Path.Combine(root, "app", "pd-kernel.dll"),
+            Path.Combine(AppContext.BaseDirectory, "pd-kernel.dll"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "pd-kernel.dll"),
+        };
+
+        foreach (var candidate in dllCandidates)
+        {
+            var full = Path.GetFullPath(candidate);
+            if (File.Exists(full))
+            {
+                return (PortableDev.Core.Util.DotnetRuntime.ResolveHost(root), [full]);
             }
         }
 

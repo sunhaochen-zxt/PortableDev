@@ -156,6 +156,9 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
 - 配置并发：`SettingsStore` 所有读写路径与 `Unset` 均在 `_gate` 锁内执行，`config set/unset` 为独占命令；`AtomicFile` 对 rename 冲突做重试。
 - 敏感日志遮蔽：`LogRedaction` 递归丢弃 `env`/`environment` 全量快照，并将命中 `secret`/`token`/`password` 等敏感字段的值替换为 `[REDACTED]` 同时标 `_sensitive: true`（内核与扩展日志统一生效，避免加密未开时明文落盘）。
 - 慢客户端与优雅关停：`ClientConnection.SendAsync` 设 5s 写超时（超时即断开慢连接，防止阻塞扩展事件循环），断连前短暂 drain 在途请求；非 `--force` 的 `kernel stop` 等待 `ActiveTasks` 归零（上限 10s）再取消服务器令牌。
+- **随盘运行时**：发布目录带 `app\runtime`（.NET 主机 + `shared\Microsoft.NETCore.App` + `Microsoft.WindowsDesktop.App`）
+  与 `app\runtime\node\node.exe`，所以换一台没装 .NET/Node 的机器也能跑。解析顺序：`PD_DOTNET`/`PD_NODE`
+  覆盖 → 随盘运行时 → `DOTNET_ROOT`/PATH；内核、壳、窗口、扩展用的都是同一份，子进程继承 `DOTNET_ROOT`。
 - 能力调用加 30 分钟防泄漏超时；扩展声明 `inheritEnv` 时才继承宿主环境（默认仍隔离）。
 - 管道服务预建 16 个 accept 循环（最多 64 实例），消除"所有管道实例都忙"的窗口。
 - 协议：Envelope 版本必须为 1；握手完成后的协议错误不再回 hello.err；进程退出事件按进程实例比对，

@@ -356,10 +356,9 @@ public sealed class KernelLink : IAsyncDisposable
 
     private static void StartKernel(string root, string kernelDll)
     {
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        var host = !string.IsNullOrWhiteSpace(dotnetRoot) && File.Exists(Path.Combine(dotnetRoot, "dotnet.exe"))
-            ? Path.Combine(dotnetRoot, "dotnet.exe")
-            : "dotnet";
+        // Prefer the runtime shipped on the stick so a stick works without a machine-wide .NET.
+        var host = PortableDev.Core.Util.DotnetRuntime.ResolveHost(root);
+        var dotnetRoot = PortableDev.Core.Util.DotnetRuntime.ResolveRoot(root);
         var startInfo = new System.Diagnostics.ProcessStartInfo
         {
             FileName = host,
@@ -367,6 +366,11 @@ public sealed class KernelLink : IAsyncDisposable
             CreateNoWindow = true,
             WorkingDirectory = root,
         };
+        if (!string.IsNullOrWhiteSpace(dotnetRoot))
+        {
+            startInfo.Environment["DOTNET_ROOT"] = dotnetRoot;
+        }
+
         startInfo.ArgumentList.Add(kernelDll);
         startInfo.ArgumentList.Add("--root");
         startInfo.ArgumentList.Add(root);
