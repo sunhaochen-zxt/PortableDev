@@ -69,6 +69,19 @@ html[data-theme="dark"] {
 
 * { box-sizing: border-box; }
 
+[data-icon] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  flex-shrink: 0;
+}
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -303,9 +316,12 @@ html, body {
   min-width: 200px;
 }
 
-.input-box svg {
+.input-box > [data-icon],
+.input-box > svg {
   position: absolute;
   left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--muted);
   pointer-events: none;
 }

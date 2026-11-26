@@ -237,3 +237,17 @@ async function streamCommand(argv, consoleEl, onDone) {
 }
 
 document.addEventListener("DOMContentLoaded", hydrateIcons);
+
+// Press "/" or Ctrl+K anywhere outside an input to focus the page's search bar.
+document.addEventListener("keydown", (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  const editing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  if ((e.key === "k" && (e.ctrlKey || e.metaKey)) || (e.key === "/" && !editing)) {
+    const search = document.querySelector('input[type="search"]');
+    if (search) {
+      e.preventDefault();
+      search.focus();
+      search.select();
+    }
+  }
+});

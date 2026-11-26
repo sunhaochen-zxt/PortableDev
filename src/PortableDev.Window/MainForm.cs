@@ -1,4 +1,6 @@
+using System.Drawing.Drawing2D;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
@@ -11,13 +13,27 @@ namespace PortableDev.Window;
 public sealed class MainForm : Form
 {
     private readonly WindowOptions _options;
+    private readonly Panel _sidebar = new();
+    private readonly Panel _brandHeader = new();
+    private readonly Panel _sidebarDivider = new();
+    private readonly Panel _footerPanel = new();
+    private readonly Panel _footerDivider = new();
     private readonly ListBox _navigation = new();
     private readonly Label _status = new();
     private readonly List<JsonObject> _pages = new();
+    private readonly Font _brandTitleFont = new("Segoe UI", 12.5f, FontStyle.Bold);
+    private readonly Font _brandSubFont = new("Segoe UI", 8.25f, FontStyle.Regular);
+    private readonly Font _brandBadgeFont = new("Segoe UI", 10.5f, FontStyle.Bold);
+    private readonly Font _navFont = new("Segoe UI", 9.75f, FontStyle.Regular);
+    private readonly Font _navActiveFont = new("Segoe UI", 9.75f, FontStyle.Bold);
+    private readonly Font _statusFont = new("Segoe UI", 8.25f, FontStyle.Regular);
     private WebView2 _webView = new();
     private KernelLink? _link;
     private Bridge? _bridge;
     private bool _initialized;
+    private bool _darkTheme;
+    private bool _suppressNavChange;
+    private int _hoverIndex = -1;
     private long _navStart;
     private string _baseStatus = string.Empty;
     private bool _smokeWritten;
@@ -27,30 +43,80 @@ public sealed class MainForm : Form
     {
         _options = options;
         Text = "PortableDev";
-        Width = 1200;
-        Height = 760;
+        Width = 1260;
+        Height = 800;
+        MinimumSize = new Size(920, 600);
+        DoubleBuffered = true;
 
-        _navigation.Dock = DockStyle.Left;
-        _navigation.Width = 190;
-        _navigation.IntegralHeight = false;
-        _navigation.SelectedIndexChanged += async (_, _) => await ShowSelectedPageAsync().ConfigureAwait(true);
+        var initialLook = ReadLook();
+        _darkTheme = string.Equals(initialLook.Theme, "dark", StringComparison.OrdinalIgnoreCase);
 
-        _status.Dock = DockStyle.Top;
-        _status.Height = 26;
+        _sidebar.Dock = DockStyle.Left;
+        _sidebar.Width = 228;
+        _sidebar.Padding = new Padding(0);
+
+        _brandHeader.Dock = DockStyle.Top;
+        _brandHeader.Height = 68;
+        _brandHeader.Paint += PaintBrandHeader;
+
+        _footerPanel.Dock = DockStyle.Bottom;
+        _footerPanel.Height = 46;
+        _footerPanel.Padding = new Padding(14, 0, 12, 0);
+
+        _footerDivider.Dock = DockStyle.Top;
+        _footerDivider.Height = 1;
+
+        _status.Dock = DockStyle.Fill;
+        _status.Font = _statusFont;
         _status.TextAlign = ContentAlignment.MiddleLeft;
-        _status.Padding = new Padding(8, 0, 0, 0);
+        _status.AutoEllipsis = true;
         _status.Text = "正在连接内核…";
+        _footerPanel.Controls.Add(_status);
+        _footerPanel.Controls.Add(_footerDivider);
+
+        _navigation.Dock = DockStyle.Fill;
+        _navigation.BorderStyle = BorderStyle.None;
+        _navigation.DrawMode = DrawMode.OwnerDrawFixed;
+        _navigation.ItemHeight = 44;
+        _navigation.IntegralHeight = false;
+        _navigation.Cursor = Cursors.Hand;
+        _navigation.DrawItem += DrawNavigationItem;
+        _navigation.MouseMove += OnNavigationMouseMove;
+        _navigation.MouseLeave += OnNavigationMouseLeave;
+        _navigation.SelectedIndexChanged += async (_, _) =>
+        {
+            if (!_suppressNavChange)
+            {
+                await ShowSelectedPageAsync().ConfigureAwait(true);
+            }
+        };
+
+        _sidebar.Controls.Add(_navigation);
+        _sidebar.Controls.Add(_footerPanel);
+        _sidebar.Controls.Add(_brandHeader);
+
+        _sidebarDivider.Dock = DockStyle.Left;
+        _sidebarDivider.Width = 1;
 
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
-        Controls.Add(_navigation);
-        Controls.Add(_status);
+        Controls.Add(_sidebarDivider);
+        Controls.Add(_sidebar);
+
+        ApplyShellTheme(_darkTheme);
+        HandleCreated += (_, _) => ApplyWindowTitleBarTheme(_darkTheme);
         Shown += async (_, _) => await InitializeAsync().ConfigureAwait(true);
         FormClosed += (_, _) =>
         {
             _smokeTimer?.Stop();
             _smokeTimer?.Dispose();
             _smokeTimer = null;
+            _brandTitleFont.Dispose();
+            _brandSubFont.Dispose();
+            _brandBadgeFont.Dispose();
+            _navFont.Dispose();
+            _navActiveFont.Dispose();
+            _statusFont.Dispose();
             DisposeLink();
         };
     }
@@ -85,7 +151,10 @@ public sealed class MainForm : Form
                 }
 
                 _pages.Add(page);
-                _navigation.Items.Add(new PageItem(JsonUtil.String(page, "title") ?? "页面", page));
+                _navigation.Items.Add(new PageItem(
+                    JsonUtil.String(page, "title") ?? "页面",
+                    JsonUtil.String(page, "icon") ?? "box",
+                    page));
             }
 
             StartSmokeWatchdog();
@@ -122,6 +191,7 @@ public sealed class MainForm : Form
             core.SetVirtualHostNameToFolderMapping("pd.local", _options.Extensions, CoreWebView2HostResourceAccessKind.Allow);
 
             var look = ReadLook();
+            ApplyShellTheme(string.Equals(look.Theme, "dark", StringComparison.OrdinalIgnoreCase));
             _bridge = new Bridge(_webView, _link, NavigateToAsync, Bridge.LoadPolicies(_options.Extensions));
             await _bridge.AttachAsync(System.Text.Json.JsonSerializer.Serialize(look.Theme), System.Text.Json.JsonSerializer.Serialize(look.Locale)).ConfigureAwait(true);
 
@@ -145,7 +215,7 @@ public sealed class MainForm : Form
             // Navigate explicitly: relying on SelectedIndexChanged is fragile (adding items
             // can already leave the selection at 0, in which case no event fires and the view
             // stays blank until the user's first click).
-            _navigation.SelectedIndex = 0;
+            SelectSidebarIndex(0);
             _baseStatus = "内核 " + _link.KernelVersion + " · " + Path.GetFileName(_options.Root);
             _status.Text = _baseStatus;
             await NavigateToPageAsync(_pages[0]).ConfigureAwait(true);
@@ -255,7 +325,11 @@ public sealed class MainForm : Form
             // The control may already be disposed.
         }
 
-        _webView = new WebView2 { Dock = DockStyle.Fill };
+        _webView = new WebView2
+        {
+            Dock = DockStyle.Fill,
+            DefaultBackgroundColor = _darkTheme ? Color.FromArgb(11, 17, 32) : Color.FromArgb(241, 245, 249),
+        };
         Controls.Add(_webView);
         _webView.BringToFront();
     }
@@ -482,13 +556,15 @@ public sealed class MainForm : Form
             return;
         }
 
-        foreach (var page in _pages)
+        for (var index = 0; index < _pages.Count; index++)
         {
+            var page = _pages[index];
             var extension = JsonUtil.String(page, "extension") ?? string.Empty;
             var id = JsonUtil.String(page, "id") ?? string.Empty;
             if (string.Equals(pageId, extension + ":" + id, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(pageId, id, StringComparison.OrdinalIgnoreCase))
             {
+                SelectSidebarIndex(index);
                 await NavigateToPageAsync(page).ConfigureAwait(true);
                 return;
             }
@@ -519,7 +595,282 @@ public sealed class MainForm : Form
         return ("dark", "zh-CN");
     }
 
-    private sealed record PageItem(string Title, JsonObject Page)
+    private void SelectSidebarIndex(int index)
+    {
+        if (index < 0 || index >= _navigation.Items.Count)
+        {
+            return;
+        }
+
+        _suppressNavChange = true;
+        try
+        {
+            _navigation.SelectedIndex = index;
+            _navigation.Invalidate();
+        }
+        finally
+        {
+            _suppressNavChange = false;
+        }
+    }
+
+    private void ApplyShellTheme(bool isDark)
+    {
+        _darkTheme = isDark;
+        var windowBg = isDark ? Color.FromArgb(11, 17, 32) : Color.FromArgb(241, 245, 249);
+        var sidebarBg = isDark ? Color.FromArgb(15, 23, 42) : Color.FromArgb(255, 255, 255);
+        var divider = isDark ? Color.FromArgb(30, 41, 59) : Color.FromArgb(226, 232, 240);
+        var muted = isDark ? Color.FromArgb(148, 163, 184) : Color.FromArgb(100, 116, 139);
+
+        BackColor = windowBg;
+        _sidebar.BackColor = sidebarBg;
+        _brandHeader.BackColor = sidebarBg;
+        _navigation.BackColor = sidebarBg;
+        _footerPanel.BackColor = sidebarBg;
+        _footerDivider.BackColor = divider;
+        _sidebarDivider.BackColor = divider;
+        _status.ForeColor = muted;
+        try
+        {
+            _webView.DefaultBackgroundColor = windowBg;
+        }
+        catch (Exception)
+        {
+            // Ignore before handle initialization.
+        }
+
+        ApplyWindowTitleBarTheme(isDark);
+        _brandHeader.Invalidate();
+        _navigation.Invalidate();
+    }
+
+    private void ApplyWindowTitleBarTheme(bool isDark)
+    {
+        if (!IsHandleCreated)
+        {
+            return;
+        }
+
+        try
+        {
+            var value = isDark ? 1 : 0;
+            const int DwmwaUseImmersiveDarkMode = 20;
+            _ = DwmSetWindowAttribute(Handle, DwmwaUseImmersiveDarkMode, ref value, sizeof(int));
+        }
+        catch (Exception)
+        {
+            // Older Windows builds ignore this attribute safely.
+        }
+    }
+
+    private void PaintBrandHeader(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(_brandHeader.BackColor);
+
+        var badgeRect = new Rectangle(16, 17, 34, 34);
+        using (var path = CreateRoundedRect(badgeRect, 9))
+        using (var brush = new LinearGradientBrush(badgeRect, Color.FromArgb(37, 99, 235), Color.FromArgb(79, 70, 229), 45f))
+        {
+            g.FillPath(brush, path);
+        }
+
+        TextRenderer.DrawText(g, "PD", _brandBadgeFont, badgeRect, Color.White,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+
+        var titleColor = _darkTheme ? Color.FromArgb(241, 245, 249) : Color.FromArgb(15, 23, 42);
+        var subColor = _darkTheme ? Color.FromArgb(148, 163, 184) : Color.FromArgb(100, 116, 139);
+        TextRenderer.DrawText(g, "PortableDev", _brandTitleFont, new Point(58, 15), titleColor, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, "v2 Workbench", _brandSubFont, new Point(59, 37), subColor, TextFormatFlags.NoPadding);
+    }
+
+    private void OnNavigationMouseMove(object? sender, MouseEventArgs e)
+    {
+        var index = _navigation.IndexFromPoint(e.Location);
+        if (index == _hoverIndex)
+        {
+            return;
+        }
+
+        var previous = _hoverIndex;
+        _hoverIndex = index;
+        if (previous >= 0 && previous < _navigation.Items.Count)
+        {
+            _navigation.Invalidate(_navigation.GetItemRectangle(previous));
+        }
+
+        if (_hoverIndex >= 0 && _hoverIndex < _navigation.Items.Count)
+        {
+            _navigation.Invalidate(_navigation.GetItemRectangle(_hoverIndex));
+        }
+    }
+
+    private void OnNavigationMouseLeave(object? sender, EventArgs e)
+    {
+        if (_hoverIndex < 0)
+        {
+            return;
+        }
+
+        var previous = _hoverIndex;
+        _hoverIndex = -1;
+        if (previous < _navigation.Items.Count)
+        {
+            _navigation.Invalidate(_navigation.GetItemRectangle(previous));
+        }
+    }
+
+    private void DrawNavigationItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= _navigation.Items.Count)
+        {
+            return;
+        }
+
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        var sidebarBg = _navigation.BackColor;
+        using (var bgBrush = new SolidBrush(sidebarBg))
+        {
+            g.FillRectangle(bgBrush, e.Bounds);
+        }
+
+        var selected = (e.State & DrawItemState.Selected) != 0;
+        var hovered = e.Index == _hoverIndex && !selected;
+        var pillRect = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 3, e.Bounds.Width - 20, e.Bounds.Height - 6);
+
+        if (selected)
+        {
+            var pillColor = _darkTheme ? Color.FromArgb(30, 41, 59) : Color.FromArgb(239, 246, 255);
+            var accentColor = _darkTheme ? Color.FromArgb(96, 165, 250) : Color.FromArgb(37, 99, 235);
+            using (var pillPath = CreateRoundedRect(pillRect, 9))
+            using (var pillBrush = new SolidBrush(pillColor))
+            {
+                g.FillPath(pillBrush, pillPath);
+            }
+
+            var barRect = new Rectangle(pillRect.X + 1, pillRect.Y + 8, 3, pillRect.Height - 16);
+            using (var barPath = CreateRoundedRect(barRect, 2))
+            using (var barBrush = new SolidBrush(accentColor))
+            {
+                g.FillPath(barBrush, barPath);
+            }
+        }
+        else if (hovered)
+        {
+            var hoverColor = _darkTheme ? Color.FromArgb(22, 32, 51) : Color.FromArgb(241, 245, 249);
+            using var hoverPath = CreateRoundedRect(pillRect, 9);
+            using var hoverBrush = new SolidBrush(hoverColor);
+            g.FillPath(hoverBrush, hoverPath);
+        }
+
+        var item = _navigation.Items[e.Index] as PageItem;
+        var title = item?.Title ?? _navigation.Items[e.Index]?.ToString() ?? string.Empty;
+        var iconName = item?.Icon ?? "box";
+
+        var fgColor = selected
+            ? (_darkTheme ? Color.FromArgb(96, 165, 250) : Color.FromArgb(37, 99, 235))
+            : (_darkTheme ? Color.FromArgb(203, 213, 225) : Color.FromArgb(51, 65, 85));
+
+        var iconRect = new Rectangle(pillRect.X + 14, pillRect.Y + (pillRect.Height - 16) / 2, 16, 16);
+        DrawNavIcon(g, iconName, iconRect, fgColor);
+
+        var textRect = new Rectangle(iconRect.Right + 11, pillRect.Y, pillRect.Width - 44, pillRect.Height);
+        TextRenderer.DrawText(g, title, selected ? _navActiveFont : _navFont, textRect, fgColor,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+
+    private static void DrawNavIcon(Graphics g, string icon, Rectangle r, Color color)
+    {
+        using var pen = new Pen(color, 1.6f) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round };
+        switch (icon)
+        {
+            case "home":
+                g.DrawLines(pen, [
+                    new PointF(r.Left + 2, r.Top + 8),
+                    new PointF(r.Left + 8, r.Top + 2.5f),
+                    new PointF(r.Right - 2, r.Top + 8),
+                ]);
+                g.DrawLines(pen, [
+                    new PointF(r.Left + 4, r.Top + 7.5f),
+                    new PointF(r.Left + 4, r.Bottom - 2.5f),
+                    new PointF(r.Right - 4, r.Bottom - 2.5f),
+                    new PointF(r.Right - 4, r.Top + 7.5f),
+                ]);
+                break;
+            case "compass":
+                g.DrawEllipse(pen, r.Left + 1.5f, r.Top + 1.5f, 13, 13);
+                g.DrawPolygon(pen, [
+                    new PointF(r.Left + 10.5f, r.Top + 5.5f),
+                    new PointF(r.Left + 8.8f, r.Top + 9.2f),
+                    new PointF(r.Left + 5.5f, r.Top + 10.5f),
+                    new PointF(r.Left + 7.2f, r.Top + 6.8f),
+                ]);
+                break;
+            case "globe":
+                g.DrawEllipse(pen, r.Left + 1.5f, r.Top + 1.5f, 13, 13);
+                g.DrawEllipse(pen, r.Left + 5f, r.Top + 1.5f, 6, 13);
+                g.DrawLine(pen, r.Left + 1.5f, r.Top + 8f, r.Right - 1.5f, r.Top + 8f);
+                break;
+            case "cpu":
+                g.DrawRectangle(pen, r.Left + 4, r.Top + 4, 8, 8);
+                g.DrawLine(pen, r.Left + 6, r.Top + 1.5f, r.Left + 6, r.Top + 4);
+                g.DrawLine(pen, r.Left + 10, r.Top + 1.5f, r.Left + 10, r.Top + 4);
+                g.DrawLine(pen, r.Left + 6, r.Bottom - 4, r.Left + 6, r.Bottom - 1.5f);
+                g.DrawLine(pen, r.Left + 10, r.Bottom - 4, r.Left + 10, r.Bottom - 1.5f);
+                g.DrawLine(pen, r.Left + 1.5f, r.Top + 6, r.Left + 4, r.Top + 6);
+                g.DrawLine(pen, r.Left + 1.5f, r.Top + 10, r.Left + 4, r.Top + 10);
+                g.DrawLine(pen, r.Right - 4, r.Top + 6, r.Right - 1.5f, r.Top + 6);
+                g.DrawLine(pen, r.Right - 4, r.Top + 10, r.Right - 1.5f, r.Top + 10);
+                break;
+            case "list":
+                g.DrawLine(pen, r.Left + 5.5f, r.Top + 4f, r.Right - 2, r.Top + 4f);
+                g.DrawLine(pen, r.Left + 5.5f, r.Top + 8f, r.Right - 2, r.Top + 8f);
+                g.DrawLine(pen, r.Left + 5.5f, r.Top + 12f, r.Right - 2, r.Top + 12f);
+                g.DrawLine(pen, r.Left + 2f, r.Top + 4f, r.Left + 3f, r.Top + 4f);
+                g.DrawLine(pen, r.Left + 2f, r.Top + 8f, r.Left + 3f, r.Top + 8f);
+                g.DrawLine(pen, r.Left + 2f, r.Top + 12f, r.Left + 3f, r.Top + 12f);
+                break;
+            case "sliders":
+                g.DrawLine(pen, r.Left + 2, r.Top + 4.5f, r.Right - 2, r.Top + 4.5f);
+                g.DrawLine(pen, r.Left + 2, r.Top + 11.5f, r.Right - 2, r.Top + 11.5f);
+                g.DrawEllipse(pen, r.Left + 4.5f, r.Top + 2.5f, 4, 4);
+                g.DrawEllipse(pen, r.Left + 8.5f, r.Top + 9.5f, 4, 4);
+                break;
+            default: // box
+                g.DrawPolygon(pen, [
+                    new PointF(r.Left + 8, r.Top + 2),
+                    new PointF(r.Right - 2, r.Top + 5.2f),
+                    new PointF(r.Right - 2, r.Bottom - 5.2f),
+                    new PointF(r.Left + 8, r.Bottom - 2),
+                    new PointF(r.Left + 2, r.Bottom - 5.2f),
+                    new PointF(r.Left + 2, r.Top + 5.2f),
+                ]);
+                g.DrawLine(pen, r.Left + 2, r.Top + 5.2f, r.Left + 8, r.Top + 8.2f);
+                g.DrawLine(pen, r.Right - 2, r.Top + 5.2f, r.Left + 8, r.Top + 8.2f);
+                g.DrawLine(pen, r.Left + 8, r.Top + 8.2f, r.Left + 8, r.Bottom - 2);
+                break;
+        }
+    }
+
+    private static GraphicsPath CreateRoundedRect(Rectangle rect, int radius)
+    {
+        var path = new GraphicsPath();
+        var diameter = radius * 2;
+        path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
+        path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
+        path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private sealed record PageItem(string Title, string Icon, JsonObject Page)
     {
         public override string ToString() => Title;
     }
