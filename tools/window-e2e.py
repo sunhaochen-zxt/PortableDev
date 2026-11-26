@@ -146,6 +146,15 @@ def main():
         check("bridge injected", "object" in str(smoke_report.get("bridge", "")), smoke_report)
         check("real page loaded", "pd.local" in str(smoke_report.get("url", "")), smoke_report)
         check("smoke ok", smoke_report.get("ok") is True, smoke_report)
+
+        print("smoke-check: full page loop renders kernel data")
+        loop_path = os.path.join(ROOT, "loop-check.json")
+        loop = run([DOTNET, WINDOW_DLL, "--root", ROOT, "--extensions", os.path.join(ROOT, "extensions"),
+                    "--kernel-dll", kernel_dll, "--smoke-check", loop_path], env=env)
+        loop_report = read_json(loop_path) or {}
+        check("loop reported", bool(loop_report), (loop.stdout[-300:], loop.stderr[-300:]))
+        check("page rendered kernel version", "pd " in str(loop_report.get("versionRendered", "")), loop_report)
+        check("loop ok", loop_report.get("ok") is True, loop_report)
     finally:
         stop_kernel(ROOT, env)
         try:
@@ -174,10 +183,19 @@ def main():
               (result.stdout[-300:], result.stderr[-300:], apphost_report))
 
         print("single instance: the second window exits without a report")
+        hold_env = dict(env)
+        hold_env["PD_WINDOW_SMOKE_HOLD_MS"] = "45000"
         first = subprocess.Popen([apphost, "--smoke", os.path.join(outside, "concurrent-a.json"),
                                   "--root", outside, "--kernel-dll", outside_kernel_dll],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-        time.sleep(2.0)
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=hold_env)
+        # The first window writes its report as soon as the page loads, then holds the mutex
+        # for another 45s; only then is the second launch guaranteed to observe a held mutex.
+        deadline = time.time() + 90
+        while time.time() < deadline and not os.path.isfile(os.path.join(outside, "concurrent-a.json")):
+            if first.poll() is not None:
+                break
+            time.sleep(0.5)
+        check("first window reported", os.path.isfile(os.path.join(outside, "concurrent-a.json")))
         second = run([apphost, "--smoke", os.path.join(outside, "concurrent-b.json"),
                       "--root", outside, "--kernel-dll", outside_kernel_dll], env=env, timeout=90)
         first.wait(timeout=120)

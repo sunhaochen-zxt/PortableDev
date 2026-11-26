@@ -3,34 +3,75 @@
 <head><meta charset="utf-8"><title>日志</title><link rel="stylesheet" href="style.css"></head>
 <body>
 <div class="wrap">
-<header class="hero"><h1>日志</h1><div class="muted">最近 50 条（pd log --tail 50）</div></header>
+<header class="hero"><h1>日志</h1><div class="muted">最近 50 条，新记录自动追加（pd log --tail 50 --follow）</div></header>
+<section class="card toolbar"><button id="follow">停止跟随</button><span class="badge" id="count">—</span></section>
 <section class="card"><pre class="logs" id="out"><span class="loading">加载中…</span></pre></section>
 </div>
 <script src="common.js"></script>
 <script>
-(async () => {
+let taskId = null;
+let unsubscribe = null;
+let stopping = false;
+let shown = 0;
+
+function unwrap(record) {
+  let node = record || {};
+  while (node && !node.msg && node.record && typeof node.record === "object") node = node.record;
+  return node;
+}
+
+function lineOf(event) {
+  const record = unwrap(event.record);
+  const time = String(record.ts || "").slice(11, 19);
+  return ((time ? time + " " : "") + (record.level || "info") + "  " + (record.msg || "")).trim();
+}
+
+function appendLine(text) {
   const out = document.getElementById("out");
+  const pinned = out.scrollTop + out.clientHeight >= out.scrollHeight - 40;
+  if (shown === 0) out.textContent = "";
+  const div = document.createElement("div");
+  div.textContent = text;
+  out.appendChild(div);
+  shown += 1;
+  document.getElementById("count").textContent = shown + " 条";
+  if (pinned) out.scrollTop = out.scrollHeight;
+}
+
+async function start() {
+  stop(false);
+  stopping = false;
+  setButton(true);
   try {
-    const timed = await pdTimed(["log", "--tail", "50"]);
-    const result = timed.result;
-    const lines = (result.events || []).filter((event) => event.type === "log")
-      .map((event) => {
-        // Older stores may hold query answers re-ingested as record.record... chains;
-        // unwrap to the innermost record that actually carries a message.
-        let record = event.record || {};
-        while (record && !record.msg && record.record && typeof record.record === "object") {
-          record = record.record;
-        }
-        const time = String(record.ts || "").slice(11, 19);
-        return ((time ? time + " " : "") + (record.level || "info") + "  " + (record.msg || "")).trim();
-      });
-    out.textContent = lines.join("\n") || "（没有日志）";
-    out.scrollTop = out.scrollHeight;
-    showTiming("页面" + navMs() + "ms · log命令" + timed.ms + "ms");
+    taskId = await window.pd.exec(["log", "--tail", "50", "--follow"]);
+    unsubscribe = window.pd.on("evt:" + taskId, (event) => {
+      if (!event || event.type !== "log") return;
+      appendLine(lineOf(event));
+    });
   } catch (error) {
-    out.textContent = "";
-    renderError(out, error);
+    renderError(document.getElementById("out"), error);
+    setButton(false);
   }
-})();
+}
+
+async function stop(report) {
+  if (unsubscribe) { try { unsubscribe(); } catch (error) { /* ignore */ } unsubscribe = null; }
+  if (taskId) {
+    const id = taskId;
+    taskId = null;
+    try { await window.pd.cancel(id); } catch (error) { /* already gone */ }
+  }
+  if (report !== false) setButton(false);
+}
+
+function setButton(following) {
+  const button = document.getElementById("follow");
+  button.textContent = following ? "停止跟随" : "开始跟随";
+  button.onclick = following ? () => { stopping = true; stop(); } : start;
+}
+
+window.addEventListener("beforeunload", () => { if (taskId) { try { window.pd.cancel(taskId); } catch (error) { /* page is going away */ } } });
+setButton(true);
+start();
 </script>
 </body></html>

@@ -287,15 +287,16 @@ public sealed class MainForm : Form
 
         if (_options.SmokeCheck is not null)
         {
-            // Let the page run its own pd.* calls, then scrape what actually rendered.
-            await Task.Delay(12000).ConfigureAwait(true);
+            // Give the page time to run its own pd.* calls, then scrape what actually rendered.
+            // This is the only headless proof that the full page->host->kernel->host->page loop works.
+            await Task.Delay(8000).ConfigureAwait(true);
             try
             {
                 var envText = await _webView.CoreWebView2
-                    .ExecuteScriptAsync("document.getElementById('env') ? document.getElementById('env').innerText.slice(0, 300) : '<no #env>'")
+                    .ExecuteScriptAsync("document.getElementById('env') ? document.getElementById('env').innerText.slice(0, 120) : '<no #env>'")
                     .ConfigureAwait(true);
                 var versionText = await _webView.CoreWebView2
-                    .ExecuteScriptAsync("document.getElementById('version') ? document.getElementById('version').innerText.slice(0, 200) : '<no #version>'")
+                    .ExecuteScriptAsync("document.getElementById('version') ? document.getElementById('version').innerText.slice(0, 120) : '<no #version>'")
                     .ConfigureAwait(true);
                 report["envRendered"] = envText;
                 report["versionRendered"] = versionText;
@@ -332,6 +333,12 @@ public sealed class MainForm : Form
         }
 
         WriteSmoke(report);
+        var holdText = Environment.GetEnvironmentVariable("PD_WINDOW_SMOKE_HOLD_MS");
+        if (int.TryParse(holdText, out var holdMs) && holdMs > 0)
+        {
+            await Task.Delay(holdMs).ConfigureAwait(true);
+        }
+
         BeginInvoke(Close);
     }
 
