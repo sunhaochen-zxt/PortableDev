@@ -182,6 +182,21 @@ def copy_proc_extension(extensions):
     return copied
 
 
+def assert_deploy_target(dest):
+    """Refuse to deploy over a source checkout or any folder that is not a previous deploy."""
+    real = os.path.realpath(dest)
+    if not os.path.isdir(real):
+        return
+    looks_like_source = any(os.path.exists(os.path.join(real, name))
+                            for name in ("Directory.Build.props", "src", ".gitignore", ".git"))
+    looks_like_deploy = os.path.isfile(os.path.join(real, "app", "pd.dll"))
+    if looks_like_source and not looks_like_deploy:
+        raise SystemExit("refusing to deploy into a source directory: " + real)
+    cwd = os.path.realpath(os.getcwd())
+    if real == cwd or real == os.path.dirname(cwd):
+        raise SystemExit("refusing to deploy into the current working directory: " + real)
+
+
 def check_shared_assemblies(dirs):
     """The app dirs each carry their own copy of PortableDev.Core.dll; copying them in order can
     silently overwrite a fresh kernel with a stale window copy. Refuse to deploy such a mix."""
@@ -242,13 +257,17 @@ def main():
             except OSError:
                 cached_runtime = False
     print("deploying to " + dest + " (dotnet: " + dotnet + ", runtime cached: " + str(cached_runtime) + ")")
+    assert_deploy_target(dest)
+    aside = None
     if os.path.isdir(dest):
+        # Never rmtree an existing folder in place: a case-insensitive path collision
+        # (V2 vs v2) deleted a source checkout once. Rename it aside first, then replace.
+        aside = dest + ".old-" + str(int(time.time()))
         try:
-            shutil.rmtree(dest)
-        except OSError:
-            aside = dest + ".old-" + str(int(time.time()))
             os.replace(dest, aside)
-            print("note: the previous folder is in use; moved it aside to " + aside)
+        except OSError as error:
+            raise SystemExit("deploy target is in use, stop processes first: " + dest + " (" + str(error) + ")")
+        print("note: previous folder moved aside to " + aside)
 
     os.makedirs(app, exist_ok=True)
     extensions = os.path.join(app, "extensions")
@@ -329,6 +348,8 @@ def main():
                      "\uff09\uff0c\u672c\u673a\u4e0d\u9700\u8981\u5b89\u88c5 .NET\u3002\r\n")
         handle.write("\u542f\u52a8\u5668\u5df2\u628a DOTNET_ROOT \u6307\u5411\u968f\u76d8\u8fd0\u884c\u65f6\u3002\r\n")
 
+    if aside is not None:
+        shutil.rmtree(aside, ignore_errors=True)
     print("done:")
     print("  window: " + launcher)
     print("  cli:    " + cli)
