@@ -2334,8 +2334,22 @@ function launcherContent(record, launcher) {
     throw new StorageError("ERR_PKG_INVALID", "launcher exe escapes the package directory: " + relative);
   }
 
+  // Optional fixed arguments (for example Firefox's -profile/-no-remote); %* still passes extras.
+  const fixed = (launcher.args || [])
+    .map((item) => expandText(record, String(item)))
+    .filter((item) => item.length > 0)
+    .map((item) => {
+      if (/[\r\n\u0000]/.test(item)) {
+        throw new StorageError("ERR_PKG_INVALID", "launcher argument contains an illegal character");
+      }
+      const escaped = item.replace(/%/g, "%%");
+      return /[ \t]/.test(escaped) ? "\"" + escaped + "\"" : escaped;
+    })
+    .join(" ");
+
   // Percent signs expand inside a batch file even in quotes; double them. %* stays a pass-through.
-  return "@echo off\r\nsetlocal\r\nstart \"\" \"" + exe.replace(/%/g, "%%") + "\" %*\r\n";
+  return "@echo off\r\nsetlocal\r\nstart \"\" \"" + exe.replace(/%/g, "%%") + "\"" +
+    (fixed ? " " + fixed : "") + " %*\r\n";
 }
 
 function readAllRecords() {
