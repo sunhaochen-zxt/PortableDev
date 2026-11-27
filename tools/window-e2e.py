@@ -12,6 +12,7 @@ Usage: python -u tools/window-e2e.py [stick-root]
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -110,9 +111,36 @@ def stop_kernel(root, env):
     time.sleep(1.0)
 
 
+def kill_all_kernels():
+    """The single-instance lock is per stick id (= per volume), so a kernel left by any other
+    test root on the same volume blocks this suite's init. Tests own the machine: clear them."""
+    system32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+    wmic = os.path.join(system32, "wbem", "WMIC.exe")
+    if not os.path.isfile(wmic):
+        return
+    for image in ("pd-kernel.exe", "dotnet.exe"):
+        try:
+            listing = subprocess.run([wmic, "process", "where", "name='" + image + "'", "get", "ProcessId,CommandLine"],
+                                     capture_output=True, text=True, timeout=60).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        for line in listing.splitlines():
+            if "pd-kernel" not in line:
+                continue
+            for token in reversed(line.split()):
+                if token.isdigit():
+                    try:
+                        os.kill(int(token), signal.SIGTERM)
+                    except (OSError, ValueError):
+                        pass
+                    break
+    time.sleep(2)
+
+
 def main():
     global ROOT
     ROOT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else default_root())
+    kill_all_kernels()
     print("stick root: " + ROOT)
     kill_leftovers(ROOT)
     shutil.rmtree(ROOT, ignore_errors=True)

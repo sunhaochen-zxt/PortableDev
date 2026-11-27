@@ -129,6 +129,7 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
         // never the other way around (architecture 3.8: no silent takeover of builtin commands).
         var commandTable = new CommandTable();
         RegisterBuiltinCommands(commandTable);
+        RestoreBuiltInExtensions();
         Registry = ExtensionRegistry.Scan(Paths.Root, Paths.AppRoot, State.Abi, commandTable);
         Logger.SendToProvider = (name, envelope) => Supervisor.TrySend(name, envelope);
 
@@ -342,6 +343,63 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
         catch (Exception ex)
         {
             Logger.Warn("log.replay", "fallback replay failed", new JsonObject { ["error"] = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Built-in extensions live in extensions/, but a pristine copy ships in app\baseline\extensions.
+    /// Restore missing or version-mismatched ones *before* the registry scan, so a stick whose ui
+    /// files were deleted still boots with pages; pd doctor --fix covers the remaining cases.
+    /// </summary>
+    private void RestoreBuiltInExtensions()
+    {
+        var baseline = Path.Combine(Paths.Root, "app", "baseline", "extensions");
+        var installed = Path.Combine(Paths.Root, "app", "extensions");
+        if (!Directory.Exists(baseline))
+        {
+            return;
+        }
+
+        foreach (var directory in Directory.GetDirectories(baseline))
+        {
+            try
+            {
+                var name = Path.GetFileName(directory);
+                var sourceManifest = Path.Combine(directory, "ext.json");
+                var targetManifest = Path.Combine(installed, name, "ext.json");
+                var stale = !File.Exists(targetManifest);
+                if (!stale)
+                {
+                    var want = JsonNode.Parse(File.ReadAllText(sourceManifest)) as JsonObject;
+                    var got = JsonNode.Parse(File.ReadAllText(targetManifest)) as JsonObject;
+                    stale = want is not null && got is not null
+                        && !string.Equals(JsonUtil.String(want, "version"), JsonUtil.String(got, "version"), StringComparison.Ordinal);
+                }
+
+                if (stale)
+                {
+                    CopyDirectory(directory, Path.Combine(installed, name));
+                    Logger.Warn("ext.restored", "restored a built-in extension from the baseline", new JsonObject { ["extension"] = name });
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                Logger.Warn("ext.restore", "could not restore a built-in extension", new JsonObject { ["path"] = directory, ["error"] = ex.Message });
+            }
+        }
+    }
+
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (var child in Directory.GetDirectories(source))
+        {
+            CopyDirectory(child, Path.Combine(target, Path.GetFileName(child)));
         }
     }
 

@@ -141,11 +141,58 @@ public sealed class MainForm : Form
         }
     }
 
-    /// <summary>
-    /// A stick whose ui extension was deleted still boots: restore the built-in extensions from
-    /// app\baseline\extensions through `pd doctor --fix`, then reload the page list. Smoke runs
-    /// with no baseline keep the plain "empty shell" report so the failure stays observable.
-    /// </summary>
+    /// <summary>Copies missing/version-mismatched built-in extensions from app\baseline\extensions.</summary>
+    private void EnsureBuiltInExtensions()
+    {
+        var baseline = Path.Combine(_options.Root, "app", "baseline", "extensions");
+        var installed = Path.Combine(_options.Root, "app", "extensions");
+        if (!Directory.Exists(baseline))
+        {
+            return;
+        }
+
+        foreach (var directory in Directory.GetDirectories(baseline))
+        {
+            try
+            {
+                var name = Path.GetFileName(directory);
+                var sourceManifest = Path.Combine(directory, "ext.json");
+                var targetManifest = Path.Combine(installed, name, "ext.json");
+                var stale = !File.Exists(targetManifest);
+                if (!stale)
+                {
+                    var want = JsonNode.Parse(File.ReadAllText(sourceManifest)) as JsonObject;
+                    var got = JsonNode.Parse(File.ReadAllText(targetManifest)) as JsonObject;
+                    stale = want is not null && got is not null
+                        && !string.Equals(JsonUtil.String(want, "version"), JsonUtil.String(got, "version"), StringComparison.Ordinal);
+                }
+
+                if (stale)
+                {
+                    CopyDirectory(directory, Path.Combine(installed, name));
+                }
+            }
+            catch (Exception)
+            {
+                // Best effort; a still-broken extension is reported by the kernel and pd doctor.
+            }
+        }
+    }
+
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (var child in Directory.GetDirectories(source))
+        {
+            CopyDirectory(child, Path.Combine(target, Path.GetFileName(child)));
+        }
+    }
+
     private async Task<bool> TryRepairExtensionsAsync()
     {
         var baseline = Path.Combine(_options.Root, "app", "baseline", "extensions");
@@ -190,15 +237,13 @@ public sealed class MainForm : Form
         _initialized = true;
         try
         {
+            // Repair built-in extension files *before* the kernel scans its registry: restoring
+            // after boot would need a kernel restart (the registry is scanned once).
+            EnsureBuiltInExtensions();
             _link = await KernelLink.ConnectAsync(_options.Root, _options.KernelDll).ConfigureAwait(true);
             await LoadPagesAsync().ConfigureAwait(true);
 
             StartSmokeWatchdog();
-            if (_pages.Count == 0 && await TryRepairExtensionsAsync().ConfigureAwait(true))
-            {
-                await LoadPagesAsync().ConfigureAwait(true);
-            }
-
             if (_pages.Count == 0)
             {
                 _status.Text = "没有安装界面扩展（缺少 ui 扩展）";

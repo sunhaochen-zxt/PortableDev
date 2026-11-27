@@ -962,7 +962,8 @@ async function install(message, options) {
     // Dependency metadata lives on the record so install/remove checks do not need
     // to re-read the store. Written whenever the manifest carries any of them
     // (including empty lists, so upgrades clear stale values); older records lack them.
-    if (Array.isArray(manifest.provides) || Array.isArray(manifest.requires) || Array.isArray(manifest.conflicts)) {
+    if (Array.isArray(manifest.provides) || Array.isArray(manifest.requires) || Array.isArray(manifest.conflicts) ||
+        Array.isArray(manifest.asserts) || Array.isArray(manifest.selftest)) {
       const record = await callCapability("storage.record", "get", { pkg: pkgId });
       record.provides = Array.isArray(manifest.provides)
         ? manifest.provides.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name)) : [];
@@ -970,6 +971,10 @@ async function install(message, options) {
         ? manifest.requires.filter((dep) => dep && typeof dep.id === "string").map((dep) => ({ id: dep.id, range: typeof dep.range === "string" ? dep.range : "" })) : [];
       record.conflicts = Array.isArray(manifest.conflicts)
         ? manifest.conflicts.filter((name) => typeof name === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(name)) : [];
+      // The installed tree may not carry package.json (directory installs adopt files/ only), so
+      // keep the assertions on the record: pd selftest must work without re-reading the store.
+      record.asserts = Array.isArray(manifest.asserts) ? manifest.asserts : [];
+      record.selftest = Array.isArray(manifest.selftest) ? manifest.selftest : [];
       await callCapability("storage.record", "write", { record: record });
     }
 
@@ -1173,6 +1178,38 @@ async function doctorCommand(message) {
       }
     }
 
+    if (flags.fix === true) {
+      // Reflect the post-fix state instead of reporting the problems we just repaired.
+      const damagedAfter = [];
+      for (const name of baselineNames) {
+        const want = readJsonSafe(path.join(baselineRoot, name, "ext.json"));
+        const got = readJsonSafe(path.join(installedRoot, name, "ext.json"));
+        if (!got) {
+          damagedAfter.push(name + "(缺失)");
+        } else if (want && String(want.version) !== String(got.version)) {
+          damagedAfter.push(name + "(" + got.version + " != baseline " + want.version + ")");
+        }
+      }
+      let intentsAfter = [];
+      try {
+        intentsAfter = fs.readdirSync(path.join(root, "state", "intent")).filter((name) => name.endsWith(".json"));
+      } catch (error) {
+        intentsAfter = [];
+      }
+      const extensionRow = rows.find((row) => row[0] === "内置扩展");
+      if (extensionRow) {
+        extensionRow[1] = damagedAfter.length === 0 ? "ok" : "问题";
+        extensionRow[2] = damagedAfter.length === 0
+          ? baselineNames.length + " 个与 baseline 一致" : damagedAfter.join("; ");
+      }
+      const intentRow = rows.find((row) => row[0] === "残留 intent");
+      if (intentRow) {
+        intentRow[1] = intentsAfter.length === 0 ? "ok" : "问题";
+        intentRow[2] = intentsAfter.length === 0 ? "无" : intentsAfter.length + " 个待恢复";
+      }
+      issues.count = rows.filter((row) => row[1] !== "ok").length;
+    }
+
     io.event("table", {
       title: "doctor",
       columns: [
@@ -1216,16 +1253,14 @@ async function selftestCommand(message) {
     for (const item of selected) {
       const record = await callCapability("storage.record", "get", { pkg: item.id });
       const root = String(record.storePath || "");
-      const manifest = root ? readJsonSafe(path.join(root, "package.json")) : null;
-      if (!manifest) {
-        rows.push([item.id, "package.json", "失败", "store 里没有 package.json"]);
-        failed += 1;
-        continue;
-      }
-
-      const asserts = Array.isArray(manifest.asserts) ? manifest.asserts.slice() : [];
-      if (full && Array.isArray(manifest.selftest)) {
-        for (const entry of manifest.selftest) {
+      // Assertions live on the record (written at install time); older records fall back to the
+      // package.json inside the store when it exists.
+      const manifest = readJsonSafe(path.join(root, "package.json")) || {};
+      const storedAsserts = Array.isArray(record.asserts) ? record.asserts : manifest.asserts;
+      const asserts = Array.isArray(storedAsserts) ? storedAsserts.slice() : [];
+      const storedSelftest = Array.isArray(record.selftest) ? record.selftest : manifest.selftest;
+      if (full && Array.isArray(storedSelftest)) {
+        for (const entry of storedSelftest) {
           if (entry && typeof entry === "object") {
             asserts.push(Object.assign({ kind: "command" }, entry));
           }
@@ -2320,7 +2355,9 @@ async function shellPackage(message) {
       fs.mkdirSync(profileDir, { recursive: true });
       profilePath = path.join(profileDir, "pd-profile-" + process.pid + "-" + Date.now().toString(36) + ".cmd");
       fs.writeFileSync(profilePath, lines.join("\r\n") + "\r\n", "utf8");
-      shellArgs = ["/k", 'call "' + profilePath + '"'];
+      // cmd.exe does not understand MSVCRT quoting, so send one verbatim command line:
+      //   cmd.exe /d /s /k call "<profile>"
+      shellArgs = ["/d", "/s", "/k", 'call "' + profilePath + '"'];
     }
 
     io.event("step", { stepId: "shell", title: "shell", state: "running" });
@@ -2329,6 +2366,8 @@ async function shellPackage(message) {
       reply = await execOnClient(message.id, {
         command: process.env.ComSpec || "cmd.exe",
         args: shellArgs,
+        // The /k tail is already cmd-quoted; MSVCRT quoting would break it.
+        verbatimArgs: flags.profile === true,
         cwd: cwd,
         env: environment,
         detach: false,

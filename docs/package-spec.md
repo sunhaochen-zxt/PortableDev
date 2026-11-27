@@ -323,7 +323,7 @@ path.add / env.set / reg.set / reg.del / launch / assert
 
 | kind | 字段 | 说明 |
 |---|---|---|
-| `command` | `run`、`expect`、`match`、`timeout` | 跑命令比对输出；`match`：`contains`/`equals`/`regex`/`exit0` |
+| `command` | `run`、`expect`、`match`、`timeout` | 跑命令比对输出；`match`：`contains`（默认）/`equals`/`regex`；`timeout` 默认 20s；命令经 proc 扩展在 Job Object 里执行（`cmd /d /s /c`），输出取 stdout+stderr，非 0 退出即失败 |
 | `exists` | `path` | 文件或目录存在 |
 | `missing` | `path` | 文件或目录不存在 |
 | `json` | `path`、`pointer`、`equals`/`contains` | 检查 JSON 字段 |

@@ -91,8 +91,8 @@ pd [全局开关] <命令> [参数...]
 > `install` / `remove` / `upgrade` / `list` / `rollback` / `apply` / `clean` / `gc` /
 > `source` / `index` / `search` / `fetch` / `proc` / `run` / `shell` / `ui pages`。
 >
-> **未实现（2026-11-25）**：`ext` / `doctor` / `recover` / `outdated` /
-> `info` / `env` / `selftest` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
+> **未实现（2026-11-27）**：`ext` / `recover` / `outdated` /
+> `info` / `env` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
 
 ### 4.1 信息类
 
@@ -129,9 +129,8 @@ pd [全局开关] <命令> [参数...]
 |---|---|---|---|---|---|
 | `pd apply` | 重建接线（PATH/环境变量/联接/启动器） | **是** | 能 | `--dry-run` `--force` | 3/4/8 |
 | `pd clean` | 撤销 apply 改过的东西 | **是** | 能 | `--dry-run` `--keep-data` | 3/8 |
-| `pd doctor` | 体检 | 否 | 能 | `--deep` `--json` | 3/4 |
-| `pd doctor --fix` | 体检并修能修的 | **是**（改机器） | 能 | `--deep` `--json` | 3/4/8/10 |
-| `pd selftest` | 环境自检 | 否 | 能 | `--full` `--only <包>` | 12/20 |
+| `pd doctor` | 体检 | **是**（实现上保守独占，`--fix` 会改盘） | 能 | `--fix` `--json` | 3 |
+| `pd selftest` | 跑已装包自带断言 | 否 | 能 | `--only <包>` `--full` `--json` | 12/20 |
 | `pd adopt <目录>` | 把现有工具收编成包 | **是** | 能 | `--id` `--version` `--exe` `--copy` `--dry-run` | 2/3/4/8/10/20 |
 | `pd pkg pack <包>` | 把已装的包打回 `.pdpkg` | 否 | 能 | `--out` `--with-files` | 3/20 |
 
@@ -164,7 +163,7 @@ pd [全局开关] <命令> [参数...]
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
 | `pd run <包> [参数...]` | 用该包的环境启动程序 | 否 | 能 | `--exe` `--cwd` `--name` `--` 分隔 `--propagate` `--detach` | 2/20/1 |
-| `pd shell` | 开一个环境齐备的终端 | 否 | 能 | `cmd` `--propagate`（`--profile` 未实现） | 2/11 |
+| `pd shell` | 开一个环境齐备的终端 | 否 | 能 | `cmd` `--propagate` `--profile` | 2/11 |
 | `pd bundle export` | 导出环境清单 | 否 | 能 | `--out` `--lock` | 3 |
 | `pd bundle install <文件>` | 按清单装 | **是** | 见 5.1 | `--from-dir` `--dry-run` | 同 install |
 
@@ -365,27 +364,40 @@ pd gc [--keep <n>] [--blobs] [--dry-run] [--force]
 
 ### 5.6 `pd doctor`
 
-体检项：
+体检项（实现值，只读）：
 
 | 检查 | 说明 |
 |---|---|
-| 盘 | 标记、**文件系统（必须 NTFS）**、空间 |
-| 稳定根 | 联接是否存在、是否指对 |
-| PATH / 环境变量 | 是否有失效条目、是否被外部改过 |
-| 记录 vs store | 有没有"有记录没目录"或反之（intent 残留） |
-| 扩展 | 是否齐全、ABI 是否匹配、是否坏掉 |
-| 缓存 | 索引是否过期、blob 是否完整 |
-| 冲突 | 被遮蔽的源候选 |
+| 盘标记 | `state\stick.json` 存在且有 `stickId` |
+| 随盘 .NET / Node | `app\runtime\dotnet.exe` + shared 运行时；`app\runtime\node\node.exe` |
+| 内置扩展 | 与 `app\baseline\extensions` 逐个比 `ext.json` 的版本，报缺失/不一致 |
+| 记录 vs store | 每条记录的 `storePath` 存在、`<稳定根>\current\<包>` 存在 |
+| 残留 intent | `state\intent` 里还有没有待恢复文件 |
+| 配置 | `config\settings.json` 可解析 |
 
-`--fix` 只修能自动修的（重建联接、清理 intent 残留、删坏缓存），
-不能自动修的列出来不动手。
+输出 table + kv + done.metrics（`issues` / `fixed` / `checks`）。**问题本身不算命令失败**：
+体检跑完即 exit 0，内部错误才报 `ERR_IO`(1)。
+
+`--fix` 只做两类确定可修的事：
+
+1. 从 `app\baseline\extensions` 覆盖恢复缺失/版本不一致的内置扩展；
+2. 删除 `phase: done` 或无法解析的 intent 文件。
+
+修完重新体检一次再出报告（`fixed` 计数、剩余 `issues`）。不碰用户包、store 内容和其它文件。
 
 ### 5.7 `pd selftest`
 
-- 默认：各包 `--version` 比对 + 关键断言；
-- `--full`：跑真实工作流（`cl hello.c`、`flutter build windows`、`python -c ...`）；
-- `--only <包>`：只测指定包；
-- 失败返回 `12`。
+对每个已装包执行它**安装时声明的断言**（`package.json` 的 `asserts`；安装时已随记录保存，
+store 里没有 `package.json` 也能测）：
+
+- 文件类：`exists` / `missing` / `json` / `fileHash`（相对包的 store 根）；
+- 命令类：`run`（经 `proc.spawn` 在 Job Object 里执行，`cmd /d /s /c`）、`expect`、
+  `match`（`contains` 默认 / `equals` / `regex`）、`timeout`（默认 20s）；输出取 stdout+stderr；
+- `--full`：额外跑 `package.json` 里的 `selftest: [{name, run, expect, match, timeout}]` 工作流；
+- `--only <包>`：只测指定包（没装 → 20）；
+- 输出 table（包/检查/结果/说明）+ done.metrics（`passed` / `failed`）；任一项失败 → `12`。
+
+断言失败只影响 selftest 的退出码，不改 store、不卸载任何包。
 
 ### 5.8 `pd adopt`
 
@@ -451,7 +463,10 @@ local/mytool@0.1.0
 - `--detach`：子进程不进壳的 job，终端关闭 / 壳退出 / 内核停止都不影响它；只对后台程序有意义
   （交互式程序不要用：detach 后没有终端），细节见 [proc.md](proc.md) 第 9 节；
 - `shell`：开一个环境齐备的终端（PATH 含所有已装包的 `current\`），MVP 只支持默认 `cmd`；
-  退出码与 `--propagate` 规则同 `run`；`--profile` 尚未实现（返回 11）。
+  退出码与 `--propagate` 规则同 `run`；
+- `shell --profile`：额外把每个包 `wiring.env` 里的环境变量应用到**这个终端会话**（生成
+  `state\tmp\pd-profile-*.cmd`，`cmd /k call` 后由 pkgmgr 删除），**不写 `HKCU\Environment`**。
+  给 MSVC/Flutter 这类需要大量环境变量、又不该污染机器的工具链用；退出即失效。
 
 ### 5.13 `pd pkg pack`
 

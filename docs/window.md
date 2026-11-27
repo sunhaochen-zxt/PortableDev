@@ -220,13 +220,15 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 
 ## 8. 没有 `ui` 扩展时
 
-- 窗口能开，显示"未安装界面扩展"提示 + "恢复"按钮（调用 `pd doctor --fix`，从 `app\baseline\` 恢复内置扩展）；
+- 窗口能开：启动时若页面列表为空，自动调用 `pd doctor --fix` 从 `app\baseline\extensions` 恢复内置扩展并重新加载页面；
+  没有 baseline（或恢复失败）时显示"未安装界面扩展"提示，命令行完全不受影响；
 - 命令行完全不受影响；
 - 这是有意的：**界面是可选组件**（架构 3.7）。
 
 `ui` 是**内置扩展**：随程序发布在 `app\extensions\ui`（只读基线，见 kernel.md 1.1），
 不是包、也不通过 `pd install` 安装——包永远不带界面（架构 5.1）。
 "没有界面"只有两种情况：`ui` 文件损坏/缺失（按钮调 `pd doctor --fix` 从 `app\baseline\` 恢复），
+没有界面"只有两种情况：`ui` 文件损坏/缺失（窗口启动时自动 `pd doctor --fix` 从 `app\baseline\` 恢复），
 或它被禁用（把 `enabled` 改回 `true`）。
 用户额外的界面扩展放在 `v2\extensions\`，用 `pd ext update <名> <目录|zip>` 安装，页签并列出现。
 
