@@ -1245,6 +1245,13 @@ async function collectWiringChecks(records, stableRoot) {
   rows.push(["注册表接线", registryProblems.length === 0,
     registryProblems.length === 0 ? registryCount + " 项一致" : registryProblems.slice(0, 3).join(", ")]);
 
+  let selfRootHome = false;
+  try {
+    selfRootHome = path.resolve(fs.realpathSync(stableRoot)).toLowerCase() ===
+      path.resolve(fs.realpathSync(ROOT)).toLowerCase();
+  } catch (error) {
+    selfRootHome = path.resolve(stableRoot).toLowerCase() === path.resolve(ROOT).toLowerCase();
+  }
   const homeProblems = [];
   let homeCount = 0;
   for (const record of records) {
@@ -1254,6 +1261,11 @@ async function collectWiringChecks(records, stableRoot) {
       continue;
     }
     homeCount += 1;
+    if (selfRootHome) {
+      // C:\Dev points at this stick root: <stableRoot>\home\<pkg> IS the stick directory, so
+      // there is no separate junction to validate.
+      continue;
+    }
     let info = null;
     try {
       info = await callCapability("storage.wire", "home.get", { pkg: String(record.id) });
@@ -1267,7 +1279,9 @@ async function collectWiringChecks(records, stableRoot) {
     }
   }
   rows.push(["家目录联接", homeProblems.length === 0,
-    homeProblems.length === 0 ? homeCount + " 个包" : homeProblems.join("; ")]);
+    homeProblems.length === 0
+      ? homeCount + " 个包" + (selfRootHome ? "（稳定根=盘根，无独立联接）" : "")
+      : homeProblems.join("; ")]);
   return { rows: rows, stalePath: stalePath };
 }// `pd doctor`: read-only health report over the stick, with an optional repair pass.
 async function doctorCommand(message) {

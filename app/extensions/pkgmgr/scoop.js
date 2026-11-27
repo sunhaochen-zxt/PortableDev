@@ -226,19 +226,15 @@ function convertManifest(manifest, manifestName) {
     pathSeen.add(clean);
     pathDirs.push(clean);
   };
-  // A default "bin" only makes sense without extract_dir; with one, launch dirs (which already
-  // carry the extract_dir prefix) describe the real PATH entries.
-  if (!extractDir) {
-    addPathDir("bin");
-  }
+  // PATH entries come from the real bin directories and env_add_path only: a hard-coded "bin"
+  // pointed at non-existent folders for packages whose executables live at the root.
   for (const dir of envPathList(pick("env_add_path"))) {
     addPathDir((extractDir ? extractDir + "/" : "") + dir);
   }
   for (const entry of launch) {
     const dir = entry.exe.split("/").slice(0, -1).join("/");
-    if (dir) {
-      addPathDir(dir);
-    }
+    // A launcher at the package root (fastfetch.exe, ...) makes the package root the PATH entry.
+    addPathDir(dir || ".");
   }
 
   const env = {};

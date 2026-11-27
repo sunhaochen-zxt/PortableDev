@@ -1962,6 +1962,25 @@ function registryKey(entry) {
   return String(entry.hive || "HKCU") + "|" + String(entry.key || "") + "|" + String(entry.name || "");
 }
 
+// A launcher stub is only useful when the executable is not already reachable through the PATH
+// entries the package wires. Scoop packages put every bin directory on PATH, so their stubs were
+// pure clutter in the stick root (cmake.cmd, ffmpeg.cmd, ...).
+function launcherCoveredByPath(record, wiring, launcher) {
+  const rel = String((launcher && launcher.exe) || "");
+  if (!rel) {
+    return false;
+  }
+  const exeDir = path.dirname(path.join(stableRoot(), "current", record.id, expandText(record, rel)));
+  const normalize = (value) => path.resolve(value).toLowerCase();
+  for (const entry of wiring.path || []) {
+    const dir = path.join(stableRoot(), "current", record.id, expandText(record, String(entry)));
+    if (normalize(dir) === normalize(exeDir)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function launcherPath(record, launcher) {
   const name = String((launcher && launcher.name) || "");
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(name)) {
@@ -2002,7 +2021,7 @@ async function applyRecord(record, task, dryRun) {
       }
     }
     for (const launcher of wiring.launch || []) {
-      if (!launcher || !launcher.name) {
+      if (!launcher || !launcher.name || launcherCoveredByPath(record, wiring, launcher)) {
         continue;
       }
       if (readLauncher(launcherPath(record, launcher)) !== launcherContent(record, launcher)) {
@@ -2063,6 +2082,23 @@ async function applyRecord(record, task, dryRun) {
 
   for (const launcher of wiring.launch || []) {
     if (!launcher || !launcher.name) {
+      continue;
+    }
+    if (launcherCoveredByPath(record, wiring, launcher)) {
+      // Drop stubs written by older versions: the executable is already on PATH.
+      try {
+        const staleFile = launcherPath(record, launcher);
+        const staleContent = readLauncher(staleFile);
+        if (staleContent === launcherContent(record, launcher)) {
+          if (!hasOwn(before.launchers, staleFile)) {
+            before.launchers[staleFile] = staleContent;
+          }
+          fs.rmSync(staleFile, { force: true });
+          changed += 1;
+        }
+      } catch (error) {
+        // best effort: an unreadable stub is not worth failing the apply
+      }
       continue;
     }
     const file = launcherPath(record, launcher);
