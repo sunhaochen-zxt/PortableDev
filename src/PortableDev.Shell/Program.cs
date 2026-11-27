@@ -6,6 +6,13 @@ using PortableDev.Shell;
 Console.OutputEncoding = Encoding.UTF8;
 StdHandles.DetachInheritance();
 
+// Diagnostic: report the token integrity the CLI itself runs at, before touching the kernel.
+if (Array.IndexOf(args, "--whoami") >= 0)
+{
+    Console.WriteLine("client integrity " + PortableDev.Core.Util.TokenInfo.Describe());
+    return 0;
+}
+
 var options = ShellOptions.Parse(args);
 if (options.Error is not null)
 {
