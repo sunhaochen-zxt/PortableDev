@@ -4,6 +4,7 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const crypto = require("crypto");
+const { spawnSync } = require("child_process");
 const { connect, ready } = require("./protocol");
 
 const ROOT = process.env.PD_ROOT || ".";
@@ -77,7 +78,150 @@ function hashFile(file) {
   return digest.digest("hex");
 }
 
+
+// ---- proxy support ----
+// Node's http/https do not use the Windows system proxy, so a machine that relies on a local
+// proxy (FlClash/Clash/V2Ray) would fail on release assets that need it. When a proxy is
+// configured (env HTTP(S)_PROXY, settings network.proxy, or the WinINET system proxy) the
+// download goes through the bundled curl.exe, which handles CONNECT, TLS and redirects.
+let proxyResolved = false;
+let proxyValue = null;
+
+function proxyFromText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const match = /^(?:https?:\/\/)?([^:]+):(\d{1,5})$/.exec(raw);
+  if (!match) {
+    return null;
+  }
+  return { host: match[1], port: Number(match[2]) };
+}
+
+function proxyBypassed(host) {
+  const plain = String(host || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (plain === "localhost" || plain === "::1" || plain.startsWith("127.")) {
+    return true;
+  }
+  const noProxy = String(process.env.NO_PROXY || process.env.no_proxy || "");
+  for (const part of noProxy.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean)) {
+    if (part === "*" || plain === part.replace(/^\./, "") || plain.endsWith(part)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function readSystemProxy() {
+  try {
+    const powershell = require("path").join(process.env.SystemRoot || "C:\\Windows",
+      "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const script = "$p = Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'; if ($p.ProxyEnable -eq 1) { $p.ProxyServer } else { '' }";
+    const out = require("child_process").execFileSync(powershell,
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { encoding: "utf8", timeout: 8000, windowsHide: true }).trim();
+    if (!out) {
+      return null;
+    }
+    const map = {};
+    for (const part of out.split(";")) {
+      const index = part.indexOf("=");
+      if (index > 0) {
+        map[part.slice(0, index).trim().toLowerCase()] = part.slice(index + 1).trim();
+      }
+    }
+    return proxyFromText(map.https || map.http || out.split(";")[0]);
+  } catch (error) {
+    return null;
+  }
+}
+
+function resolveProxy() {
+  if (proxyResolved) {
+    return proxyValue;
+  }
+  proxyResolved = true;
+  // network.proxy follows kernel.md: a URL = explicit proxy, "none" = never, "system"/absent =
+  // use the environment or the WinINET system proxy.
+  let setting = null;
+  try {
+    const settings = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "settings.json"), "utf8"));
+    if (settings && settings.network && settings.network.proxy !== undefined) {
+      setting = String(settings.network.proxy).trim();
+    }
+  } catch (error) {
+    // no settings yet
+  }
+  if (setting) {
+    if (setting.toLowerCase() === "none") {
+      proxyValue = null;
+      return proxyValue;
+    }
+    if (setting.toLowerCase() !== "system") {
+      proxyValue = proxyFromText(setting);
+      if (proxyValue) {
+        return proxyValue;
+      }
+    }
+  }
+  const env = process.env;
+  const explicit = [env.PD_HTTP_PROXY, env.HTTPS_PROXY, env.https_proxy, env.HTTP_PROXY, env.http_proxy, env.ALL_PROXY, env.all_proxy];
+  for (const candidate of explicit) {
+    proxyValue = proxyFromText(candidate);
+    if (proxyValue) {
+      return proxyValue;
+    }
+  }
+  proxyValue = readSystemProxy();
+  return proxyValue;
+}
+
+function curlDownload(url, target, expected, timeoutMs, maxBytes, proxy) {
+  const curl = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "curl.exe");
+  const temp = target + ".part-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
+  const budgetSeconds = Math.max(Math.ceil(timeoutMs / 1000), 900);
+  const args = [
+    "-sS", "-L", "--fail", "--connect-timeout", String(Math.min(30, budgetSeconds)),
+    "--max-time", String(budgetSeconds), "--max-filesize", String(maxBytes),
+    "--proxy", "http://" + proxy.host + ":" + proxy.port,
+    "-o", temp, url,
+  ];
+  const result = spawnSync(curl, args, { timeout: (budgetSeconds + 15) * 1000, windowsHide: true, encoding: "utf8" });
+  try {
+    if (result.error) {
+      throw new DownloadError("ERR_NET", "curl failed: " + result.error.message);
+    }
+    if (result.status !== 0) {
+      const detail = String(result.stderr || "").trim().split(/\r?\n/).filter(Boolean).slice(-1)[0] || "";
+      throw new DownloadError("ERR_NET", "curl exited with " + result.status + (detail ? ": " + detail.slice(0, 200) : ""));
+    }
+    const stat = fs.statSync(temp);
+    if (!stat.isFile() || stat.size <= 0) {
+      throw new DownloadError("ERR_NET", "empty download: " + url);
+    }
+    if (stat.size > maxBytes) {
+      throw new DownloadError("ERR_UNSUPPORTED", "download is larger than " + maxBytes + " bytes: " + url);
+    }
+    const actual = hashFile(temp);
+    if (expected !== null && expected !== undefined && actual !== expected) {
+      throw new DownloadError("ERR_HASH", "hash mismatch for " + url + ": expected " + expected + ", got " + actual);
+    }
+    fs.renameSync(temp, target);
+    return { bytes: stat.size, sha256: actual, proxy: true };
+  } finally {
+    try {
+      fs.rmSync(temp, { force: true });
+    } catch (error) {
+      // best effort
+    }
+  }
+}
 function downloadHttp(url, target, expected, timeoutMs, maxBytes) {
+  const proxy = proxyBypassed(new URL(url).hostname) ? null : resolveProxy();
+  if (proxy) {
+    return Promise.resolve().then(() => curlDownload(url, target, expected, timeoutMs, maxBytes, proxy));
+  }
   return new Promise((resolve, reject) => {
     // Unique temp name: two concurrent fetches of the same blob must not interleave writes.
     const temp = target + ".part-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");

@@ -226,9 +226,13 @@ function convertManifest(manifest, manifestName) {
     pathSeen.add(clean);
     pathDirs.push(clean);
   };
-  addPathDir("bin");
+  // A default "bin" only makes sense without extract_dir; with one, launch dirs (which already
+  // carry the extract_dir prefix) describe the real PATH entries.
+  if (!extractDir) {
+    addPathDir("bin");
+  }
   for (const dir of envPathList(pick("env_add_path"))) {
-    addPathDir(dir);
+    addPathDir((extractDir ? extractDir + "/" : "") + dir);
   }
   for (const entry of launch) {
     const dir = entry.exe.split("/").slice(0, -1).join("/");

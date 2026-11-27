@@ -65,6 +65,16 @@ async function doSearch() {
       return;
     }
 
+    let installed = new Set();
+    try {
+      const listed = await window.pd.run(["list"]);
+      for (const item of ((((listed || {}).done || {}).metrics || {}).packages || [])) {
+        if (item && (item.package || item.id)) installed.add(String(item.package || item.id));
+      }
+    } catch (error) {
+      // an installed marker is best effort
+    }
+
     const grid = document.createElement("div");
     grid.className = "pkg-grid";
     for (const row of tbl.rows) {
@@ -98,9 +108,10 @@ async function doSearch() {
       srcEl.textContent = src || "source";
 
       const statusEl = document.createElement("span");
-      statusEl.className = "badge muted";
+      statusEl.className = installed.has(id) ? "badge ok" : "badge muted";
       statusEl.setAttribute("data-pkg-status", "1");
-      statusEl.hidden = true;
+      statusEl.textContent = installed.has(id) ? "已安装 ✓" : "";
+      statusEl.hidden = !installed.has(id);
 
       const btns = document.createElement("div");
       const dryBtn = document.createElement("button");

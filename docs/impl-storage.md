@@ -138,6 +138,7 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 `package.json` 的 `persist: [相对目录]` 让安装目录里的目录成为**盘内联接**，指向
 `<盘根>\home\<包>\persist\<路径>`：
 
+- 稳定根指向本盘根时（V2 的默认部署），`<稳定根>\home\<包>` 与盘上目录是同一个路径，不再建自引用联接；
 - 安装（adopt/wire）时：持久目录建在盘上；包自带的初始内容从 staging 迁进持久目录，然后
   `<store>\<路径>` 变成指向它的 junction。联接是**盘内**的，fake 机模式下也真实创建（不走 fake 状态）；
 - `apply` 幂等：已正确的联接不改；指向别处的联接直接报 `ERR_IO`；

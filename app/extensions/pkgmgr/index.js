@@ -533,6 +533,19 @@ async function prepareScoopStaging({ resolved, blob, event }) {
         item.exe = "bin/" + item.exe;
       }
     }
+    // The downloaded file may have a different name than the launch target (scoop renames it);
+    // place it at every expected path as well.
+    for (const item of (scoop.launch || [])) {
+      const rel = String((item && item.exe) || "").replace(/\\/g, "/");
+      if (!rel || rel.split("/").includes("..")) {
+        continue;
+      }
+      const expectedPath = path.join(staging, "files", ...rel.split("/"));
+      if (!fs.existsSync(expectedPath)) {
+        fs.mkdirSync(path.dirname(expectedPath), { recursive: true });
+        fs.copyFileSync(blob.path, expectedPath);
+      }
+    }
   }
   // Bin names drift between scoop versions; drop launchers whose target is missing
   // with a warning instead of failing the whole install.

@@ -31,7 +31,7 @@ pd install <目标>
                             → materialize 到 cache\\blobs\\<sha256>
  2. 读说明书   .pdpkg/URL 先解到租界读 package.json；目录直接读
  3. 预演       --dry-run 在解析后返回计划（按名安装不下载 blob）
- 4. 解来源     ① files\\ → 直接用 ② source.url → download.fetch → unpack.extract ③ 目录 → 复制进租界
+ 4. 解来源     ① files\\ → 直接用 ② source.url → download.fetch（走代理：`network.proxy` URL/none/system、环境变量或 WinINET 系统代理，用系统 curl 实现）→ unpack.extract ③ 目录 → 复制进租界
  5. 包脚本     script 段（策略：本地默认跑，网络源需 --allow-scripts，--no-scripts 优先）
  6. 文件断言   exists / missing / json / fileHash
  7. 收编       storage.adopt commit（算指纹 → 写审计 → rename → 写记录）

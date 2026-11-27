@@ -584,9 +584,19 @@ async function uninstall(args) {
   // Keep the user's files by default; only the machine-side junction is detached so the package is
   // gone from PATH/launchers. --purge moves the stick-side home directory to state/trash, where
   // rollback can rename it back and pd gc can finally delete it.
+  // With C:\Dev pointing at this stick root there is no separate machine-side home to detach:
+  // homeMachinePath() and homeStickPath() are the same directory.
+  let sameRootHome = false;
+  try {
+    sameRootHome = path.resolve(fs.realpathSync(stableRoot())).toLowerCase() ===
+      path.resolve(fs.realpathSync(ROOT)).toLowerCase();
+  } catch (error) {
+    sameRootHome = path.resolve(stableRoot()).toLowerCase() === path.resolve(ROOT).toLowerCase();
+  }
+
   let homeDetached = false;
   const machineHome = homeMachinePath(pkg);
-  const homeTarget = readLinkTarget(machineHome);
+  const homeTarget = sameRootHome ? null : readLinkTarget(machineHome);
   if (homeTarget !== null) {
     if (path.resolve(homeTarget).toLowerCase() !== path.resolve(homeStickPath(pkg)).toLowerCase()) {
       throw new StorageError("ERR_IO", "home junction points elsewhere: " + machineHome);
@@ -601,7 +611,7 @@ async function uninstall(args) {
     // writeLink is FAKE aware and verifies the real junction removal, unlike bare removeLink.
     writeLink(machineHome, null);
     homeDetached = true;
-  } else if (fs.existsSync(machineHome)) {
+  } else if (!sameRootHome && fs.existsSync(machineHome)) {
     throw new StorageError("ERR_IO", "machine home exists but is not a junction: " + machineHome);
   }
 
@@ -1863,6 +1873,19 @@ async function ensureHome(args) {
   const stick = homeStickPath(pkg);
   const machine = homeMachinePath(pkg);
   fs.mkdirSync(stick, { recursive: true });
+  // When the stable root IS this stick root (C:\Dev is a junction to the stick), the
+  // machine-visible home path and the stick path are the same directory; a junction there
+  // would point at itself and fail with EEXIST.
+  let sameRoot = false;
+  try {
+    sameRoot = path.resolve(fs.realpathSync(stableRoot())).toLowerCase() ===
+      path.resolve(fs.realpathSync(ROOT)).toLowerCase();
+  } catch (error) {
+    sameRoot = path.resolve(stableRoot()).toLowerCase() === path.resolve(ROOT).toLowerCase();
+  }
+  if (sameRoot) {
+    return { stickPath: stick, machinePath: stick, changed: false };
+  }
   let changed = false;
   const existing = readLinkTarget(machine);
   if (existing === null) {
