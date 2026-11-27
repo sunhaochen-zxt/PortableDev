@@ -211,6 +211,18 @@ def main():
         check("A store kept", os.path.isdir(gen_a), gen_a)
         check("B store kept (gc may clean later)", os.path.isdir(b1_store) and os.path.isdir(b2_store), (b1_store, b2_store))
 
+        print("interrupted restore resumes from its checkpoint")
+        checkpoint_path = os.path.join(root, "state", "generations", "restore-1.json")
+        with open(checkpoint_path, "w", encoding="utf-8") as handle:
+            json.dump({"schema": 1, "seq": 1, "steps": ["unwire:pkgb", "delete:pkgb"], "appliedSeq": None}, handle)
+        result = pd(root, "--json", "rollback", "--to", "1")
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("resume restore exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        check("resume removed the checkpoint", not os.path.exists(checkpoint_path),
+              os.listdir(os.path.join(root, "state", "generations")))
+        check("resume reported as resumed", metrics.get("resumed") is True, metrics)
+
         print("missing generation")
         result = pd(root, "--json", "rollback", "--to", "99")
         done = done_of(result.stdout)

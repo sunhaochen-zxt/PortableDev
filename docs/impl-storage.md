@@ -126,6 +126,13 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
   rollback 会跳过它；
 - `store` 目录不在这里删，留给 `gc` 按引用判断。
 
+## 7.1 generation restore 断点续跑
+
+`restoreGeneration` 开始前先读 `state\\generations\\restore-<seq>.json` 检查点（如果存在）：`steps` 里记着
+已完成的 `unwire:<包>` / `delete:<包>` / `write:<包>` / `apply`，本次启动跳过这些步骤，只做剩下的；
+每完成一步就原子写回检查点，全部成功后才删除。中途失败**不回滚**（保留混合状态 + 检查点），
+重新执行同一个 `pd rollback --to <seq>` 就从断点继续；所有步骤本身幂等，检查点损坏或丢失时重跑也安全。
+
 ## 8. gc
 
 | 对象 | 规则 |
@@ -230,7 +237,7 @@ python -u tools/storage-e2e.py .run
 | 项 | 说明 |
 |---|---|
 | 租界续期 | 到期后需重新申请，没有续期接口 |
-| restore 断点续跑 | generation.restore 失败后靠账本回滚，不能从中断点继续 |
+
 | 审计全量扫描 | `log.audit query` 仍按月文件全量扫描；任务多了以后需要索引 |
 | 租界续期 | 不支持续期（只有 ttl 到期），到期后需重新申请 |
 | 扩展卸载时的数据清理 | 等 `pd remove` |

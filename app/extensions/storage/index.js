@@ -2395,6 +2395,27 @@ function validateGeneration(document, expectedSeq) {
   return packages;
 }
 
+// ---- restore checkpoint: an interrupted generation restore resumes on the next attempt ----
+function restoreCheckpointPath(seq) {
+  return path.join(GENERATIONS, "restore-" + seq + ".json");
+}
+
+function readRestoreCheckpoint(seq) {
+  try {
+    const document = readJson(restoreCheckpointPath(seq));
+    if (document && document.schema === 1 && Number(document.seq) === Number(seq) && Array.isArray(document.steps)) {
+      return document;
+    }
+  } catch (error) {
+    // A corrupt checkpoint only means the restore starts over; the operations are idempotent.
+  }
+  return { schema: 1, seq: seq, steps: [], appliedSeq: null };
+}
+
+function saveRestoreCheckpoint(checkpoint) {
+  writeJsonAtomic(restoreCheckpointPath(checkpoint.seq), checkpoint);
+}
+
 async function restoreGeneration(args) {
   const seq = Number(args.seq);
   const generation = readGeneration(seq);
@@ -2404,6 +2425,20 @@ async function restoreGeneration(args) {
 
   const target = validateGeneration(generation, seq);
 
+  const checkpoint = readRestoreCheckpoint(seq);
+  const resumedFromCheckpoint = checkpoint.steps.length > 0;
+  const finished = new Set(checkpoint.steps);
+  const mark = (step) => {
+    if (!finished.has(step)) {
+      finished.add(step);
+      checkpoint.steps = Array.from(finished);
+      saveRestoreCheckpoint(checkpoint);
+    }
+  };
+  if (finished.size > 0) {
+    logInfo("storage.generation", "resuming an interrupted restore", { seq: seq, steps: checkpoint.steps.length });
+  }
+
   const task = args.task;
   await ensureBegin(task, "generation");
   const current = readAllRecords();
@@ -2412,24 +2447,37 @@ async function restoreGeneration(args) {
     if (target[id]) {
       continue;
     }
-    await unwireRecord(record, task);
-    const link = path.join(CURRENT, id);
-    if (fs.existsSync(link) || readLink(link) !== null) {
-      removeLink(link);
+    const unwireStep = "unwire:" + id;
+    if (!finished.has(unwireStep)) {
+      await unwireRecord(record, task);
+      mark(unwireStep);
     }
-    await ledgerEntry(task, {
-      op: "record.delete",
-      pkg: id,
-      before: record,
-      after: null,
-      undo: { cap: "storage.record", op: "write", args: { record } },
-    });
-    fs.rmSync(path.join(RECORDS, id + ".json"), { force: true });
+
+    const deleteStep = "delete:" + id;
+    if (!finished.has(deleteStep)) {
+      const link = path.join(CURRENT, id);
+      if (fs.existsSync(link) || readLink(link) !== null) {
+        removeLink(link);
+      }
+      await ledgerEntry(task, {
+        op: "record.delete",
+        pkg: id,
+        before: record,
+        after: null,
+        undo: { cap: "storage.record", op: "write", args: { record } },
+      });
+      fs.rmSync(path.join(RECORDS, id + ".json"), { force: true });
+      mark(deleteStep);
+    }
   }
 
   for (const [id, record] of Object.entries(target)) {
     const existing = current[id] || null;
     if (existing && JSON.stringify(existing) === JSON.stringify(record)) {
+      continue;
+    }
+    const writeStep = "write:" + id;
+    if (finished.has(writeStep)) {
       continue;
     }
     await ledgerEntry(task, {
@@ -2442,10 +2490,22 @@ async function restoreGeneration(args) {
         : { cap: "storage.record", op: "write", args: { record: existing } },
     });
     writeJsonAtomic(path.join(RECORDS, id + ".json"), record);
+    mark(writeStep);
   }
 
-  const applied = await applyRecords({ task });
-  return { seq, packages: Object.keys(target).length, changes: applied.changed, newSeq: applied.generationSeq };
+  let applied = { changed: 0, generationSeq: checkpoint.appliedSeq || null };
+  if (!finished.has("apply")) {
+    applied = await applyRecords({ task });
+    checkpoint.appliedSeq = applied.generationSeq;
+    mark("apply");
+  }
+
+  try {
+    fs.rmSync(restoreCheckpointPath(seq), { force: true });
+  } catch (error) {
+    // A leftover checkpoint only causes one extra idempotent attempt later.
+  }
+  return { seq, packages: Object.keys(target).length, changes: applied.changed, newSeq: applied.generationSeq, resumed: resumedFromCheckpoint };
 }
 
 async function handleGenerationCall(op, args) {

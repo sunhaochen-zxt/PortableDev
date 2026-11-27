@@ -235,7 +235,7 @@ async function handleCommand(message) {
         const restored = await callCapability("storage.generation", "restore", { seq: Number(generation), task: id });
         done({
           summary: "restored generation " + generation + " (" + restored.packages + " packages, " + restored.changes + " changes)",
-          metrics: { seq: restored.seq, packages: restored.packages, changes: restored.changes, newSeq: restored.newSeq },
+          metrics: { seq: restored.seq, packages: restored.packages, changes: restored.changes, newSeq: restored.newSeq, resumed: restored.resumed === true },
         });
       }
     } catch (error) {
