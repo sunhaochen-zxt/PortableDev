@@ -1052,11 +1052,11 @@ function readJsonSafe(file) {
 async function readIntegrityLevel() {
   try {
     const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
-    const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const whoami = path.join(systemRoot, "System32", "whoami.exe");
     const result = await runCapturedCommand({
       call: callCapability,
-      command: powershell,
-      args: ["-NoProfile", "-NonInteractive", "-Command", "whoami /groups"],
+      command: whoami,
+      args: ["/groups"],
       cwd: ROOT,
       env: assertionEnv(ROOT),
       timeoutMs: 20000,
@@ -1457,11 +1457,31 @@ async function doctorCommand(message) {
           env: assertionEnv(ROOT),
           timeoutMs: 20000,
         });
-        // fsutil writes UTF-16 to a redirected pipe; strip the NUL bytes before matching.
-        // Its labels are localized, but the file system name itself is not.
+        // Console tools write UTF-16 to a redirected pipe; strip the NUL bytes before matching.
+        // Their labels are localized, but the file system name itself is not.
         const flat = String(result.output || "").replace(/\u0000/g, "");
         ntfsOk = /\bNTFS\b/i.test(flat);
         filesystem = ntfsOk ? "NTFS" : "未知或非 NTFS";
+        if (!ntfsOk) {
+          // PowerShell can be unavailable in a stripped extension environment; fsutil is native.
+          try {
+            const fsutil = path.join(systemRoot, "System32", "fsutil.exe");
+            const fallback = await runCapturedCommand({
+              call: callCapability,
+              command: fsutil,
+              args: ["fsinfo", "volumeinfo", drive],
+              cwd: ROOT,
+              env: assertionEnv(ROOT),
+              timeoutMs: 15000,
+            });
+            if (/\bNTFS\b/i.test(String(fallback.output || "").replace(/\u0000/g, ""))) {
+              ntfsOk = true;
+              filesystem = "NTFS";
+            }
+          } catch (error) {
+            // keep "unknown"; doctor reports it as a problem either way
+          }
+        }
       } catch (error) {
         filesystem = "未知";
       }
