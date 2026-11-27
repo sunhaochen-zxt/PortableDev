@@ -147,6 +147,18 @@ def copy_runtime(dotnet_root, runtime_dir):
     return copied_version
 
 
+def copy_elevate_helper(app):
+    """The storage extension runs pd-elevate from app\tools; package it there."""
+    target = os.path.join(app, "tools")
+    os.makedirs(target, exist_ok=True)
+    copied = 0
+    for name in os.listdir(ELEVATE_DIR):
+        if name.endswith(".dll") or name.endswith(".exe") or name.endswith(".json"):
+            shutil.copy2(os.path.join(ELEVATE_DIR, name), os.path.join(target, name))
+            copied += 1
+    return copied
+
+
 def copy_proc_extension(extensions):
     """proc is the only compiled extension: its dll is gitignored, so a fresh checkout has to get
     it from the ProcExt build output instead of relying on a hand-copied file."""
@@ -238,7 +250,7 @@ def main():
     check_shared_assemblies({"kernel": KERNEL_DIR, "shell": SHELL_DIR, "elevate": ELEVATE_DIR, "window": WINDOW_DIR})
     copy_binaries(KERNEL_DIR, app)
     copy_binaries(SHELL_DIR, app)
-    copy_binaries(ELEVATE_DIR, app)
+    copy_elevate_helper(app)
     copy_binaries(WINDOW_DIR, app)
 
     for name in sorted(os.listdir(EXTENSIONS_SRC)):

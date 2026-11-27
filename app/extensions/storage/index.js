@@ -939,14 +939,16 @@ function elevateHelperCommand() {
       ? [process.env.PD_DOTNET || "dotnet", explicit]
       : [explicit];
   }
-  const tools = path.join(ROOT, "app", "tools");
-  const exe = path.join(tools, "pd-elevate.exe");
-  if (fs.existsSync(exe)) {
-    return [exe];
-  }
-  const dll = path.join(tools, "pd-elevate.dll");
-  if (fs.existsSync(dll)) {
-    return [process.env.PD_DOTNET || "dotnet", dll];
+  // app\tools is the packaged location; the app root is accepted for older deployments.
+  for (const directory of [path.join(ROOT, "app", "tools"), path.join(ROOT, "app")]) {
+    const exe = path.join(directory, "pd-elevate.exe");
+    if (fs.existsSync(exe)) {
+      return [exe];
+    }
+    const dll = path.join(directory, "pd-elevate.dll");
+    if (fs.existsSync(dll)) {
+      return [process.env.PD_DOTNET || "dotnet", dll];
+    }
   }
   return null;
 }
