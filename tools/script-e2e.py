@@ -328,6 +328,21 @@ def main():
         store = ((done or {}).get("metrics") or {}).get("storePath", "")
         check("fetch with network:true works", result.returncode == 0, (result.returncode, result.stdout[-400:]))
         check("fetched file landed", os.path.isfile(os.path.join(store, "bin", "fetched.txt")), store)
+        print("script cpu quota")
+        cpu_pkg = make_dir_pkg(root, "cpu", "cpu-script", "1.0.0",
+            script="print('cpu limit ok')\n",
+            script_meta={"entry": "install.py", "interpreter": "python", "on": ["install"], "cpu": 40})
+        result = pd(root, "--json", "install", cpu_pkg)
+        done = done_of(result.stdout)
+        check("script with cpu limit installs", result.returncode == 0 and (done or {}).get("exitCode") == 0, (result.returncode, result.stdout[-300:]))
+        bad_cpu = make_dir_pkg(root, "cpu-bad", "cpu-bad", "1.0.0",
+            script="print('never')\n",
+            script_meta={"entry": "install.py", "interpreter": "python", "on": ["install"], "cpu": 150})
+        result = pd(root, "--json", "install", bad_cpu)
+        done = done_of(result.stdout)
+        check("cpu out of range rejected", result.returncode == 3
+              and (done or {}).get("error", {}).get("code") == "ERR_PKG_INVALID", (result.returncode, result.stdout[-300:]))
+
     finally:
         server.shutdown()
         stop_kernel(root)

@@ -23,6 +23,9 @@ internal static class NativeMethods
     internal const uint JobObjectLimitKillOnJobClose = 0x00002000;
 
     internal const int JobObjectExtendedLimitInformationClass = 9;
+    internal const int JobObjectCpuRateControlInformationClass = 15;
+    internal const uint JobObjectCpuRateControlEnable = 0x00000001;
+    internal const uint JobObjectCpuRateControlHardCap = 0x00000004;
 
     internal const uint WaitObject0 = 0x00000000;
     internal const uint WaitTimeout = 0x00000102;
@@ -98,11 +101,28 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern IntPtr CreateJobObjectW(IntPtr attributes, string? name);
 
+    // JOBOBJECT_CPU_RATE_CONTROL_INFORMATION is 8 bytes: CpuRate, Weight, and the MinRate/MaxRate
+    // word pair share one DWORD union; a third field makes SetInformationJobObject fail with
+    // ERROR_BAD_LENGTH (24).
+    [StructLayout(LayoutKind.Sequential, Size = 8)]
+    internal struct JobObjectCpuRateControlInformation
+    {
+        public uint ControlFlags;
+        public uint CpuRate;
+    }
+
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool SetInformationJobObject(
         IntPtr job,
         int infoClass,
         ref JobObjectExtendedLimitInformation info,
+        uint length);
+
+    [DllImport("kernel32.dll", EntryPoint = "SetInformationJobObject", SetLastError = true)]
+    internal static extern bool SetInformationJobObjectCpuRate(
+        IntPtr job,
+        int infoClass,
+        ref JobObjectCpuRateControlInformation info,
         uint length);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -140,5 +160,8 @@ internal static class NativeMethods
     internal static extern bool TerminateProcess(IntPtr process, uint exitCode);
 
     internal static Win32Exception Error(string operation)
-        => new(Marshal.GetLastWin32Error(), operation + " failed");
+    {
+        var code = Marshal.GetLastWin32Error();
+        return new Win32Exception(code, operation + " failed (win32 " + code + ")");
+    }
 }

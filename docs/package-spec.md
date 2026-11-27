@@ -240,6 +240,7 @@ firefox-139.0.pdpkg
 | `entry` | 脚本文件，相对包根 |
 | `interpreter` | `pwsh`（默认）/ `python` / `cmd` |
 | `on` | `install` / `upgrade` / `remove` 的子集，默认 `["install"]` |
+| `cpu` | 可选，脚本 Job Object 的 CPU 硬上限（占单核百分比，`40` 或 `"40%"`，1–100）；缺省不限 |
 | `timeout` | 默认 `10m` |
 | `network` | 默认 `false`；脚本内要联网须显式声明 |
 | `elevated` | 默认 `false`；需要提权须显式声明（会弹 UAC） |

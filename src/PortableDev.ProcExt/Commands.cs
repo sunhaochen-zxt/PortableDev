@@ -139,10 +139,17 @@ internal static class Commands
             timeoutMs = Settings.ScriptTimeoutSeconds * 1000;
         }
 
+        int? cpuRatePercent = JsonUtil.Int(args, "cpuRatePercent");
+        if (cpuRatePercent is int percent && (percent < 1 || percent > 100))
+        {
+            throw new ArgumentException("cpuRatePercent must be between 1 and 100");
+        }
+
         var limits = new JobLimits
         {
             ProcessMemoryBytes = Math.Max(1, JsonUtil.Int(args, "memoryLimitMB") ?? Settings.ProcessMemoryMB) * 1024L * 1024L,
             ActiveProcesses = (uint)Math.Max(1, JsonUtil.Int(args, "activeProcessLimit") ?? Settings.ActiveProcesses),
+            CpuRatePercent = cpuRatePercent,
         };
 
         var stdio = StdioPipes.Open(stdinPipe, stdoutPipe, stderrPipe);

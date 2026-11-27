@@ -12,6 +12,9 @@ public sealed record JobLimits
     /// <summary>Maximum number of active processes in the job, or null for none.</summary>
     public uint? ActiveProcesses { get; init; }
 
+    /// <summary>Hard CPU cap in percent of one core (1-100), or null for unlimited.</summary>
+    public int? CpuRatePercent { get; init; }
+
     /// <summary>Kill every member when the last job handle closes (orphan cleanup).</summary>
     public bool KillOnJobClose { get; init; } = true;
 
@@ -68,6 +71,24 @@ public sealed class JobObject : IDisposable
                     (uint)Marshal.SizeOf<NativeMethods.JobObjectExtendedLimitInformation>()))
             {
                 throw NativeMethods.Error("SetInformationJobObject");
+            }
+
+            if (limits.CpuRatePercent is int percent)
+            {
+                // Hard cap: 1/100 of a percent units, so 50% => 5000.
+                var cpu = new NativeMethods.JobObjectCpuRateControlInformation
+                {
+                    ControlFlags = NativeMethods.JobObjectCpuRateControlEnable | NativeMethods.JobObjectCpuRateControlHardCap,
+                    CpuRate = (uint)(Math.Clamp(percent, 1, 100) * 100),
+                };
+                if (!NativeMethods.SetInformationJobObjectCpuRate(
+                        handle,
+                        NativeMethods.JobObjectCpuRateControlInformationClass,
+                        ref cpu,
+                        (uint)Marshal.SizeOf<NativeMethods.JobObjectCpuRateControlInformation>()))
+                {
+                    throw NativeMethods.Error("SetInformationJobObject(cpu)");
+                }
             }
 
             return new JobObject(handle);

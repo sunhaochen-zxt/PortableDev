@@ -10,6 +10,19 @@ const JOB_ACTIVE_PROCESS_LIMIT = 64;
 
 // Creates the three named pipes the proc extension will hand to the child. The facade mimics the
 // parts of a ChildProcess the request loop uses (stdin/stdout/stderr streams and an "exit" event).
+// script.cpu: hard CPU cap for the script's job object, in percent of one core ("50" or "50%").
+function parseCpuPercent(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const text = String(value).trim().replace(/%$/, "");
+  const percent = Number(text);
+  if (!Number.isFinite(percent) || percent < 1 || percent > 100) {
+    throw new ScriptError("ERR_PKG_INVALID", "script.cpu must be a percentage between 1 and 100", 3);
+  }
+  return Math.round(percent);
+}
+
 function createProcPipeSet() {
   const net = require("net");
   const { PassThrough } = require("stream");
@@ -287,6 +300,7 @@ async function runScript(options) {
 
   const child = procPipes.child;
   let procResult = null;
+  const cpuRatePercent = parseCpuPercent(script.cpu);
   const procCall = call("proc.spawn", "spawn", {
     command: command,
     args: args,
@@ -295,6 +309,7 @@ async function runScript(options) {
     timeoutMs: timeoutMs,
     memoryLimitMB: JOB_MEMORY_LIMIT_MB,
     activeProcessLimit: JOB_ACTIVE_PROCESS_LIMIT,
+    cpuRatePercent: cpuRatePercent,
     stdinPipe: procPipes.names.stdin,
     stdoutPipe: procPipes.names.stdout,
     stderrPipe: procPipes.names.stderr,

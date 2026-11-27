@@ -318,7 +318,12 @@ public sealed class ExtensionClient : IDisposable
 
     public Task CallErrorAsync(string callId, string code, string message)
     {
-        var envelope = Envelope.Make(Kinds.CallErr, new JsonObject { ["code"] = code, ["message"] = message });
+        // Other extensions and the kernel speak { error: { code, message } }; keep the same shape so
+        // callers can surface the real reason instead of a generic "call failed".
+        var envelope = Envelope.Make(Kinds.CallErr, new JsonObject
+        {
+            ["error"] = new JsonObject { ["code"] = code, ["message"] = message },
+        });
         envelope.Id = callId;
         return SendAsync(envelope);
     }
