@@ -101,16 +101,20 @@ function convertManifest(manifest, manifestName) {
 
   // The bucket may carry a 64-bit variant; plain top-level fields are the fallback.
   // Buckets use both {"64bit": {...}} and {"architecture": {"64bit": {...}}}.
-  const nested = manifest.architecture && typeof manifest.architecture === "object" && !Array.isArray(manifest.architecture)
-    ? manifest.architecture["64bit"] : null;
+  const structure = manifest.architecture && typeof manifest.architecture === "object" && !Array.isArray(manifest.architecture)
+    ? manifest.architecture : null;
   const direct = manifest["64bit"] && typeof manifest["64bit"] === "object" && !Array.isArray(manifest["64bit"])
     ? manifest["64bit"] : null;
-  const arch = nested && typeof nested === "object" ? nested : (direct || manifest);
-  const urls = asList(arch.url);
-  const hashes = asList(arch.hash);
+  // Prefer the 64-bit entry, then a 32-bit-only bucket (works on x64), then the flat top-level fields.
+  const arch = (structure && (structure["64bit"] || structure["32bit"])) || direct || manifest;
+  const pick = (key) => (arch && arch[key] !== undefined ? arch[key] : manifest[key]);
+  const urls = asList(pick("url"));
+  const hashes = asList(pick("hash"));
   const pairs = [];
   for (let index = 0; index < Math.max(urls.length, hashes.length); index += 1) {
-    const url = String(urls[index] !== undefined ? urls[index] : (urls[0] || ""));
+    const raw = String(urls[index] !== undefined ? urls[index] : (urls[0] || ""));
+    // Scoop uses "#/dl.zip" fragments to hint the download name; the fragment is not fetched.
+    const url = raw.split("#")[0];
     const parsed = hashAlgo(hashes[index] !== undefined ? hashes[index] : hashes[0]);
     if (!parsed || parsed.algo !== "sha256") {
       continue;
@@ -132,7 +136,13 @@ function convertManifest(manifest, manifestName) {
   // every installer kind (zip manifests carry pre/post install hooks too).
   // shortcuts/psmodulepath are features we cannot honor; installing without them silently
   // produces an incomplete package, so skip those manifests too.
-  for (const hook of ["installer", "uninstaller", "pre_install", "post_install", "pre_uninstall", "post_uninstall", "shortcuts", "psmodulepath"]) {
+  // persist = user data directories Scoop keeps across updates; this installer has no persist
+  // primitive yet, so installing silently would lose profiles. Skip it honestly for now.
+  const persist = pick("persist");
+  if (Array.isArray(persist) ? persist.length > 0 : (persist !== undefined && persist !== null && String(persist).trim() !== "")) {
+    return { skip: "manifest declares persist user data, which this installer cannot keep across updates" };
+  }
+  for (const hook of ["installer", "uninstaller", "pre_install", "post_install", "pre_uninstall", "post_uninstall", "pre_download", "post_download", "shortcuts", "psmodulepath"]) {
     const value = manifest[hook];
     if (value === undefined || value === null) {
       continue;
@@ -150,7 +160,7 @@ function convertManifest(manifest, manifestName) {
   }
 
   const bins = [];
-  for (const bin of asList(manifest.bin)) {
+  for (const bin of asList(pick("bin"))) {
     if (Array.isArray(bin)) {
       if (bin.length === 0) {
         continue;
@@ -161,7 +171,7 @@ function convertManifest(manifest, manifestName) {
     }
   }
 
-  const extractDir = String(manifest.extract_dir || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const extractDir = String(pick("extract_dir") || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
   const launch = [];
   for (const bin of bins) {
     if (!bin.path) {
@@ -195,7 +205,7 @@ function convertManifest(manifest, manifestName) {
     pathDirs.push(clean);
   };
   addPathDir("bin");
-  for (const dir of envPathList(manifest.env_add_path)) {
+  for (const dir of envPathList(pick("env_add_path"))) {
     addPathDir(dir);
   }
   for (const entry of launch) {
@@ -206,8 +216,9 @@ function convertManifest(manifest, manifestName) {
   }
 
   const env = {};
-  if (manifest.env_set && typeof manifest.env_set === "object" && !Array.isArray(manifest.env_set)) {
-    for (const [key, value] of Object.entries(manifest.env_set)) {
+  const envSet = pick("env_set");
+  if (envSet && typeof envSet === "object" && !Array.isArray(envSet)) {
+    for (const [key, value] of Object.entries(envSet)) {
       env[String(key)] = String(value);
     }
   }

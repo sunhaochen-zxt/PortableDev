@@ -40,16 +40,17 @@
 
 | 清单有 | 我们怎么做 |
 |---|---|
-| `64bit.url` / 顶层 `url` 以 `.zip` 结尾 | 下载安装包，解开后按现有流程安装 |
+| 64 位条目（`architecture.64bit` 或顶层 `64bit`）/ 顶层 `url` 以 `.zip` 结尾 | 下载安装包，解开后按现有流程安装 |
+| 只有 32 位条目（`architecture.32bit`，没有 64 位） | 按 32 位清单安装（x64 上可运行） |
 | 顶层 `url` 以 `.exe` 结尾（单个可执行文件） | 收编为 `files/bin/<名字>`，配一个同名启动器 |
-| `bin`（字符串 / 数组 / `[程序, 别名]`） | 转成 launch 启动器；安装时目标不存在的启动器警告并跳过 |
-| `env_add_path` | 转成 PATH 接线（只收相对目录） |
-| `env_set` | 原样转成 env |
+| `bin`（字符串 / 数组 / `[程序, 别名]`，优先取位数对应条目） | 转成 launch 启动器；安装时目标不存在的启动器警告并跳过 |
+| `env_add_path` / `env_set`（优先取位数对应条目） | 分别转成 PATH 接线（只收相对目录）/ env |
 | `depends` | 转成 `requires`（安装时递归装，见 package-spec） |
-| `extract_dir` | 作为 bin 路径的前缀 |
+| `extract_dir`（优先取位数对应条目） | 作为 bin 路径的前缀 |
+| URL 里的 `#/dl.zip` 片段 | 取 `#` 前面的真实下载地址 |
 | `description` / `homepage` | 进 `title` / `meta`，仅展示 |
 
-跳过（装不了也不装）：`.msi`；`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller` 脚本、`pre_install` / `post_install` 的（静默装脚本超出范围）；没有可用 bin 的；版本号不符合 `VERSION` 的。
+跳过（装不了也不装）：`.msi`；`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller`／`pre_install` / `post_install` / `pre_download` / `post_download` 脚本的（静默装脚本超出范围）；声明 `persist`（用户数据目录，暂无能保证跨升级保留的原语，装了会丢数据）；`shortcuts` / `psmodulepath`；没有可用 bin 的；版本号不符合 `VERSION` 的。
 
 安全说明：安装包哈希走索引校验（和普通源一样，比对安装包的 sha256）；转换后的包没有脚本执行能力（生成的 `package.json` 不带脚本），scoop 清单里的脚本一律不运行。
 

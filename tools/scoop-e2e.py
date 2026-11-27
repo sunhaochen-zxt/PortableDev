@@ -173,6 +173,12 @@ def make_bucket(docroot, base_url):
     arch_zip = os.path.join(files, "arch32-9.9.zip")
     with zipfile.ZipFile(arch_zip, "w", zipfile.ZIP_DEFLATED) as handle:
         handle.writestr("test32.cmd", "@echo off\r\necho ARCH32\r\n")
+    arch64_zip = os.path.join(files, "arch64-2.0.zip")
+    with zipfile.ZipFile(arch64_zip, "w", zipfile.ZIP_DEFLATED) as handle:
+        handle.writestr("app/tool.cmd", "@echo off\r\necho ARCH64\r\n")
+    frag_zip = os.path.join(files, "frag-1.0.zip")
+    with zipfile.ZipFile(frag_zip, "w", zipfile.ZIP_DEFLATED) as handle:
+        handle.writestr("frag.cmd", "@echo off\r\necho FRAG\r\n")
 
     def manifest(name, obj):
         with open(os.path.join(bucket, name + ".json"), "w", encoding="utf-8") as handle:
@@ -200,6 +206,28 @@ def make_bucket(docroot, base_url):
         "version": "9.9",
         "url": base_url + "/files/arch32-9.9.zip", "hash": sha256_file(arch_zip),
         "bin": "test32.cmd",
+    })
+    manifest("arch64", {
+        "version": "2.0",
+        "architecture": {"64bit": {
+            "url": base_url + "/files/arch64-2.0.zip", "hash": "sha256:" + sha256_file(arch64_zip),
+            "extract_dir": "app", "bin": "tool.cmd", "env_add_path": "lib",
+        }},
+    })
+    manifest("only32", {
+        "version": "2.0",
+        "architecture": {"32bit": {
+            "url": base_url + "/files/arch32-9.9.zip", "hash": "sha256:" + sha256_file(arch_zip),
+            "bin": "test32.cmd",
+        }},
+    })
+    manifest("frag", {
+        "version": "1.0", "url": base_url + "/files/frag-1.0.zip#/dl.zip",
+        "hash": "sha256:" + sha256_file(frag_zip), "bin": "frag.cmd",
+    })
+    manifest("persist-only", {
+        "version": "1.0", "url": base_url + "/files/frag-1.0.zip",
+        "hash": "sha256:" + sha256_file(frag_zip), "bin": "frag.cmd", "persist": ["data"],
     })
     manifest("skip-installer", {
         "version": "1.0", "url": base_url + "/files/beta-1.0.0.exe",
@@ -303,6 +331,21 @@ def main():
             check("md5-only hash refused", done and done.get("exitCode") == 20, done)
             done = call(stream, ["install", "skip-msi"])
             check("msi refused", done and done.get("exitCode") == 20, done)
+
+            print("architecture-specific fields and 32-bit-only buckets")
+            done = call(stream, ["install", "arch64"])
+            check("install arch64 (64bit entry) exit 0", done and done.get("exitCode") == 0, done)
+            result = pd(root, "run", "arch64", "--name", "tool")
+            check("arch64 launcher from 64bit.bin works", result.returncode == 0 and "ARCH64" in result.stdout,
+                  (result.returncode, result.stdout[-300:], result.stderr[-300:]))
+            done = call(stream, ["install", "only32"])
+            check("install only32 (32-bit fallback) exit 0", done and done.get("exitCode") == 0, done)
+
+            print("url fragment and persist skip")
+            done = call(stream, ["install", "frag"])
+            check("url with #/dl.zip fragment installs", done and done.get("exitCode") == 0, done)
+            done = call(stream, ["install", "persist-only"])
+            check("persist manifest is skipped", done and done.get("exitCode") == 20, done)
 
             result = pd(root, "--json", "install", "alpha", "--dry-run")
             check("dry-run shows dependencies", result.returncode == 0 and "beta" in result.stdout, result.stdout[-300:])
