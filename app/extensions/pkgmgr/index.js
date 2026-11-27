@@ -1396,22 +1396,37 @@ async function doctorCommand(message) {
     }
     add("受限会话", sessionOk, sessionDetail);
 
-    // (g) stable root: the machine-side anchor for PATH/env wiring
+    // (g) stable root: the machine-side anchor for PATH/env wiring. It must point at THIS
+    // stick root; pointing at another root (for example an old V1 stick) silently writes PATH
+    // entries into the wrong place.
+    const fakeMode = fs.existsSync(path.join(root, "state", "wire", "fake-mode"));
     let stableOk = false;
     let stableDetail = "";
+    let stableTarget = "";
     try {
       const stat = fs.lstatSync(stableRoot);
-      stableOk = true;
       if (stat.isSymbolicLink()) {
-        let target = "";
-        try { target = fs.realpathSync(stableRoot); } catch (error) { target = fs.readlinkSync(stableRoot); }
-        stableDetail = "联接 -> " + target;
-      } else {
+        try { stableTarget = fs.realpathSync(stableRoot); } catch (error) { stableTarget = fs.readlinkSync(stableRoot); }
+      }
+      const normalize = (value) => process.platform === "win32"
+        ? path.resolve(String(value)).toLowerCase()
+        : path.resolve(String(value));
+      const pointsHere = stableTarget.length > 0 && normalize(stableTarget) === normalize(root);
+      if (fakeMode) {
+        stableOk = true;
+        stableDetail = "fake 模式（跳过稳定根目标校验）";
+      } else if (!stableTarget) {
         stableDetail = "普通目录（未指向盘根）";
+      } else if (!pointsHere) {
+        stableDetail = "联接指向 " + stableTarget + "，应为本盘 " + path.resolve(root);
+      } else {
+        stableOk = true;
+        stableDetail = "联接 -> " + stableTarget;
       }
     } catch (error) {
       stableOk = false;
-      stableDetail = "稳定根不存在: " + stableRoot;
+      stableDetail = fakeMode ? "fake 模式（跳过稳定根目标校验）" : "稳定根不存在: " + stableRoot;
+      stableOk = fakeMode;
     }
     add("稳定根", stableOk, stableDetail);
 
@@ -1577,6 +1592,21 @@ async function doctorCommand(message) {
         }
       }
 
+      // Stable root: re-point the machine junction at this stick root when it is missing or
+      // points somewhere else. storage.wire uses the elevated helper, so on a real machine
+      // this is the single UAC prompt of the repair; in fake-mode the check is skipped.
+      if (!stableOk && !fakeMode) {
+        try {
+          await callCapability("storage.wire", "stableRoot", { task: message.id, target: stableRoot });
+          fixed += 1;
+          stableOk = true;
+          stableDetail = "已重指 -> " + path.resolve(root);
+          io.event("log", { level: "info", msg: "stable root re-pointed to " + root });
+        } catch (error) {
+          io.event("log", { level: "warn", msg: "stable root re-point failed: " + (error.message || String(error)) });
+        }
+      }
+
       // PATH/env/registry/home links are rebuilt by the storage wiring layer, which already owns
       // the before/after ledger and the elevated helper: one idempotent apply instead of N writes.
       if (wiringRows.some((row) => row[1] !== true)) {
@@ -1615,6 +1645,11 @@ async function doctorCommand(message) {
         intentsAfter = fs.readdirSync(path.join(root, "state", "intent")).filter((name) => name.endsWith(".json"));
       } catch (error) {
         intentsAfter = [];
+      }
+      const stableRow = rows.find((row) => row[0] === "稳定根");
+      if (stableRow) {
+        stableRow[1] = stableOk ? "ok" : "问题";
+        stableRow[2] = stableDetail;
       }
       const extensionRow = rows.find((row) => row[0] === "内置扩展");
       if (extensionRow) {

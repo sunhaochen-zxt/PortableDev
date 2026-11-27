@@ -260,6 +260,17 @@ def main():
         check("healthy exit 0", done and done.get("exitCode") == 0, done)
         check("healthy no issues", done and done.get("metrics", {}).get("issues") == 0, done)
 
+        print("doctor: stable root pointing at another stick is reported")
+        fake_mode = os.path.join(root, "state", "wire", "fake-mode")
+        os.remove(fake_mode)
+        done = call(stream, ["doctor", "--json"], events=[])
+        row = check_row(done, "稳定根")
+        check("stable root mismatch reported", row is not None and row.get("ok") is False, row)
+        detail = str((row or {}).get("detail", ""))
+        check("mismatch explains the expected target", ("应为本盘" in detail) or ("未指向盘根" in detail), row)
+        with open(fake_mode, "w", encoding="utf-8") as handle:
+            handle.write("1\n")
+
         print("doctor: deleted built-in extension is reported, not silently restored")
         unpack = os.path.join(root, "app", "extensions", "unpack")
         shutil.rmtree(unpack, ignore_errors=True)

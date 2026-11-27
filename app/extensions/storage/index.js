@@ -1121,6 +1121,39 @@ async function wirePersistLink(args) {
   return { changed: true, source: source, target: target };
 }
 
+// Re-point the machine stable-root junction (C:\Dev by default) at this stick root.
+// Machine-level, so it always goes through the elevated helper; the caller (doctor --fix) has
+// already verified that the current target is missing or points elsewhere.
+async function ensureStableRoot(args) {
+  const target = path.resolve(String(args.target || stableRoot()));
+  const source = path.resolve(ROOT);
+  const existing = readLink(target);
+  if (existing !== null) {
+    const resolved = String(existing).replace(/^\\\\\?\\|^\\\?\?\\/, "");
+    if (path.resolve(resolved).toLowerCase() === source.toLowerCase()) {
+      return { changed: false, target: target, source: source };
+    }
+  } else {
+    let stat = null;
+    try { stat = fs.lstatSync(target); } catch (error) { stat = null; }
+    if (stat !== null) {
+      throw new StorageError("ERR_UNSUPPORTED", "stable root exists but is not a junction: " + target);
+    }
+  }
+  if (FAKE) {
+    return { changed: false, target: target, source: source, fake: true };
+  }
+  // One elevated batch: never remove the old junction in this (non-elevated) process first.
+  // If the helper cannot elevate, the existing stable root stays untouched.
+  const ops = [];
+  if (existing !== null) {
+    ops.push({ op: "link.remove", target: target });
+  }
+  ops.push({ op: "link.create", source: source, target: target });
+  runElevated(ops);
+  return { changed: true, target: target, source: source };
+}
+
 // Real, ungated removal for the stick-local persist junction (never a fake/machine link).
 function persistUnlink(args) {
   const target = path.resolve(String(args.target || ""));
@@ -2794,6 +2827,8 @@ async function handleWireCall(capability, op, args) {
       return wirePersistLink(args);
     case "persist.unlink":
       return persistUnlink(args);
+    case "stableRoot":
+      return ensureStableRoot(args);
     case "link.get":
       return { source: readLinkTarget(String(args.target || "")) };
     // Read-only probes used by pd doctor: the machine's user env vars plus a package's home
