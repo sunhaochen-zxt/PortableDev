@@ -34,6 +34,15 @@ function StorageError(code, message) {
   this.message = message;
 }
 
+function realInsideStick(candidate) {
+  try {
+    const real = fs.realpathSync(candidate);
+    return inside(ROOT, real) ? real : null;
+  } catch (error) {
+    return null;
+  }
+}
+
 function inside(root, candidate) {
   const base = path.resolve(root).toLowerCase();
   const full = path.resolve(candidate).toLowerCase();
@@ -1420,7 +1429,7 @@ async function wireLinkCreate(args) {
   if (!target || !source || target.length === 0) {
     throw new StorageError("ERR_BAD_ARGS", "link.create needs source and target");
   }
-  if (!inside(ROOT, source)) {
+  if (!inside(ROOT, source) && !inside(ROOT, realInsideStick(source) || "")) {
     throw new StorageError("ERR_UNSUPPORTED", "link source must be inside the stick: " + source);
   }
   if (!allowedLinkTarget(target)) {

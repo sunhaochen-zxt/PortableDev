@@ -101,6 +101,7 @@ v2\app\
 | `log.rateLimit` | `5000` | 0–1000000 | 日志扩展 | 否 |
 | `network.timeout` | `30s` | 1–600s | download | 否 |
 | `network.retries` | `3` | 0–10 | download | 否 |
+| 扩展环境 | 扩展进程默认**清空**环境后只注入白名单（Windows 用户变量：SystemRoot/TEMP/PATH/APPDATA/USERPROFILE/… + PD_*），`inheritEnv` 可显式全继承；这样扩展行为可复现，同时 `{{APPDATA}}` 等数据接线能正常展开 |
 | `network.proxy` | `system` | `system` / `none` / URL | download | 否 |
 | `elevation.mode` | `on-demand` | `on-demand` | 内核 | 否 |
 | `recovery.intentDefault` | `adopt` | `adopt` / `drop` | 内核 | **是** |

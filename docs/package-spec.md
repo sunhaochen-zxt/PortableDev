@@ -233,6 +233,8 @@ firefox-139.0.pdpkg
 **默认值推导**：`unpack.kind` 缺省时按 `source.kind` 取；`raw` 表示不写盘、
 直接当单个文件用（如 `jq.exe`）；`none` 表示内容已经在 `files\` 里，不需要解包。
 
+数据接线的 source 允许写成 `{{HOME}}`/`{{STICK}}`（稳定根路径）；storage 会用 realpath 判断它确实落在盘内再接受。
+
 **实现方式**：`zip`/`tar.gz` 用内置流式解包（边解边限流）；`7z` 用随扩展打包的 7-Zip
 （`app\extensions\unpack\vendor\7zip\7z.exe`，离线、不走 PATH）；`msi` 用 `msiexec /a` 管理式安装解出文件
 （不注册产品、不需要管理员；部分 MSI 的安装树会多出 `Program Files` 之类的目录层，用 `extractDir`/`strip` 归位）。

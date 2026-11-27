@@ -895,7 +895,16 @@ public sealed class ExtensionSupervisor
             }
         }
 
-        foreach (var name in new[] { "SystemRoot", "windir", "TEMP", "TMP", "PATH" })
+        // Extensions are ordinary tools: they need the Windows user environment too (APPDATA and
+        // friends drive data.link expansion, curl/openssl/IDE helpers look at these variables).
+        foreach (var name in new[]
+        {
+            "SystemRoot", "windir", "SystemDrive", "TEMP", "TMP", "PATH", "ComSpec", "PATHEXT",
+            "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "USERNAME", "USERDOMAIN",
+            "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "CommonProgramFiles", "CommonProgramFiles(x86)",
+            "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS", "COMPUTERNAME",
+            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+        })
         {
             var value = Environment.GetEnvironmentVariable(name);
             if (value is not null)
