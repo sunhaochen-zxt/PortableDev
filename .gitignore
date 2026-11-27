@@ -30,3 +30,6 @@ __pycache__/
 # local test logs
 /.feat.log
 /.we2e.log
+/.st.log
+/.mg.log
+/*.log
