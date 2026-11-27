@@ -234,6 +234,7 @@ public sealed class BuiltinCommandSet
             ["stickId"] = _kernel.State.StickId,
             ["root"] = _kernel.State.Root,
             ["stableRoot"] = _kernel.State.StableRoot,
+            ["integrity"] = PortableDev.Core.Util.TokenInfo.Describe(),
             ["bootedAt"] = TimeUtil.Format(_kernel.State.BootedAt),
             ["sessions"] = _kernel.Sessions.ConnectionCount,
             ["activeTasks"] = _kernel.State.ActiveTasks,

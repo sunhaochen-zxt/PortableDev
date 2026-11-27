@@ -700,7 +700,43 @@ internal static class Program
     {
         try
         {
-            return IsAdministratorCore();
+            if (!OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token))
+            {
+                return 0;
+            }
+
+            var buffer = IntPtr.Zero;
+            try
+            {
+                GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out var needed);
+                if (needed == 0)
+                {
+                    return 0;
+                }
+
+                buffer = Marshal.AllocHGlobal((int)needed);
+                if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, needed, out _))
+                {
+                    return 0;
+                }
+
+                var sid = Marshal.ReadIntPtr(buffer);
+                var count = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+                if (count == 0)
+                {
+                    return 0;
+                }
+
+                return (uint)Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(count - 1)));
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+                CloseHandle(token);
+            }
         }
         catch (Exception)
         {
@@ -715,53 +751,6 @@ internal static class Program
     /// which made pd-elevate skip the runas relaunch and run "elevated" scripts at Medium.
     /// </remarks>
     private static bool IsAdministrator() => TokenIntegrity() >= HighIntegrity;
-
-    /// <summary>Raw token integrity level; 0 when it cannot be read.</summary>
-    private static uint IsAdministratorCore()
-    {
-        if (!OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token))
-        {
-            return 0;
-        }
-
-        var buffer = IntPtr.Zero;
-        try
-        {
-            GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out var needed);
-            if (needed == 0)
-            {
-                return 0;
-            }
-
-            buffer = Marshal.AllocHGlobal((int)needed);
-            if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, needed, out _))
-            {
-                return 0;
-            }
-
-            // TOKEN_MANDATORY_LABEL starts with SID_AND_ATTRIBUTES.Sid.
-            var sid = Marshal.ReadIntPtr(buffer);
-            var subAuthorities = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
-            if (subAuthorities == 0)
-            {
-                return 0;
-            }
-
-            return (uint)Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(subAuthorities - 1)));
-        }
-        catch (Exception)
-        {
-            return 0;
-        }
-        finally
-        {
-            if (buffer != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(buffer);
-            }
-            CloseHandle(token);
-        }
-    }
 
     private static JsonObject LoadFake(string path)
     {
