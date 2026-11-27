@@ -68,12 +68,12 @@ python -u tools/wire-e2e.py .run                                                
 python -u tools/generation-e2e.py .run                                              # 32（含断点续跑）
 python -u tools/source-e2e.py .run                                                   # 34
 python -u tools/script-e2e.py .run                                                   # 25（含提权脚本，fake 提权）
-python -u tools/manage-e2e.py .run-manage                                            # 100（含 --atomic 批量事务）
+python -u tools/manage-e2e.py .run-manage                                            # 108（含 --atomic 批量事务、persist 用户数据）
 python -u tools/registry-e2e.py .run-registry                                        # 12（HKCU 走 pd-elevate）
 dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）
 python -u tools/run-e2e.py                                                           # 19（pd run/shell + exec 通道）
-python -u tools/scoop-e2e.py                                                         # 27（scoop 源：zip/exe、位数条目、32 位回退、URL 片段、persist 跳过）
+python -u tools/scoop-e2e.py                                                         # 28（scoop 源：zip/exe、位数条目、32 位回退、URL 片段、persist）
 python -u tools/provides-e2e.py                                                      # 30（虚拟包 + replaces）
 python -u tools/window-e2e.py                                                        # 22（窗口壳：内核链路 + WebView2 桥 + 基线自愈）
 python -u tools/runtime-e2e.py                                                       # 11（随盘运行时：清空 DOTNET_ROOT/PATH 后跑 CLI 与窗口）

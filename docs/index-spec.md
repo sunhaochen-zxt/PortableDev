@@ -48,9 +48,10 @@
 | `depends` | 转成 `requires`（安装时递归装，见 package-spec） |
 | `extract_dir`（优先取位数对应条目） | 作为 bin 路径的前缀 |
 | URL 里的 `#/dl.zip` 片段 | 取 `#` 前面的真实下载地址 |
+| `persist`（字符串数组） | 转成 package.json 的 `persist`（安装目录里的目录 → 盘上持久目录，见 package-spec 3.12） |
 | `description` / `homepage` | 进 `title` / `meta`，仅展示 |
 
-跳过（装不了也不装）：`.msi`；`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller`／`pre_install` / `post_install` / `pre_download` / `post_download` 脚本的（静默装脚本超出范围）；声明 `persist`（用户数据目录，暂无能保证跨升级保留的原语，装了会丢数据）；`shortcuts` / `psmodulepath`；没有可用 bin 的；版本号不符合 `VERSION` 的。
+跳过（装不了也不装）：`.msi`；`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller`／`pre_install` / `post_install` / `pre_download` / `post_download` 脚本的（静默装脚本超出范围）；`shortcuts` / `psmodulepath`；没有可用 bin 的；版本号不符合 `VERSION` 的。
 
 安全说明：安装包哈希走索引校验（和普通源一样，比对安装包的 sha256）；转换后的包没有脚本执行能力（生成的 `package.json` 不带脚本），scoop 清单里的脚本一律不运行。
 

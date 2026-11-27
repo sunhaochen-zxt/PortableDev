@@ -341,11 +341,14 @@ def main():
             done = call(stream, ["install", "only32"])
             check("install only32 (32-bit fallback) exit 0", done and done.get("exitCode") == 0, done)
 
-            print("url fragment and persist skip")
+            print("url fragment and persist data")
             done = call(stream, ["install", "frag"])
             check("url with #/dl.zip fragment installs", done and done.get("exitCode") == 0, done)
             done = call(stream, ["install", "persist-only"])
-            check("persist manifest is skipped", done and done.get("exitCode") == 20, done)
+            check("persist manifest installs", done and done.get("exitCode") == 0, done)
+            check("persist dir created on the stick",
+                  os.path.isdir(os.path.join(root, "home", "persist-only", "persist", "data")),
+                  os.listdir(os.path.join(root, "home", "persist-only")) if os.path.isdir(os.path.join(root, "home", "persist-only")) else None)
 
             result = pd(root, "--json", "install", "alpha", "--dry-run")
             check("dry-run shows dependencies", result.returncode == 0 and "beta" in result.stdout, result.stdout[-300:])

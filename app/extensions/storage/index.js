@@ -1043,7 +1043,89 @@ function runHelperDirect(ops) {
   return runHelper(ops, true);
 }
 
-function stableRoot() {
+// ---- persist: install-dir directories become junctions to <stick>/home/<pkg>/persist/<rel> ----
+function normalizePersistPath(value) {
+  const rel = String(value === undefined || value === null ? "" : value).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!rel || rel.split("/").includes("..") || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000") || rel.split("/").length > 16) {
+    throw new StorageError("ERR_PKG_INVALID", "bad persist path: " + String(value));
+  }
+  return rel;
+}
+
+function persistStickPath(pkg, rel) {
+  return path.join(ROOT, "home", String(pkg), "persist", ...normalizePersistPath(rel).split("/"));
+}
+
+function movePersistContents(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const name of fs.readdirSync(from)) {
+    const source = path.join(from, name);
+    const target = path.join(to, name);
+    if (fs.existsSync(target)) {
+      throw new StorageError("ERR_IO", "persist data conflict: " + target + " already exists");
+    }
+    fs.renameSync(source, target);
+  }
+}
+
+async function wirePersistLink(args) {
+  const source = path.resolve(String(args.source || ""));
+  const target = path.resolve(String(args.target || ""));
+  if (!inside(path.join(ROOT, "home"), source)) {
+    throw new StorageError("ERR_UNSUPPORTED", "persist source must stay inside the stick home dir");
+  }
+  if (!inside(STORE, target)) {
+    throw new StorageError("ERR_UNSUPPORTED", "persist target must stay inside the store");
+  }
+  // persist links are stick-local (store <-> home on the same disk), not machine wiring: they are
+  // always created for real, even in the fake-machine test mode.
+  const existing = readLink(target);
+  if (existing !== null) {
+    const resolved = String(existing).replace(/^\\\\\?\\|^\\\?\?\\/, "");
+    if (path.resolve(resolved).toLowerCase() === source.toLowerCase()) {
+      return { changed: false, source: source, target: target };
+    }
+    throw new StorageError("ERR_IO", "persist junction points elsewhere: " + target);
+  }
+  fs.mkdirSync(source, { recursive: true });
+  if (fs.existsSync(target)) {
+    const stat = fs.lstatSync(target);
+    if (!stat.isDirectory()) {
+      throw new StorageError("ERR_PKG_INVALID", "persist path must be a directory: " + target);
+    }
+    movePersistContents(target, source);
+    fs.rmdirSync(target);
+  }
+  await ledgerEntry(args.task, {
+    op: "persist.link",
+    source: source,
+    target: target,
+    before: null,
+    after: { link: source },
+    undo: { cap: "storage.wire", op: "link.remove", args: { target: target } },
+  });
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  try {
+    fs.symlinkSync(path.resolve(source), target, "junction");
+  } catch (error) {
+    throw new StorageError("ERR_IO", "cannot create persist junction " + target + ": " + (error.message || String(error)));
+  }
+  return { changed: true, source: source, target: target };
+}
+
+async function applyPersist(record, task) {
+  let changed = 0;
+  for (const relative of recordWiring(record).persist || []) {
+    const rel = normalizePersistPath(relative);
+    const source = persistStickPath(record.id, rel);
+    const target = path.join(record.storePath, ...rel.split("/"));
+    const result = await wirePersistLink({ task: task, source: source, target: target });
+    if (result.changed) {
+      changed += 1;
+    }
+  }
+  return changed;
+}function stableRoot() {
   try {
     const settings = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "settings.json"), "utf8"));
     if (settings.root && settings.root.stableRoot) {
@@ -1858,7 +1940,8 @@ async function applyRecord(record, task, dryRun) {
 
   const wiringText = JSON.stringify(wiring);
   const needsHome = wiringText.includes("{{HOME}}") || wiringText.includes("{{PERSIST}}") ||
-    (Array.isArray(wiring.data) && wiring.data.length > 0);
+    (Array.isArray(wiring.data) && wiring.data.length > 0) ||
+    (Array.isArray(wiring.persist) && wiring.persist.length > 0);
   if (needsHome) {
     await ensureHome({ pkg: record.id });
   }
@@ -1910,6 +1993,8 @@ async function applyRecord(record, task, dryRun) {
     }
   }
 
+  changed += await applyPersist(record, task);
+
   for (const item of wiring.data || []) {
     const kind = String((item && item.kind) || "");
     if (kind === "link") {
@@ -1938,6 +2023,7 @@ async function applyRecord(record, task, dryRun) {
     }
   }
 
+  changed += await applyPersist(record, task);
   return changed;
 }
 
@@ -2271,6 +2357,16 @@ async function restoreWiring(record, task) {
       }
     } else if (kind === "copy") {
       if ((await wireCopyRemove({ task: task, target: target, source: expandText(record, item.source || "") })).changed) {
+        changed += 1;
+      }
+    }
+  }
+
+  for (const relative of wiring.persist || []) {
+    // Stick-local links: remove them for real regardless of the fake machine mode.
+    const target = path.join(record.storePath, ...normalizePersistPath(relative).split("/"));
+    if (readLink(target) !== null) {
+      if (removeLink(target)) {
         changed += 1;
       }
     }
@@ -2671,6 +2767,8 @@ async function handleWireCall(capability, op, args) {
       return wireLinkCreate(args);
     case "link.remove":
       return wireLinkRemove(args);
+    case "persist.link":
+      return wirePersistLink(args);
     case "link.get":
       return { source: readLinkTarget(String(args.target || "")) };
     // Read-only probes used by pd doctor: the machine's user env vars plus a package's home

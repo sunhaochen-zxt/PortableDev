@@ -362,6 +362,7 @@ pd gc [--keep <n>] [--blobs] [--dry-run] [--force]
 - `apply`：按记录重建 PATH、环境变量、`current` 联接、启动器（家目录联接待做）；
   幂等，第二次跑什么都不做（`changed: 0`）；实现见 [impl-wire.md](impl-wire.md)；
   声明了 `data.link` 的包会建 `<稳定根>\home\<包>` 家目录联接；
+  声明了 `persist` 的包，安装目录里的对应目录会变成指向 `<盘根>\home\<包>\persist\<路径>` 的联接；
 - `clean`：只拆"机器层接线"，**不卸载任何包**。包、记录、store、用户数据都不动；
   `clean` 之后 `apply` 能把接线原样建回来；
 - 想连包一起清掉，先 `pd remove <包>`，最后再 `pd clean`；

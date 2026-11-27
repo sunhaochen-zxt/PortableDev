@@ -68,13 +68,15 @@ def kill_leftovers(root):
     subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True)
 
 
-def make_pkg(path, pid, version, body, extra=None):
+def make_pkg(path, pid, version, body, extra=None, files=None):
     manifest = {"schema": 1, "id": pid, "version": version, "platform": "win-x64"}
     if extra:
         manifest.update(extra)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("package.json", json.dumps(manifest))
         archive.writestr("files/bin/" + pid + ".txt", body)
+        for rel, content in (files or {}).items():
+            archive.writestr("files/" + rel, content)
 
 
 def prepare(root):
@@ -181,6 +183,10 @@ def main():
     make_pkg(os.path.join(work, "demo-1.0.0.pdpkg"), "demo", "1.0.0", "demo 1")
     make_pkg(os.path.join(work, "demo-2.0.0.pdpkg"), "demo", "2.0.0", "demo 2")
     make_pkg(os.path.join(work, "other-1.0.0.pdpkg"), "other", "1.0.0", "other 1")
+    # persist: install-dir data directories live on the stick.
+    make_pkg(os.path.join(work, "persistdemo-1.0.0.pdpkg"), "persistdemo", "1.0.0", "persist demo",
+             {"persist": ["data"]}, files={"data/seed.txt": "seed data\n"})
+
     # Wiring/home fixture (fake machine: apply creates a virtual home junction).
     make_pkg(os.path.join(work, "wiredhome-1.0.0.pdpkg"), "wiredhome", "1.0.0", "wired home", {
         "path": ["bin"],
@@ -332,6 +338,33 @@ def main():
         check("atomic failure mentions the rollback", "atomic" in str((done or {}).get("error")) or "atomic" in result.stdout, (done, result.stdout[-400:]))
         result = pd(root, "--json", "remove", "demo", "flaky")
         check("atomic fixtures removed", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
+        print("persist user data")
+        result = pd(root, "--json", "install", "persistdemo@1.0.0", "--source", "fixtures")
+        check("install persist package", result.returncode == 0 and record(root, "persistdemo") is not None,
+              (result.returncode, result.stdout[-400:]))
+        persisted = record(root, "persistdemo")
+        store_data = os.path.join(persisted["storePath"], "data") if persisted else ""
+        stick_data = os.path.join(root, "home", "persistdemo", "persist", "data")
+        check("store data is a junction to the stick",
+              bool(store_data) and os.path.isdir(store_data) and os.path.realpath(store_data) == os.path.realpath(stick_data),
+              (store_data, stick_data))
+        check("seed data migrated into the stick dir", os.path.isfile(os.path.join(stick_data, "seed.txt")),
+              os.listdir(stick_data) if os.path.isdir(stick_data) else None)
+        with open(os.path.join(store_data, "new.txt"), "w", encoding="utf-8") as handle:
+            handle.write("keep me")
+        check("writes through the store land on the stick", os.path.isfile(os.path.join(stick_data, "new.txt")), stick_data)
+        result = pd(root, "--json", "remove", "persistdemo", "--keep-data")
+        check("remove --keep-data keeps persisted data", result.returncode == 0 and os.path.isfile(os.path.join(stick_data, "new.txt")),
+              (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "install", "persistdemo@1.0.0", "--source", "fixtures")
+        check("reinstall succeeds", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+        rebound = record(root, "persistdemo")
+        check("reinstall rebinds the persisted data",
+              rebound is not None and os.path.isfile(os.path.join(rebound["storePath"], "data", "new.txt")),
+              rebound)
+        result = pd(root, "--json", "remove", "persistdemo")
+        check("persist fixture removed", result.returncode == 0, (result.returncode, result.stdout[-300:]))
 
         print("cross-machine record must not restore another machine's old values")
         result = pd(root, "--json", "install", "wiredhome@1.0.0", "--source", "fixtures")

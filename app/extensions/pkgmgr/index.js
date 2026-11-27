@@ -231,6 +231,29 @@ function validVersion(value) {
   return text;
 }
 
+// manifest.persist: install-dir directories whose data lives on the stick (<root>/home/<pkg>/persist).
+function normalizePersist(value) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new PkgError("ERR_PKG_INVALID", "persist must be an array of relative paths", 3);
+  }
+  const result = [];
+  const seen = new Set();
+  for (const item of value) {
+    const rel = String(item === undefined || item === null ? "" : item).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    if (!rel || rel.split("/").includes("..") || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000")) {
+      throw new PkgError("ERR_PKG_INVALID", "bad persist path: " + String(item), 3);
+    }
+    if (!seen.has(rel)) {
+      seen.add(rel);
+      result.push(rel);
+    }
+  }
+  return result;
+}
+
 function readManifest(file) {
   let text;
   try {
@@ -518,6 +541,7 @@ async function prepareScoopStaging({ resolved, blob, event }) {
     launch: launch,
     path: scoop.path && scoop.path.length > 0 ? scoop.path : ["bin"],
     env: scoop.env || {},
+    persist: Array.isArray(scoop.persist) ? scoop.persist : [],
     requires: (resolved.entry && resolved.entry.requires) || [],
     meta: { scoop: { manifest: scoop.manifest || null, kind: installerKind } },
   };
@@ -938,6 +962,7 @@ async function install(message, options) {
       registry: manifest.registry || [],
       launch: manifest.launch || [],
       data: manifest.data || [],
+      persist: normalizePersist(manifest.persist),
     };
 
     event("step", { stepId: "adopt", title: "adopt", state: "running" });

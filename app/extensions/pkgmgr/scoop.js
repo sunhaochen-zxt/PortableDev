@@ -136,12 +136,6 @@ function convertManifest(manifest, manifestName) {
   // every installer kind (zip manifests carry pre/post install hooks too).
   // shortcuts/psmodulepath are features we cannot honor; installing without them silently
   // produces an incomplete package, so skip those manifests too.
-  // persist = user data directories Scoop keeps across updates; this installer has no persist
-  // primitive yet, so installing silently would lose profiles. Skip it honestly for now.
-  const persist = pick("persist");
-  if (Array.isArray(persist) ? persist.length > 0 : (persist !== undefined && persist !== null && String(persist).trim() !== "")) {
-    return { skip: "manifest declares persist user data, which this installer cannot keep across updates" };
-  }
   for (const hook of ["installer", "uninstaller", "pre_install", "post_install", "pre_uninstall", "post_uninstall", "pre_download", "post_download", "shortcuts", "psmodulepath"]) {
     const value = manifest[hook];
     if (value === undefined || value === null) {
@@ -223,6 +217,17 @@ function convertManifest(manifest, manifestName) {
     }
   }
 
+  // persist = user data directories kept on the stick across upgrades (install dir becomes a
+  // junction into <stick>/home/<pkg>/persist).
+  const persistPaths = [];
+  for (const item of asList(pick("persist"))) {
+    const rel = String(item === undefined || item === null ? "" : item).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    if (!rel || rel.split("/").includes("..") || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000")) {
+      return { skip: "bad persist path: " + String(item) };
+    }
+    persistPaths.push(rel);
+  }
+
   const depends = dependsOf(manifest);
   if (depends.error) {
     return { skip: depends.error };
@@ -238,6 +243,7 @@ function convertManifest(manifest, manifestName) {
       launch: launch,
       path: pathDirs,
       env: env,
+      persist: persistPaths,
       exeFile: primary.kind === "exe" ? baseName(primary.url) : null,
     },
   };

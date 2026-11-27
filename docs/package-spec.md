@@ -382,7 +382,7 @@ path.add / env.set / reg.set / reg.del / launch / assert
 | `uninstall.keepData` | 默认 `true`：卸载时保留用户数据 |
 | `uninstall.runScript` | 是否跑 `uninstall.ps1` |
 | `uninstall.removePaths` | 额外要删的路径（相对安装目录） |
-| `persist` | 数据位置声明：安装目录里的某个路径 **指向** 盘上的持久目录（与 `data.link` 用同一套联接原语，只是机器侧落点不同：`data.link` 在 Known Folder，`persist` 在安装目录内） |
+| `persist` | 数据位置声明（字符串数组，相对安装目录）：安装目录里的这些目录会变成指向 `<盘根>\home\<包>\persist\<路径>` 的联接，升级/重装后数据仍在；首次安装会把包自带的初始内容迁进持久目录。`clean`/卸载只拆联接，`--purge` 才删数据 |
 
 ### 3.13 哈希与 store 路径
 
