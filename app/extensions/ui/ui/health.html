@@ -122,7 +122,7 @@ async function runDoctor() {
   badge.className = "badge muted";
   badge.textContent = "体检中…";
   try {
-    const timed = await pdTimed(["doctor"]);
+    const timed = await pdTimedRetry(["doctor"]);
     const tbl = extractTable(timed.result);
     const metrics = (timed.result.done && timed.result.done.metrics) || {};
     // checks/issues may be arrays (per-check details) or numbers; never render "[object Object]".
@@ -160,7 +160,7 @@ async function runSelftest(full) {
   badge.textContent = full ? "完整自检中…" : "自检中…";
   try {
     const argv = full ? ["selftest", "--full"] : ["selftest"];
-    const timed = await pdTimed(argv);
+    const timed = await pdTimedRetry(argv);
     const tbl = extractTable(timed.result);
     const metrics = (timed.result.done && timed.result.done.metrics) || {};
     const passed = metrics.passed !== undefined ? metrics.passed : 0;

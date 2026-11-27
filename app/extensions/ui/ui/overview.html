@@ -138,7 +138,7 @@ async function loadOverview() {
     envNode.textContent = "";
     envNode.appendChild(dl);
 
-    const timed = await pdTimed(["version"]);
+    const timed = await pdTimedRetry(["version"]);
     versionNode.textContent =
       (timed.result.done && (timed.result.done.summary || (timed.result.done.metrics && timed.result.done.metrics.kernelVersion))) ||
       "版本未知";

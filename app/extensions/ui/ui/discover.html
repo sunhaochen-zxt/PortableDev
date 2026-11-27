@@ -51,7 +51,7 @@ async function doSearch() {
 
   try {
     const argv = q ? ["search", q] : ["search"];
-    const timed = await pdTimed(argv);
+    const timed = await pdTimedRetry(argv);
     const tbl = extractTable(timed.result);
     document.getElementById("count").textContent = tbl.rows.length + " 个结果";
     showTiming("search " + timed.ms + "ms");
@@ -146,13 +146,19 @@ async function runInstall(pkgId, dryRun) {
 document.getElementById("search-btn").addEventListener("click", doSearch);
 document.getElementById("query").addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
 document.getElementById("sync-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("sync-btn");
   const card = document.getElementById("terminal-card");
   const out = document.getElementById("terminal-out");
+  btn.disabled = true;
   card.style.display = "block";
-  await streamCommand(["source", "update"], out, (ok) => {
-    showToast(ok ? "索引已同步" : "索引同步失败", ok ? "ok" : "error");
-    doSearch();
-  });
+  try {
+    await streamCommand(["source", "refresh", "--all"], out, (ok) => {
+      showToast(ok ? "索引已同步" : "索引同步失败", ok ? "ok" : "error");
+    });
+  } finally {
+    btn.disabled = false;
+    setTimeout(doSearch, 300);
+  }
 });
 document.getElementById("close-terminal").addEventListener("click", () => {
   document.getElementById("terminal-card").style.display = "none";

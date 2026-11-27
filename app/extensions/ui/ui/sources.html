@@ -46,13 +46,14 @@ async function load() {
   const head = document.querySelector("#table thead");
   const body = document.querySelector("#table tbody");
   try {
-    const timed = await pdTimed(["source", "list"]);
+    const timed = await pdTimedRetry(["source", "list"]);
     const tbl = extractTable(timed.result);
     head.textContent = "";
     body.textContent = "";
     document.getElementById("count").textContent = tbl.rows.length + " 个源";
     showTiming("source list " + timed.ms + "ms");
 
+    body.dataset.loaded = "1";
     if (tbl.columns.length === 0 || tbl.rows.length === 0) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
@@ -118,6 +119,11 @@ async function load() {
       body.appendChild(tr);
     }
   } catch (error) {
+    if (body.dataset.loaded === "1") {
+      // Keep the last good list; a transient busy kernel should not look like "no sources".
+      showToast("读取软件源失败：" + ((error && error.message) || String(error)), "error");
+      return;
+    }
     body.textContent = "";
     const tr = document.createElement("tr");
     const td = document.createElement("td");
@@ -219,13 +225,19 @@ function openAddModal() {
 
 document.getElementById("add-btn").addEventListener("click", openAddModal);
 document.getElementById("update-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("update-btn");
   const card = document.getElementById("terminal-card");
   const out = document.getElementById("terminal-out");
+  btn.disabled = true;
   card.style.display = "block";
-  await streamCommand(["source", "refresh", "--all"], out, (ok) => {
-    showToast(ok ? "全部索引已同步" : "同步失败", ok ? "ok" : "error");
-    load();
-  });
+  try {
+    await streamCommand(["source", "refresh", "--all"], out, (ok) => {
+      showToast(ok ? "全部索引已同步" : "同步失败", ok ? "ok" : "error");
+    });
+  } finally {
+    btn.disabled = false;
+    setTimeout(load, 300);
+  }
 });
 document.getElementById("close-terminal").addEventListener("click", () => {
   document.getElementById("terminal-card").style.display = "none";

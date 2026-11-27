@@ -48,6 +48,7 @@ let unsubscribe = null;
 let levelFilter = "all";
 const MAX_LINES = 1000;
 const entries = [];
+const seen = new Set();
 
 function unwrap(record) {
   let node = record || {};
@@ -119,6 +120,9 @@ function appendEvent(event) {
     unit: String(rec._unit || rec.unit || ""),
     text: String(rec.msg || ""),
   };
+  const key = entry.time + "|" + entry.level + "|" + entry.unit + "|" + entry.text;
+  if (seen.has(key)) return;
+  seen.add(key);
   entries.push(entry);
   if (entries.length > MAX_LINES) entries.shift();
 
@@ -140,6 +144,16 @@ async function start() {
   await stop(false);
   setButton(true);
   try {
+    // Render the backlog first: events emitted before the follow subscription exists would be
+    // lost otherwise (exec returns the task id after the kernel already started streaming).
+    try {
+      const history = await window.pd.run(["log", "--tail", "120"]);
+      for (const event of (history.events || [])) {
+        if (event && event.type === "log") appendEvent(event);
+      }
+    } catch (error) {
+      // history is best effort; live follow below still works
+    }
     taskId = await window.pd.exec(["log", "--tail", "100", "--follow"]);
     unsubscribe = window.pd.on("evt:" + taskId, (event) => {
       if (!event || event.type !== "log") return;
@@ -179,7 +193,7 @@ document.querySelectorAll("#level-tabs .tab-btn").forEach((btn) => {
   });
 });
 document.getElementById("filter").addEventListener("input", renderAll);
-document.getElementById("clear-btn").addEventListener("click", () => { entries.length = 0; renderAll(); });
+document.getElementById("clear-btn").addEventListener("click", () => { entries.length = 0; seen.clear(); renderAll(); });
 document.getElementById("copy-btn").addEventListener("click", () => {
   const dump = entries.filter(matchesFilter).map((e) => e.time + " [" + e.level.toUpperCase() + "] " + (e.unit ? "[" + e.unit + "] " : "") + e.text).join("\n");
   copyText(dump, "日志内容");

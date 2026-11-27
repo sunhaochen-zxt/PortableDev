@@ -238,7 +238,7 @@ async function load() {
   const btn = document.getElementById("refresh");
   btn.disabled = true;
   try {
-    const timed = await pdTimed(["config", "list"]);
+    const timed = await pdTimedRetry(["config", "list"]);
     const tbl = extractTable(timed.result);
     allSettings = tbl.rows.map((r) => ({ key: String(r[0] ?? ""), value: unquote(r[1]) }));
     systemLoaded = true;

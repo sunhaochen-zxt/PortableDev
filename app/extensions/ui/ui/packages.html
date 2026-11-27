@@ -191,7 +191,7 @@ async function load() {
   const btn = document.getElementById("refresh");
   btn.disabled = true;
   try {
-    const timed = await pdTimed(["list"]);
+    const timed = await pdTimedRetry(["list"]);
     const tbl = extractTable(timed.result);
     cachedColumns = tbl.columns;
     cachedRows = tbl.rows;

@@ -148,7 +148,7 @@ async function load() {
     const argv = mode === "managed" ? ["proc", "list"]
       : mode === "extensions" ? ["kernel", "ps"]
       : ["proc", "system"];
-    const timed = await pdTimed(argv);
+    const timed = await pdTimedRetry(argv);
     const tbl = extractTable(timed.result);
     cachedCols = tbl.columns;
     cachedRows = tbl.rows;

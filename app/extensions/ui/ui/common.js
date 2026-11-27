@@ -300,6 +300,29 @@ async function pdTimed(argv) {
   return { result: result, ms: Math.round(performance.now() - start) };
 }
 
+function isBusyError(error) {
+  if (!error) return false;
+  if (error.code === "ERR_BUSY" || error.exitCode === 10) return true;
+  return /busy|ERR_BUSY|正忙/i.test(String(error.message || error));
+}
+
+// Kernel mutating commands are exclusive: while a refresh/install runs, reads can legitimately
+// return ERR_BUSY. Retry briefly instead of rendering an empty page.
+async function pdTimedRetry(argv, tries) {
+  const max = tries || 6;
+  let last = null;
+  for (let attempt = 0; attempt < max; attempt += 1) {
+    try {
+      return await pdTimed(argv);
+    } catch (error) {
+      last = error;
+      if (!isBusyError(error) || attempt === max - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw last;
+}
+
 function navMs() {
   try {
     const entries = performance.getEntriesByType("navigation");
