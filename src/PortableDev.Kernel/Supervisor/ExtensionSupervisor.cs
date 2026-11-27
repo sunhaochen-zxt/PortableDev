@@ -719,6 +719,11 @@ public sealed class ExtensionSupervisor
         }
     }
 
+    private IReadOnlyList<string> _recoveryRollbackTasks = [];
+
+    /// <summary>Orphaned task ids reported by startup recovery; the rollback extension undoes them.</summary>
+    public void SetRecoveryRollbackTasks(IReadOnlyList<string> tasks) => _recoveryRollbackTasks = tasks ?? [];
+
     /// <summary>Stops accepting new work and prevents crash restarts from racing the shutdown.</summary>
     public void BeginShutdown() => _stopping = true;
 
@@ -871,6 +876,12 @@ public sealed class ExtensionSupervisor
         startInfo.Environment["PD_KERNEL_ABI"] = _kernel.State.Abi.ToString(System.Globalization.CultureInfo.InvariantCulture);
         startInfo.Environment["PD_PROTOCOL"] = ProtocolConstants.Version.ToString(System.Globalization.CultureInfo.InvariantCulture);
         startInfo.Environment["PD_EXTENSION"] = manifest.Name;
+        // Recovery dropped these intents: the rollback extension undoes their ledger entries once
+        // it is up. Passed via env so the kernel does not need a synthetic client task.
+        if (string.Equals(manifest.Name, "rollback", StringComparison.Ordinal) && _recoveryRollbackTasks.Count > 0)
+        {
+            startInfo.Environment["PD_RECOVERY_ROLLBACK"] = string.Join(",", _recoveryRollbackTasks);
+        }
         runtime.InvocationId = "i-" + Guid.NewGuid().ToString("N")[..8];
         startInfo.Environment["PD_INVOCATION_ID"] = runtime.InvocationId;
 

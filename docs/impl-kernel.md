@@ -155,6 +155,10 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
 - 子命令级独占：扩展可以在 `ext.json` 里把 `"source list"` 这类多词命令单独登记，
   内核按**最长前缀**解析（最多 3 段），用该条目的 `mutates`/`parallel` 决定是否串行；
   扩展仍收到去掉首段的 argv，所以旧处理器不用改解析。pkgmgr 的 `source list` 是第一个实例。
+- 崩溃恢复的账本阶段：`RecoveryService` 把被 drop 的 task 放进 `RecoveryReport.DroppedTasks`；
+  正常启动时 `Supervisor.SetRecoveryRollbackTasks` 通过 `PD_RECOVERY_ROLLBACK` 交给 `rollback` 扩展，
+  它在 `ready` 后自动回滚并写 `recovery.rollback` 审计记录；一次性初始化模式（部署/测试用）落盘到
+  `state\recovery-orphans.json`，下次启动合并处理（失败不阻塞内核）。
 - `pd ext`：`list` 与 `kernel ext list` 同源；`enable/disable` 只改 `ext.json` 的 `enabled`；
   `update` 校验 `ext.json` 名字 → `Supervisor.StopAsync(名)` 停该扩展 → 换目录 → 返回 `restartRequired`
   （注册表启动只扫一次，无热重载、无 rollback）。`pd recover` 现场跑一遍 `RecoveryService`，

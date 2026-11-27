@@ -136,6 +136,47 @@ async function run(task, dryRun, onEvent) {
   return { task, rolledBack: rolledBack.length, skipped: planned.skipped, failed: failed.length, failures: failed };
 }
 
+// Startup reconciliation (kernel 1A): recovery dropped intents, so any ledger changes those tasks
+// made must be undone before the next command runs. The kernel passes the task ids via env.
+const RECOVERY_TASKS = String(process.env.PD_RECOVERY_ROLLBACK || "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+
+async function reconcileRecovery() {
+  for (const task of RECOVERY_TASKS) {
+    let summary = { rolledBack: 0, failed: 0, failures: [] };
+    try {
+      const result = await run(task, false, null);
+      summary = { rolledBack: result.rolledBack, failed: result.failed, failures: result.failures };
+      console.error("recovery rollback " + task + ": " + summary.rolledBack + " undone, " + summary.failed + " failed");
+    } catch (error) {
+      summary = { rolledBack: 0, failed: 1, failures: [{ code: error.code || "ERR_IO", message: error.message || String(error) }] };
+      console.error("recovery rollback " + task + " failed: " + JSON.stringify(summary.failures));
+    }
+
+    // Record the attempt even when there was nothing to undo: pd rollback --task can then report it
+    // instead of ERR_AUDIT_EXPIRED, and the ledger keeps the recovery history.
+    try {
+      await callCapability("log.audit", "append", {
+        stream: "audit",
+        task,
+        records: [{
+          ts: new Date().toISOString(),
+          task,
+          op: "recovery.rollback",
+          phase: "done",
+          rolledBack: summary.rolledBack,
+          failed: summary.failed,
+          failures: summary.failures,
+        }],
+      });
+    } catch (error) {
+      console.error("recovery rollback audit failed: " + (error.message || String(error)));
+    }
+  }
+}
+
 async function handleCommand(message) {
   const id = message.id;
   const argv = (message.data && message.data.argv) || [];
@@ -265,6 +306,9 @@ connect({
     send = outbound;
     if (message.kind === "hello.ok") {
       ready(send, [{ name: "rollback.run", version: 1, mutates: true }]);
+      if (RECOVERY_TASKS.length > 0) {
+        reconcileRecovery();
+      }
       return;
     }
 

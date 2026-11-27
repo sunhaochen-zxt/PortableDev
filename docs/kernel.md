@@ -236,6 +236,9 @@ store 的 intent 和接线的账本条目用**同一个 `task` 号**关联。
 ### 5.3 恢复失败怎么办
 
 - 单条 intent 处理失败 → 记录，继续下一条，最后汇总；
+- **被 drop 的 intent 要回滚账本**：恢复阶段收集这些 task id（`recovery.orphans`），
+  正常启动时通过环境变量交给 `rollback` 扩展，由它按审计流逐条执行 `undo` 并记 `recovery.rollback`；
+  `--init --once` 不启动扩展，就先把列表写进 `state\recovery-orphans.json`，下次正常启动再处理；
 - 恢复是"尽力而为"，**不会让内核起不来**；
 - `pd doctor` 会把没恢复成功的列出来。
 

@@ -169,6 +169,55 @@ public sealed class KernelHost : IKernelServices, IAsyncDisposable
         }
 
         var recovery = new RecoveryService(Paths, Settings, Logger).Run();
+        // A dropped intent must have its ledger changes undone. --once (deploy/init) starts no
+        // extensions, so carry the task ids to the next real boot through a small state file.
+        var orphanFile = Path.Combine(Paths.State, "recovery-orphans.json");
+        var orphans = new List<string>(recovery.DroppedTasks);
+        if (File.Exists(orphanFile))
+        {
+            try
+            {
+                if (JsonNode.Parse(File.ReadAllText(orphanFile)) is JsonArray prior)
+                {
+                    foreach (var item in prior)
+                    {
+                        var task = item?.GetValue<string>();
+                        if (!string.IsNullOrWhiteSpace(task) && !orphans.Contains(task, StringComparer.Ordinal))
+                        {
+                            orphans.Add(task);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
+            {
+                Logger.Warn("recovery.orphans", "unreadable orphan list; ignoring it", new JsonObject { ["file"] = orphanFile, ["error"] = ex.Message });
+            }
+        }
+
+        if (orphans.Count > 0)
+        {
+            Logger.Warn("recovery.orphans", "dropped intents need a ledger rollback", new JsonObject
+            {
+                ["tasks"] = new JsonArray(orphans.Select(task => (JsonNode?)task).ToArray()),
+            });
+            if (_options.RunOnce)
+            {
+                AtomicFile.WriteAllText(orphanFile, new JsonArray(orphans.Select(task => (JsonNode?)task).ToArray()).ToJsonString());
+            }
+            else
+            {
+                Supervisor.SetRecoveryRollbackTasks(orphans);
+                try
+                {
+                    File.Delete(orphanFile);
+                }
+                catch (IOException)
+                {
+                    // The rollback extension already received the list; a stale file only repeats it.
+                }
+            }
+        }
         if (recovery.Adopted + recovery.Dropped + recovery.StagingDeleted + recovery.RecordsDeleted > 0)
         {
             Logger.Warn("kernel.recovery", "recovery changed state", new JsonObject

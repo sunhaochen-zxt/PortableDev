@@ -184,6 +184,23 @@ def find_link_key(links, needle):
     return None
 
 
+def prepare_recovery_orphan(root):
+    """Recovery must drop this intent (policy=drop) and hand its task to the rollback extension."""
+    settings_path = os.path.join(root, 'config', 'settings.json')
+    with open(settings_path, 'r', encoding='utf-8') as handle:
+        settings = json.load(handle)
+    settings.setdefault('recovery', {})['intentDefault'] = 'drop'
+    with open(settings_path, 'w', encoding='utf-8') as handle:
+        json.dump(settings, handle)
+    target = os.path.join(root, 'store', 'orphan-task')
+    os.makedirs(target, exist_ok=True)
+    intents = os.path.join(root, 'state', 'intent')
+    os.makedirs(intents, exist_ok=True)
+    with open(os.path.join(intents, 'orphan-task.json'), 'w', encoding='utf-8') as handle:
+        json.dump({'phase': 'begin', 'task': 'orphan-task', 'pkg': 'ghostpkg', 'target': target}, handle)
+    return target
+
+
 def installed_ids(root):
     return sorted(os.path.splitext(name)[0] for name in os.listdir(os.path.join(root, "state", "records")) if name.endswith(".json"))
 
@@ -196,6 +213,7 @@ def main():
                    check=True, capture_output=True, text=True)
     deploy(root)
     set_stable_root(root)
+    orphan_target = prepare_recovery_orphan(root)
     env = dict(os.environ)
     env["DOTNET_ROOT"] = os.path.dirname(DOTNET)
     # The fake app/runtime/node/node.exe only satisfies doctor's existence check; extensions must
@@ -220,6 +238,13 @@ def main():
             "protocol": 1, "client": "features-e2e", "clientVersion": "0.0.1", "features": ["json"]}})
         hello = recv(stream)
         check("hello.ok", hello and hello.get("kind") == "hello.ok", hello)
+
+        print("recovery: dropped intent triggers an automatic ledger rollback")
+        check("orphan staging dropped", not os.path.isdir(orphan_target), orphan_target)
+        check("orphan intent settled", not os.path.exists(os.path.join(root, "state", "intent", "orphan-task.json")),
+              os.listdir(os.path.join(root, "state", "intent")))
+        done = call(stream, ["rollback", "--task", "orphan-task", "--dry-run"])
+        check("recovery rollback recorded in the ledger", done and done.get("exitCode") == 0, done)
 
         print("doctor: healthy stick")
         done = call(stream, ["doctor"])

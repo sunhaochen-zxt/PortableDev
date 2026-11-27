@@ -9,6 +9,9 @@ namespace PortableDev.Kernel.Recovery;
 public sealed record RecoveryReport(int Adopted, int Dropped, int IntentErrors, int StagingDeleted, int RecordsDeleted)
 {
     public static RecoveryReport Empty { get; } = new(0, 0, 0, 0, 0);
+
+    /// <summary>Tasks whose intent was dropped at startup: their ledger changes must be undone.</summary>
+    public IReadOnlyList<string> DroppedTasks { get; init; } = [];
 }
 
 /// <summary>
@@ -36,6 +39,7 @@ public sealed class RecoveryService
         var recordsDeleted = 0;
         var intents = new List<(string Path, JsonObject Document)>();
         var claimedTasks = new HashSet<string>(StringComparer.Ordinal);
+        var droppedTasks = new List<string>();
 
         Directory.CreateDirectory(_paths.Intents);
         foreach (var file in Directory.EnumerateFiles(_paths.Intents, "*.json").OrderBy(file => file, StringComparer.Ordinal))
@@ -148,6 +152,7 @@ public sealed class RecoveryService
                 {
                     TryDeleteDirectory(target!);
                     SafeDelete(file);
+                    droppedTasks.Add(task);
                     return (0, 1, 0);
                 }
 
@@ -171,7 +176,10 @@ public sealed class RecoveryService
             ["stagingDeleted"] = stagingDeleted,
         });
 
-        return new RecoveryReport(adopted, dropped, errors, stagingDeleted, recordsDeleted);
+        return new RecoveryReport(adopted, dropped, errors, stagingDeleted, recordsDeleted)
+        {
+            DroppedTasks = droppedTasks,
+        };
     }
 
     private int SweepStaging(HashSet<string> claimedTasks)
