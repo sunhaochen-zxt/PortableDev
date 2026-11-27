@@ -155,6 +155,8 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
 - 子命令级独占：扩展可以在 `ext.json` 里把 `"source list"` 这类多词命令单独登记，
   内核按**最长前缀**解析（最多 3 段），用该条目的 `mutates`/`parallel` 决定是否串行；
   扩展仍收到去掉首段的 argv，所以旧处理器不用改解析。pkgmgr 的 `source list` 是第一个实例。
+- 日志 seq 单调：`KernelLogger` 启动时把 `state\logs\seq-epoch` 加一并原子写回，`_seq` 初值为
+  `纪元×1e6`；日志文件不可写时退回 boot 内自增（只保证不崩，不保证跨启动单调）。
 - 能力调用的权限强制：扩展的 `ext.json` 里的 `requires` 就是能力白名单，内核在
   `ForwardCallAsync` 转发前校验——未声明（且不是它自己 `provides` 的）能力直接回
   `ERR_UNAUTHORIZED`，只记 `cap.denied` 日志，不打扰提供者；`requires` 支持 `storage.*` 通配，

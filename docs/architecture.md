@@ -691,6 +691,7 @@ v2\
 
 - 内核、存储扩展、其它扩展，平时都以**普通权限**运行；
 - 只有真正要动"机器层"时才提权：
+  - 包声明 `script.elevated:true` 的安装脚本（经 storage.elevate → pd-elevate，一次 UAC）；
   - 建/删稳定根（`C:\Dev`）；
   - 写 `HKLM`；
   - 改完整性标签。

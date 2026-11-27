@@ -23,7 +23,49 @@ function parseCpuPercent(value) {
   return Math.round(percent);
 }
 
-function createProcPipeSet() {
+// Elevated scripts run through the storage helper (UAC once, SHA-256 bound request) instead of the
+// proc extension: they get no request protocol, so only simple installers are allowed to opt in.
+function resolveElevatedCommand(name) {
+  const text = String(name || "");
+  if (path.isAbsolute(text) && fs.existsSync(text)) {
+    return text;
+  }
+  const directories = String(process.env.PATH || "").split(";").filter(Boolean);
+  const candidates = text.toLowerCase().endsWith(".exe") ? [text] : [text + ".exe", text];
+  for (const directory of directories) {
+    for (const candidate of candidates) {
+      const full = path.join(directory, candidate);
+      try {
+        if (fs.existsSync(full)) {
+          return full;
+        }
+      } catch (error) {
+        // ignore bad PATH entries
+      }
+    }
+  }
+  return null;
+}
+
+async function runElevatedScript(script, command, args, contentRoot, timeoutMs, environment, capabilityCall) {
+  const interpreter = String(script.interpreter || "pwsh").toLowerCase();
+  const executable = interpreter === "cmd"
+    ? (process.env.ComSpec || path.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe"))
+    : interpreter === "node"
+      ? process.execPath
+      : resolveElevatedCommand(command);
+  if (!executable || !path.isAbsolute(executable)) {
+    throw new ScriptError("ERR_UNSUPPORTED", "elevated script interpreter not found: " + command, 11);
+  }
+  const result = await capabilityCall("storage.elevate", "run", {
+    command: executable,
+    args: args,
+    cwd: contentRoot,
+    timeoutMs: timeoutMs,
+    env: environment,
+  });
+  return result || {};
+}function createProcPipeSet() {
   const net = require("net");
   const { PassThrough } = require("stream");
   const { EventEmitter } = require("events");
@@ -233,9 +275,6 @@ async function runScript(options) {
     event("step", { stepId: "script", title: "script (skipped)", state: "skipped" });
     return { ran: false, skipped: true };
   }
-  if (script.elevated === true) {
-    throw new ScriptError("ERR_UNSUPPORTED", "elevated package scripts are not implemented yet (elevated: true)", 11);
-  }
 
   const entry = String(script.entry || "");
   if (!entry) {
@@ -279,6 +318,31 @@ async function runScript(options) {
   environment.PD_STICK_ID = process.env.PD_STICK_ID || "";
   environment.PD_KERNEL_ABI = process.env.PD_KERNEL_ABI || "1";
   // No PD_PIPE on purpose: scripts must not connect to the kernel (architecture 8.2).
+
+  if (script.elevated === true) {
+    event("step", { stepId: "script", title: "script (elevated)", state: "running" });
+    let elevated;
+    try {
+      elevated = await runElevatedScript(script, command, args, contentRoot, timeoutMs, environment, call);
+    } catch (error) {
+      if (error && error.code === "ERR_TIMEOUT") {
+        throw error;
+      }
+      throw new ScriptError(error.code || "ERR_SCRIPT",
+        "elevated package script could not be started: " + (error.message || String(error)), error.exitCode || 1);
+    }
+    if (elevated.timedOut === true) {
+      event("step", { stepId: "script", title: "script (elevated)", state: "failed" });
+      throw new ScriptError("ERR_TIMEOUT", "elevated package script timed out after " + Math.round(timeoutMs / 1000) + "s", 25);
+    }
+    if (Number(elevated.exitCode) !== 0) {
+      event("step", { stepId: "script", title: "script (elevated)", state: "failed" });
+      const tail = String(elevated.stderr || "").trim().split("\n").slice(-3).join(" | ");
+      throw new ScriptError("ERR_SCRIPT", "elevated package script exited with " + elevated.exitCode + (tail ? ": " + tail : ""), 1);
+    }
+    event("step", { stepId: "script", title: "script (elevated)", state: "done" });
+    return { ran: true, pendingLinks: [] };
+  }
 
   // Package scripts always run through the proc extension: it owns the Job Object, the limits,
   // the timeout and the tree kill. This process only owns the request/reply protocol over pipes.

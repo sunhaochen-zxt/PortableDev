@@ -27,7 +27,8 @@
     "unpack.extract",
     "rollback.run",
     "proc.spawn",
-    "proc.snapshot"
+    "proc.snapshot",
+    "storage.elevate"
   ],
   "commands": [
     {

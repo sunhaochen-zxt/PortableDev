@@ -65,10 +65,10 @@ PD_LOG_FIXTURE=log-alt python -u tools/storage-e2e.py .run                      
 python -u tools/pkg-e2e.py .run                                                     # 37
 python -u tools/pd-e2e.py .run                                                      # 31
 python -u tools/wire-e2e.py .run                                                    # 43
-python -u tools/generation-e2e.py .run                                              # 29
+python -u tools/generation-e2e.py .run                                              # 32（含断点续跑）
 python -u tools/source-e2e.py .run                                                   # 34
-python -u tools/script-e2e.py .run                                                   # 22
-python -u tools/manage-e2e.py .run-manage                                            # 93
+python -u tools/script-e2e.py .run                                                   # 25（含提权脚本，fake 提权）
+python -u tools/manage-e2e.py .run-manage                                            # 100（含 --atomic 批量事务）
 python -u tools/registry-e2e.py .run-registry                                        # 12（HKCU 走 pd-elevate）
 dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）

@@ -76,8 +76,9 @@ def make_dir_pkg(root, name, pid, version, script=None, script_meta=None, files=
     os.makedirs(os.path.join(directory, "files", "bin"), exist_ok=True)
     manifest = {"schema": 1, "id": pid, "version": version, "platform": "win-x64"}
     if script is not None:
-        manifest["script"] = script_meta or {"entry": "install.py", "interpreter": "python", "on": ["install"]}
-        with open(os.path.join(directory, "install.py"), "w", encoding="utf-8") as handle:
+        effective = script_meta or {"entry": "install.py", "interpreter": "python", "on": ["install"]}
+        manifest["script"] = effective
+        with open(os.path.join(directory, effective.get("entry", "install.py")), "w", encoding="utf-8") as handle:
             handle.write(script)
     with open(os.path.join(directory, "package.json"), "w", encoding="utf-8") as handle:
         json.dump(manifest, handle)
@@ -126,6 +127,16 @@ def prepare(root):
     os.makedirs(wire_dir, exist_ok=True)
     with open(os.path.join(wire_dir, "fake-mode"), "w", encoding="utf-8") as handle:
         handle.write("1\n")
+    # Fake elevation: the helper runs with --fake (no UAC) but still executes process.run, so the
+    # elevated-script path is exercised without an approval prompt.
+    with open(os.path.join(wire_dir, "elevate-fake.json"), "w", encoding="utf-8") as handle:
+        handle.write("{}\n")
+    helper_source = os.path.join("src", "PortableDev.Elevate", "bin", "Debug", "net8.0", "win-x64")
+    helper_target = os.path.join(root, "app", "tools")
+    shutil.rmtree(helper_target, ignore_errors=True)
+    os.makedirs(helper_target, exist_ok=True)
+    for name in ("pd-elevate.exe", "pd-elevate.dll", "pd-elevate.deps.json", "pd-elevate.runtimeconfig.json"):
+        shutil.copy2(os.path.join(helper_source, name), os.path.join(helper_target, name))
 
 
 def start_kernel(root):
@@ -226,8 +237,6 @@ def main():
                                   {"entry": "install.py", "interpreter": "python", "on": ["install"], "timeout": "1s"})
     assert_fail = make_dir_pkg(root, "assertfail", "assertfail", "1.0.0", SCRIPT_ASSERT_FAIL)
     isolated = make_dir_pkg(root, "isolated", "isolated", "1.0.0", SCRIPT_KERNEL_CHECK)
-    elevated = make_dir_pkg(root, "elevatedscript", "elevatedscript", "1.0.0", SCRIPT_WRITE,
-                            {"entry": "install.py", "interpreter": "python", "on": ["install"], "elevated": True})
     fetch_blocked = make_dir_pkg(root, "fetchblocked", "fetchblocked", "1.0.0", SCRIPT_FETCH_BLOCKED)
     fetch_ok = make_dir_pkg(root, "fetchok", "fetchok", "1.0.0", SCRIPT_FETCH_OK % ("http://127.0.0.1:PORT/payload.txt"),
                             {"entry": "install.py", "interpreter": "python", "on": ["install"], "network": True})
@@ -315,9 +324,6 @@ def main():
         done = done_of(result.stdout)
         check("failed assert request fails install",
               result.returncode != 0 and (done or {}).get("error", {}).get("code") == "ERR_SCRIPT", done)
-        result = pd(root, "--json", "install", elevated)
-        done = done_of(result.stdout)
-        check("elevated script rejected", result.returncode == 11 and (done or {}).get("error", {}).get("code") == "ERR_UNSUPPORTED", done)
 
         print("fetch requires network:true")
         result = pd(root, "--json", "install", fetch_blocked)
@@ -342,6 +348,16 @@ def main():
         done = done_of(result.stdout)
         check("cpu out of range rejected", result.returncode == 3
               and (done or {}).get("error", {}).get("code") == "ERR_PKG_INVALID", (result.returncode, result.stdout[-300:]))
+
+        print("elevated script via the elevation helper")
+        elevated = make_dir_pkg(root, "elevated", "elevated-script", "1.0.0",
+            script="echo elevated > elevated-marker.txt\r\n",
+            script_meta={"entry": "install.cmd", "interpreter": "cmd", "on": ["install"], "elevated": True})
+        result = pd(root, "--json", "install", elevated)
+        done = done_of(result.stdout)
+        store = ((done or {}).get("metrics") or {}).get("storePath", "")
+        check("elevated script installs", result.returncode == 0, (result.returncode, result.stdout[-500:]))
+        check("elevated script ran through the helper", bool(store) and os.path.isfile(os.path.join(store, "elevated-marker.txt")), store)
 
     finally:
         server.shutdown()

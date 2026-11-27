@@ -145,6 +145,88 @@ internal static class Program
         return allOk ? 0 : 1;
     }
 
+    /// <summary>Runs one already-approved script/command in the elevated context.</summary>
+    /// <remarks>
+    /// The kernel never spawns business processes; storage reaches this helper only for a package
+    /// whose manifest opted into script.elevated, and the request is SHA-256 bound before UAC.
+    /// Args are passed through ArgumentList (no shell), cwd must exist, output is capped.
+    /// </remarks>
+    private static JsonNode? ProcessRun(JsonObject op)
+    {
+        var command = op["command"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(command) || !Path.IsPathFullyQualified(command))
+        {
+            throw new InvalidOperationException("process.run needs an absolute command path");
+        }
+
+        if (!File.Exists(command))
+        {
+            throw new InvalidOperationException("process.run command does not exist: " + command);
+        }
+
+        var cwd = op["cwd"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(cwd) || !Directory.Exists(cwd))
+        {
+            throw new InvalidOperationException("process.run needs an existing cwd");
+        }
+
+        var timeoutMs = Math.Clamp(op["timeoutMs"]?.GetValue<int>() ?? 600000, 1000, 600000);
+        var start = new ProcessStartInfo
+        {
+            FileName = command,
+            WorkingDirectory = cwd,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        if (op["args"] is JsonArray arguments)
+        {
+            foreach (var item in arguments)
+            {
+                var text = item?.GetValue<string>();
+                if (text is not null)
+                {
+                    start.ArgumentList.Add(text);
+                }
+            }
+        }
+
+        if (op["env"] is JsonObject environment)
+        {
+            foreach (var (key, value) in environment)
+            {
+                var text = value?.GetValue<string>();
+                if (!string.IsNullOrEmpty(key) && text is not null)
+                {
+                    start.Environment[key] = text;
+                }
+            }
+        }
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("process did not start");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        var timedOut = false;
+        if (!process.WaitForExit(timeoutMs))
+        {
+            timedOut = true;
+            try { process.Kill(entireProcessTree: true); } catch (Exception) { /* already gone */ }
+            process.WaitForExit(5000);
+        }
+
+        return new JsonObject
+        {
+            ["exitCode"] = process.HasExited ? process.ExitCode : -1,
+            ["timedOut"] = timedOut,
+            ["stdout"] = Truncate(stdout.GetAwaiter().GetResult(), 256 * 1024),
+            ["stderr"] = Truncate(stderr.GetAwaiter().GetResult(), 256 * 1024),
+        };
+    }
+
+    private static string Truncate(string text, int max)
+        => text.Length <= max ? text : text[..max];
     private static JsonNode? Execute(JsonObject op, JsonObject? fake)
     {
         var name = op["op"]?.GetValue<string>() ?? "";
@@ -157,6 +239,7 @@ internal static class Program
             "link.remove" => LinkRemove(op, fake),
             "copy.create" => CopyCreate(op, fake),
             "copy.remove" => CopyRemove(op, fake),
+            "process.run" => ProcessRun(op),
             _ => throw new InvalidOperationException("unknown elevated op: " + name),
         };
     }

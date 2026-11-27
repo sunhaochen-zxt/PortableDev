@@ -40,6 +40,11 @@
       "mutates": true
     },
     {
+      "name": "storage.elevate",
+      "version": 1,
+      "mutates": true
+    },
+    {
       "name": "storage.wire",
       "version": 1,
       "mutates": true

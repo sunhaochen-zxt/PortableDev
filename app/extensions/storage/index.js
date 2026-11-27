@@ -964,6 +964,12 @@ function runHelper(ops, noElevate) {
       "elevation helper not found (expected " + path.join(ROOT, "app", "tools", "pd-elevate.exe") + ")");
   }
 
+  // Tests cannot answer a UAC prompt: when state\wire\elevate-fake.json exists the helper runs
+  // with --fake (it still executes process.run, only registry/link ops go to the fake state).
+  const fakePath = path.join(WIRE_DIR, "elevate-fake.json");
+  // Only honoured in the fake test mode: a production stick must never silently run an "elevated"
+  // script without the helper actually being elevated.
+  const fakeElevation = FAKE && fs.existsSync(fakePath) ? fakePath : null;
   const dir = path.join(STATE, "tmp");
   fs.mkdirSync(dir, { recursive: true });
   elevateCounter += 1;
@@ -981,6 +987,9 @@ function runHelper(ops, noElevate) {
       args.push("--no-elevate");
     }
 
+    if (fakeElevation) {
+      args.push("--fake", fakeElevation);
+    }
     args.push("--result", resultPath, "--sha256", requestDigest);
     execFileSync(command[0], args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -2735,6 +2744,36 @@ function handleGrant(message) {
   send({ v: 1, kind: "ctl", id: taskId, data: { action: "grant.reply", grant } });
 }
 
+// Elevated script execution: only reachable for a package whose manifest opted into
+// script.elevated; the helper request is SHA-256 bound and args never pass through a shell.
+async function elevateRun(args) {
+  const command = String(args.command || "");
+  const cwd = String(args.cwd || "");
+  if (!path.isAbsolute(command) || !path.isAbsolute(cwd)) {
+    throw new StorageError("ERR_BAD_ARGS", "storage.elevate run needs an absolute command and cwd");
+  }
+  if (!fs.existsSync(command)) {
+    throw new StorageError("ERR_BAD_ARGS", "storage.elevate command does not exist: " + command);
+  }
+  if (!fs.existsSync(cwd)) {
+    throw new StorageError("ERR_BAD_ARGS", "storage.elevate cwd does not exist: " + cwd);
+  }
+  const results = runElevated([{
+    op: "process.run",
+    command: command,
+    cwd: cwd,
+    args: Array.isArray(args.args) ? args.args.map((item) => String(item)) : [],
+    timeoutMs: Number(args.timeoutMs) || 600000,
+    env: args.env && typeof args.env === "object" && !Array.isArray(args.env) ? args.env : {},
+  }]);
+  const entry = (results || [])[0] || {};
+  if (entry.ok !== true) {
+    const error = entry.error || {};
+    throw new StorageError(error.code || "ERR_IO", error.message || "elevated command failed");
+  }
+  return entry.before || {};
+}
+
 async function handleCall(message) {
   const id = message.id;
   const capability = message.data && message.data.cap;
@@ -2779,6 +2818,12 @@ async function handleCall(message) {
     if (capability === "storage.ledger") {
       return ledgerOp(op, args);
     }
+    if (capability === "storage.elevate") {
+      if (op === "run") {
+        return elevateRun(args);
+      }
+      throw new StorageError("ERR_UNSUPPORTED", "unknown storage.elevate op " + op);
+    }
     if (capability === "storage.wire") {
       return handleWireCall(capability, op, args);
     }
@@ -2818,6 +2863,7 @@ const link = connect({
         { name: "storage.gc", version: 1, mutates: true },
         { name: "storage.ledger", version: 1, mutates: true },
         { name: "storage.wire", version: 1, mutates: true },
+        { name: "storage.elevate", version: 1, mutates: true },
         { name: "storage.generation", version: 1, mutates: true },
         { name: "storage.home", version: 1, mutates: true },
         { name: "storage.uninstall", version: 1, mutates: true },

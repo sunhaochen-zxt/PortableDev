@@ -26,6 +26,35 @@ public sealed class KernelLogger : ILogSink, IDisposable
         _stickId = stickId;
         _machineId = machineId;
         _provider = new LogProviderClient(this);
+        // seq must be monotonic across kernel restarts, otherwise journal paging (seq ordering)
+        // breaks when a new boot appends seq 1 after a previous boot's seq 12. Each boot takes the
+        // next epoch and numbers its records epoch*1e6 + n; a crash costs at most one epoch.
+        _seq = NextBootEpoch(fileOptions.Directory) * 1_000_000L;
+    }
+
+    private static long NextBootEpoch(string directory)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "seq-epoch");
+            long current = 0;
+            if (File.Exists(path) && long.TryParse(File.ReadAllText(path).Trim(), out var parsed) && parsed >= 0)
+            {
+                current = parsed;
+            }
+
+            var next = current + 1;
+            var temp = path + "." + Guid.NewGuid().ToString("N")[..8];
+            File.WriteAllText(temp, next.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            File.Move(temp, path, overwrite: true);
+            return next;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Read-only state: fall back to a boot-local sequence rather than refusing to log.
+            return 0;
+        }
     }
 
     public LogLevel MinLevel { get; set; } = LogLevel.Info;

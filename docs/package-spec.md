@@ -241,6 +241,7 @@ firefox-139.0.pdpkg
 | `interpreter` | `pwsh`（默认）/ `python` / `cmd` |
 | `on` | `install` / `upgrade` / `remove` 的子集，默认 `["install"]` |
 | `cpu` | 可选，脚本 Job Object 的 CPU 硬上限（占单核百分比，`40` 或 `"40%"`，1–100）；缺省不限 |
+| `elevated` | 可选，`true` 时经提权助手（一次 UAC，SHA-256 绑定请求）执行；**没有请求协议**，只适合简单安装器 |
 | `timeout` | 默认 `10m` |
 | `network` | 默认 `false`；脚本内要联网须显式声明 |
 | `elevated` | 默认 `false`；需要提权须显式声明（会弹 UAC） |
