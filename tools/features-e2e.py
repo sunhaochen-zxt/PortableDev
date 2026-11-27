@@ -7,6 +7,7 @@
 
 Usage: python -u tools/features-e2e.py [stick-root]
 """
+import hashlib
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import struct
 import subprocess
 import sys
 import time
+import zipfile
 
 DOTNET = r"Z:\PortableDev\tools\dotnet-sdk\8.0.426\dotnet.exe"
 KERNEL = os.path.join("src", "PortableDev.Kernel", "bin", "Debug", "net8.0", "win-x64", "pd-kernel.dll")
@@ -132,10 +134,10 @@ def check_row(done, name):
     return None
 
 
-def make_pkg(directory, pkg_id, extra=None):
+def make_pkg(directory, pkg_id, extra=None, version="1.0.0"):
     shutil.rmtree(directory, ignore_errors=True)
     os.makedirs(os.path.join(directory, "files"))
-    manifest = {"schema": 1, "id": pkg_id, "version": "1.0.0", "platform": "win-x64"}
+    manifest = {"schema": 1, "id": pkg_id, "version": version, "platform": "win-x64"}
     if extra:
         manifest.update(extra)
     with open(os.path.join(directory, "package.json"), "w", encoding="utf-8") as handle:
@@ -143,6 +145,20 @@ def make_pkg(directory, pkg_id, extra=None):
     with open(os.path.join(directory, "files", "marker.txt"), "w", encoding="utf-8") as handle:
         handle.write(pkg_id)
     return directory
+
+
+def make_pdpkg(directory, pkg_id, version):
+    """Directories are only scanned for *.pdpkg, so build a zip package for source tests."""
+    build = os.path.join(directory, pkg_id + "-build")
+    make_pkg(build, pkg_id, version=version)
+    dest = os.path.join(directory, pkg_id + "-" + version + ".pdpkg")
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as handle:
+        for base, _dirs, files in os.walk(build):
+            for name in files:
+                full = os.path.join(base, name)
+                handle.write(full, os.path.relpath(full, build).replace(os.sep, "/"))
+    shutil.rmtree(build, ignore_errors=True)
+    return dest
 
 
 def installed_ids(root):
@@ -246,6 +262,73 @@ def main():
         done = call(stream, ["selftest", "--full"])
         check("selftest --full ok", done and done.get("ok") is True, done)
         check("selftest --full passed count", done and done.get("metrics", {}).get("passed", 0) >= 1, done)
+
+        print("info/env: wiring is reported")
+        wired = make_pkg(os.path.join(root, "pkgs", "wired"), "wiredpkg", {
+            "path": ["bin"], "env": {"PD_TEST_MARK": "42"},
+        })
+        done = call(stream, ["install", wired])
+        check("install wired", done and done.get("exitCode") == 0, done)
+        events = []
+        done = call(stream, ["info", "wiredpkg"], events=events)
+        kv = next((item for item in events if item.get("type") == "kv"
+                   and (item.get("items") or {}).get("id") == "wiredpkg"), None)
+        check("info exit 0", done and done.get("exitCode") == 0, done)
+        check("info kv", kv is not None and (kv.get("items") or {}).get("version") == "1.0.0", kv)
+        check("info wiring count", done and (done.get("metrics") or {}).get("wiring", 0) >= 2, done)
+        done = call(stream, ["info", "nope"])
+        check("info unknown exits 20", done and done.get("exitCode") == 20, done)
+        done = call(stream, ["env"])
+        metrics = (done or {}).get("metrics") or {}
+        check("env metrics", done and done.get("exitCode") == 0
+              and metrics.get("path", 0) >= 1 and metrics.get("env", 0) >= 1, done)
+
+        print("outdated: local source with a newer build")
+        source_dir = os.path.join(root, "src-new")
+        os.makedirs(source_dir, exist_ok=True)
+        make_pdpkg(source_dir, "goodpkg", "2.0.0")
+        done = call(stream, ["source", "add", "localdev", source_dir, "--kind", "dir", "--priority", "10"])
+        check("source add", done and done.get("exitCode") == 0, done)
+        events = []
+        done = call(stream, ["outdated"], events=events)
+        rows = []
+        for item in events:
+            if item.get("type") == "table" and item.get("title") == "outdated":
+                rows = item.get("rows") or []
+        check("outdated exit 0", done and done.get("exitCode") == 0, done)
+        check("outdated lists goodpkg 2.0.0",
+              any(len(row) >= 3 and row[0] == "goodpkg" and row[2] == "2.0.0" for row in rows), rows)
+
+        print("ext: list, disable/enable and update")
+        events = []
+        done = call(stream, ["ext", "list"], events=events)
+        rows = next((item.get("rows") for item in events if item.get("type") == "table"), [])
+        check("ext list exit 0", done and done.get("exitCode") == 0, done)
+        check("ext list rows", len(rows or []) >= 6, len(rows or []))
+        log_manifest = os.path.join(root, "app", "extensions", "log", "ext.json")
+        done = call(stream, ["ext", "disable", "log"])
+        with open(log_manifest, "r", encoding="utf-8") as handle:
+            disabled = json.load(handle)
+        check("ext disable", (done.get("metrics") or {}).get("enabled") is False
+              and disabled.get("enabled") is False, done)
+        done = call(stream, ["ext", "enable", "log"])
+        with open(log_manifest, "r", encoding="utf-8") as handle:
+            enabled = json.load(handle)
+        check("ext enable", (done.get("metrics") or {}).get("enabled") is True
+              and enabled.get("enabled") is True, done)
+        download_source = os.path.abspath(os.path.join("app", "extensions", "download"))
+        done = call(stream, ["ext", "update", "download", download_source])
+        check("ext update", done and done.get("exitCode") == 0
+              and (done.get("metrics") or {}).get("restartRequired") is True, done)
+
+        print("recover: settles orphan staging")
+        orphan = os.path.join(root, "staging", "orphan-" + str(int(time.time())))
+        os.makedirs(orphan, exist_ok=True)
+        done = call(stream, ["recover"])
+        check("recover exit 0", done and done.get("exitCode") == 0, done)
+        check("recover deletes orphan staging",
+              (done.get("metrics") or {}).get("stagingDeleted", 0) >= 1 and not os.path.isdir(orphan), done)
+
     finally:
         try:
             call(stream, ["kernel", "stop"], timeout=30) if stream is not None else None
