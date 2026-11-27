@@ -1459,6 +1459,31 @@ function allowedLinkTarget(target) {
   return false;
 }
 
+// Merge an existing real directory into the stick copy: missing files are copied and files the
+// machine copy changed more recently overwrite the stick copy (the machine copy wins on conflict).
+function adoptLinkTarget(target, source) {
+  fs.mkdirSync(source, { recursive: true });
+  for (const name of fs.readdirSync(target)) {
+    const from = path.join(target, name);
+    const to = path.join(source, name);
+    const stat = fs.lstatSync(from);
+    if (stat.isDirectory()) {
+      adoptLinkTarget(from, to);
+    } else if (stat.isFile()) {
+      let copy = true;
+      try {
+        copy = stat.mtimeMs > fs.statSync(to).mtimeMs;
+      } catch (error) {
+        copy = true;
+      }
+      if (copy) {
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.copyFileSync(from, to);
+      }
+    }
+  }
+}
+
 async function wireLinkCreate(args) {
   const target = linkPath(String(args.target || ""));
   const source = path.resolve(String(args.source || ""));
@@ -1487,6 +1512,21 @@ async function wireLinkCreate(args) {
     }
     throw new StorageError("ERR_IO", "target already exists and points elsewhere: " + target);
   }
+  // A real machine directory may exist where the link should go (an app recreated its data dir,
+  // or the user already used the non-portable copy). Adopt its newest files into the stick copy,
+  // rename the original aside as a backup, then create the junction: no data is silently lost.
+  let adopted = false;
+  let adoptedBackup = null;
+  if (existing === null && fs.existsSync(target)) {
+    const stat = fs.lstatSync(target);
+    if (!stat.isDirectory()) {
+      throw new StorageError("ERR_IO", "link target exists and is not a directory: " + target);
+    }
+    adoptLinkTarget(target, source);
+    adoptedBackup = target + ".pd-adopt-" + new Date().toISOString().replace(/[:.]/g, "-");
+    fs.renameSync(target, adoptedBackup);
+    adopted = true;
+  }
   const before = null;
   await ledgerEntry(args.task, {
     op: "link.create",
@@ -1497,7 +1537,7 @@ async function wireLinkCreate(args) {
     undo: { cap: "storage.wire", op: "link.remove", args: { target: target } },
   });
   writeLink(target, source);
-  return { changed: true, target: target, source: source };
+  return { changed: true, target: target, source: source, adopted: adopted, adoptedBackup: adoptedBackup };
 }
 
 async function wireCopyCreate(args) {
