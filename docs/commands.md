@@ -361,6 +361,7 @@ pd gc [--keep <n>] [--blobs] [--dry-run] [--force]
 
 - `apply`：按记录重建 PATH、环境变量、`current` 联接、启动器（家目录联接待做）；
   幂等，第二次跑什么都不做（`changed: 0`）；实现见 [impl-wire.md](impl-wire.md)；
+  声明了 `data.link` 的包会建 `<稳定根>\home\<包>` 家目录联接；
 - `clean`：只拆"机器层接线"，**不卸载任何包**。包、记录、store、用户数据都不动；
   `clean` 之后 `apply` 能把接线原样建回来；
 - 想连包一起清掉，先 `pd remove <包>`，最后再 `pd clean`；
@@ -380,6 +381,10 @@ pd gc [--keep <n>] [--blobs] [--dry-run] [--force]
 | 配置 | `config\settings.json` 可解析 |
 | 稳定根 | 稳定根存在；是联接时报告指向哪里，普通目录会注明"未指向盘根" |
 | current 接线 | 每个包的 `<稳定根>\current\<包>` 能解析且指向它的 `storePath` |
+| PATH 接线 | 用户 PATH 里该有的 `<稳定根>\current\<包>\...` 都在；`current\` 下不属于已装包的失效条目也列出来 |
+| 环境变量 / 注册表接线 | 按记录逐项比对用户环境变量与 HKCU/HKLM 值，缺项或值不符都报 |
+| 家目录联接 | 声明了 `data` 的包，`<稳定根>\home\<包>` 存在且指向盘上的 `<盘根>\home\<包>` |
+| 受限会话 | 往 `state\tmp` 写探针；受限/只读会话会明确提示"请用非受限会话重新运行" |
 
 `--deep` 额外做三项较慢的检查：
 
@@ -392,10 +397,13 @@ pd gc [--keep <n>] [--blobs] [--dry-run] [--force]
 输出 table + kv + done.metrics（`issues` / `fixed` / `checks`）。**问题本身不算命令失败**：
 体检跑完即 exit 0，内部错误才报 `ERR_IO`(1)。
 
-`--fix` 只做两类确定可修的事：
+`--fix` 只做确定可修的事：
 
 1. 从 `app\baseline\extensions` 覆盖恢复缺失/版本不一致的内置扩展；
-2. 删除 `phase: done` 或无法解析的 intent 文件。
+2. 删除 `phase: done` 或无法解析的 intent 文件；
+3. 机器接线有问题时，调 storage 的 `wire apply` 一次性重建 PATH/环境变量/注册表/家目录联接/启动器，
+   再清掉 `current\` 下不属于任何已装包的失效 PATH 条目（走 ledger，可回滚）；
+4. 内部错误/无法自动修的项目列出来不动手（例如 store 目录被外部删掉，要重装）。
 
 修完重新体检一次再出报告（`fixed` 计数、剩余 `issues`）。不碰用户包、store 内容和其它文件。
 

@@ -163,7 +163,7 @@ python -u tools/provides-e2e.py
 
 | 命令 | 实现要点 |
 |---|---|
-| `pd doctor` | 只读检查：盘标记、随盘 .NET/Node、`app\baseline\extensions` 对比、记录 vs store、残留 intent、配置解析、稳定根、current 接线解析；`--deep` 追加 blob 缓存、源冲突（同 id 多源）、文件系统（PowerShell `Get-Volume`，NTFS）；`--fix` 只做“从 baseline 覆盖内置扩展 + 删 done/坏 intent”，修完重算再出报告（`metrics.fixed/issues/checks`），问题本身不算命令失败 |
+| `pd doctor` | 只读检查：盘标记、随盘 .NET/Node、`app\baseline\extensions` 对比、记录 vs store、残留 intent、配置解析、稳定根、current 接线解析、PATH/环境变量/注册表接线、家目录联接、受限会话探针；`--deep` 追加 blob 缓存、源冲突（同 id 多源）、文件系统（PowerShell `Get-Volume`，NTFS）；`--fix` 做“从 baseline 覆盖内置扩展 + 删 done/坏 intent + storage `wire apply` 重建机器接线 + 清失效 PATH 条目”，修完重算再出报告（`metrics.fixed/issues/checks`），问题本身不算命令失败 |
 | `pd selftest` | 读记录上的 `asserts`（安装时随记录保存，目录安装没有 `package.json` 也能测）；`--full` 追加 `selftest` 工作流；命令类断言经 `proc.spawn` 在 Job Object 里执行，失败 12、`--only` 未装 20 |
 | `pd info` | 只读详情：版本、store 路径、来源、固定状态、PATH/env/registry/launcher 接线、断言清单与已存工作流 |
 | `pd outdated` | 对每个已装包调用 `sources().resolve` 比较版本；解析失败的包只计入 `skipped`，不影响退出码 |

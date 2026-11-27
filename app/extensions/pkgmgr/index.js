@@ -1047,7 +1047,138 @@ function readJsonSafe(file) {
   }
 }
 
-// `pd doctor`: read-only health report over the stick, with an optional repair pass.
+function expandWiringValue(record, value, stableRoot) {
+  const home = path.join(stableRoot, "home", String(record.id));
+  let text = String(value === undefined || value === null ? "" : value)
+    .replace(/\{\{ROOT\}\}/g, stableRoot)
+    .replace(/\{\{STICK\}\}/g, ROOT)
+    .replace(/\{\{HOME\}\}/g, home)
+    .replace(/\{\{PERSIST\}\}/g, home)
+    .replace(/\{\{ID\}\}/g, String(record.id))
+    .replace(/\{\{VERSION\}\}/g, String(record.version || ""));
+  for (const [name, directory] of [["APPDATA", process.env.APPDATA], ["LOCALAPPDATA", process.env.LOCALAPPDATA], ["USERPROFILE", process.env.USERPROFILE]]) {
+    text = text.split("{{" + name + "}}").join(directory || "");
+  }
+  return text;
+}
+
+function samePathValue(left, right) {
+  const a = String(left || "");
+  const b = String(right || "");
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+// Machine-side wiring vs the records: PATH entries, env vars, registry values and home junctions.
+// Read-only (storage.wire *.get/list); pd doctor --fix repairs them with one storage wire apply.
+async function collectWiringChecks(records, stableRoot) {
+  const rows = [];
+  let userPath = null;
+  let pathError = "";
+  try {
+    userPath = (await callCapability("storage.wire", "path.get", {})).value;
+  } catch (error) {
+    userPath = null;
+    pathError = error.code ? error.code + ": " + error.message : String(error);
+  }
+  if (userPath === null && pathError) {
+    rows.push(["PATH 接线", false, "无法读取用户 PATH: " + pathError]);
+  }
+  const actualPath = String(userPath || "").split(";").map((item) => item.trim()).filter(Boolean);
+  const currentRoot = path.join(stableRoot, "current") + path.sep;
+  const expectedPath = [];
+  for (const record of records) {
+    for (const relative of (record.wiring && record.wiring.path) || []) {
+      expectedPath.push(path.join(stableRoot, "current", String(record.id), String(relative)));
+    }
+  }
+  const missingPath = expectedPath.filter((entry) => !actualPath.some((item) => samePathValue(item, entry)));
+  const stalePath = actualPath.filter((entry) =>
+    entry.toLowerCase().startsWith(currentRoot.toLowerCase()) &&
+    !expectedPath.some((item) => samePathValue(item, entry)));
+  rows.push(["PATH 接线", missingPath.length === 0 && stalePath.length === 0,
+    missingPath.length === 0 && stalePath.length === 0
+      ? expectedPath.length + " 条记录在 PATH 中"
+      : "缺少: " + (missingPath.slice(0, 2).join(", ") || "无") +
+        (stalePath.length > 0 ? "；失效: " + stalePath.slice(0, 2).join(", ") : "")]);
+
+  let userEnv = {};
+  try {
+    userEnv = (await callCapability("storage.wire", "env.list", {})).env || {};
+  } catch (error) {
+    userEnv = {};
+  }
+  const envProblems = [];
+  let envCount = 0;
+  for (const record of records) {
+    for (const [name, value] of Object.entries((record.wiring && record.wiring.env) || {})) {
+      const expected = expandWiringValue(record, value, stableRoot);
+      if (expected.includes("{{")) {
+        continue;
+      }
+      envCount += 1;
+      const actual = userEnv[name];
+      if (actual === undefined || actual === null) {
+        envProblems.push(name + "(缺失)");
+      } else if (String(actual) !== expected) {
+        envProblems.push(name + "(值不符)");
+      }
+    }
+  }
+  rows.push(["环境变量", envProblems.length === 0,
+    envProblems.length === 0 ? envCount + " 个变量一致" : envProblems.slice(0, 3).join(", ")]);
+
+  const registryProblems = [];
+  let registryCount = 0;
+  for (const record of records) {
+    for (const entry of (record.wiring && record.wiring.registry) || []) {
+      const expected = expandWiringValue(record, entry.value, stableRoot);
+      if (expected.includes("{{")) {
+        continue;
+      }
+      registryCount += 1;
+      let actual = null;
+      try {
+        actual = (await callCapability("storage.wire", "registry.get", {
+          hive: String(entry.hive || "HKCU"),
+          key: String(entry.key || ""),
+          name: String(entry.name || ""),
+        })).value;
+      } catch (error) {
+        actual = null;
+      }
+      if (!actual || String(actual.value) !== expected) {
+        registryProblems.push(String(entry.name || entry.key) + "(缺失或值不符)");
+      }
+    }
+  }
+  rows.push(["注册表接线", registryProblems.length === 0,
+    registryProblems.length === 0 ? registryCount + " 项一致" : registryProblems.slice(0, 3).join(", ")]);
+
+  const homeProblems = [];
+  let homeCount = 0;
+  for (const record of records) {
+    const wiring = record.wiring || {};
+    const text = JSON.stringify(wiring.data || []) + JSON.stringify(wiring.env || {}) + JSON.stringify(wiring.path || {});
+    if ((wiring.data || []).length === 0 && !text.includes("{{HOME}}") && !text.includes("{{PERSIST}}")) {
+      continue;
+    }
+    homeCount += 1;
+    let info = null;
+    try {
+      info = await callCapability("storage.wire", "home.get", { pkg: String(record.id) });
+    } catch (error) {
+      info = null;
+    }
+    if (!info || !info.source) {
+      homeProblems.push(String(record.id) + "(联接缺失)");
+    } else if (!samePathValue(info.source, info.stickPath)) {
+      homeProblems.push(String(record.id) + "(指向错误)");
+    }
+  }
+  rows.push(["家目录联接", homeProblems.length === 0,
+    homeProblems.length === 0 ? homeCount + " 个包" : homeProblems.join("; ")]);
+  return { rows: rows, stalePath: stalePath };
+}// `pd doctor`: read-only health report over the stick, with an optional repair pass.
 async function doctorCommand(message) {
   const io = commandIo(message);
   const { flags } = commandContext(message);
@@ -1144,6 +1275,36 @@ async function doctorCommand(message) {
     // (f) settings parse
     const settingsDoc = readJsonSafe(path.join(root, "config", "settings.json"));
     add("配置", settingsDoc !== null, settingsDoc !== null ? "config/settings.json 可解析" : "config/settings.json 无法解析");
+
+    // (g) machine-side wiring vs the records: PATH, env vars, registry values and home junctions.
+    const fullRecords = [];
+    for (const item of records) {
+      try {
+        fullRecords.push(await callCapability("storage.record", "get", { pkg: item.id }));
+      } catch (error) {
+        // A record that cannot be read is already reported by the records check.
+      }
+    }
+    const wiringResult = await collectWiringChecks(fullRecords, stableRoot);
+    const wiringRows = wiringResult.rows;
+    for (const [check, ok, detail] of wiringRows) {
+      add(check, ok, detail);
+    }
+
+    // (h) restricted / read-only session: a probe write fails first and silently breaks installs.
+    let sessionWritable = true;
+    let sessionDetail = "当前会话可写";
+    try {
+      const probeDir = path.join(root, "state", "tmp");
+      fs.mkdirSync(probeDir, { recursive: true });
+      const probe = path.join(probeDir, "doctor-probe-" + process.pid + "-" + Date.now().toString(36));
+      fs.writeFileSync(probe, "probe");
+      fs.rmSync(probe, { force: true });
+    } catch (error) {
+      sessionWritable = false;
+      sessionDetail = "当前会话不可写（受限/只读会话，错误 " + (error.code || error.message) + "）：请用非受限会话重新运行";
+    }
+    add("受限会话", sessionWritable, sessionDetail);
 
     // (g) stable root: the machine-side anchor for PATH/env wiring
     let stableOk = false;
@@ -1267,7 +1428,9 @@ async function doctorCommand(message) {
         filesystem = "未知";
       }
       add("文件系统", ntfsOk, filesystem + (ntfsOk ? "" : "（v2 的联接需要 NTFS）"));
-    }    let fixed = 0;
+    }
+
+    let fixed = 0;
     if (flags.fix === true) {
       for (const name of baselineNames) {
         const target = path.join(installedRoot, name, "ext.json");
@@ -1296,6 +1459,26 @@ async function doctorCommand(message) {
           fixed += 1;
         } catch (error) {
           io.event("log", { level: "warn", msg: "remove intent " + name + " failed: " + (error.message || String(error)) });
+        }
+      }
+
+      // PATH/env/registry/home links are rebuilt by the storage wiring layer, which already owns
+      // the before/after ledger and the elevated helper: one idempotent apply instead of N writes.
+      if (wiringRows.some((row) => row[1] !== "ok")) {
+        try {
+          await callCapability("storage.wire", "apply", { task: message.id });
+          fixed += 1;
+        } catch (error) {
+          io.event("log", { level: "warn", msg: "wire apply failed: " + (error.message || String(error)) });
+        }
+        // apply only adds what the records expect; entries added outside PortableDev are removed here.
+        for (const stale of wiringResult.stalePath) {
+          try {
+            await callCapability("storage.wire", "path.remove", { task: message.id, dir: stale });
+            fixed += 1;
+          } catch (error) {
+            io.event("log", { level: "warn", msg: "path.remove " + stale + " failed: " + (error.message || String(error)) });
+          }
         }
       }
     }
@@ -1328,6 +1511,14 @@ async function doctorCommand(message) {
       if (intentRow) {
         intentRow[1] = intentsAfter.length === 0 ? "ok" : "问题";
         intentRow[2] = intentsAfter.length === 0 ? "无" : intentsAfter.length + " 个待恢复";
+      }
+      const refreshedWiring = (await collectWiringChecks(fullRecords, stableRoot)).rows;
+      for (const [check, ok, detail] of refreshedWiring) {
+        const row = rows.find((item) => item[0] === check);
+        if (row) {
+          row[1] = ok ? "ok" : "问题";
+          row[2] = detail;
+        }
       }
       issues.count = rows.filter((row) => row[1] !== "ok").length;
     }

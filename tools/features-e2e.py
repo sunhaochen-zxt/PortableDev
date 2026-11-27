@@ -171,6 +171,19 @@ def set_stable_root(root):
         json.dump(settings, handle)
 
 
+def bad_rows(done):
+    return [(item.get("check"), str(item.get("detail"))[:80]) for item in (done.get("metrics") or {}).get("checks") or []
+            if item.get("ok") is False]
+
+
+def find_link_key(links, needle):
+    needle = needle.lower()
+    for key in links:
+        if needle in key.lower():
+            return key
+    return None
+
+
 def installed_ids(root):
     return sorted(os.path.splitext(name)[0] for name in os.listdir(os.path.join(root, "state", "records")) if name.endswith(".json"))
 
@@ -280,6 +293,10 @@ def main():
         })
         done = call(stream, ["install", wired])
         check("install wired", done and done.get("exitCode") == 0, done)
+        wire_file = os.path.join(root, "state", "wire", "fake.json")
+        with open(wire_file, "r", encoding="utf-8") as handle:
+            wired_state = json.load(handle)
+        check("install wired PATH entry", "wiredpkg" in str(wired_state.get("path")), wired_state.get("path"))
         events = []
         done = call(stream, ["info", "wiredpkg"], events=events)
         kv = next((item for item in events if item.get("type") == "kv"
@@ -328,7 +345,7 @@ def main():
         check("deep filesystem is NTFS", rows.get("文件系统", {}).get("ok") is True, rows.get("文件系统"))
         check("deep reports shadowed goodpkg", "goodpkg" in str(rows.get("源冲突", {}).get("detail", "")),
               rows.get("源冲突"))
-        check("deep no issues", (done.get("metrics") or {}).get("issues") == 0, done)
+        check("deep no issues", (done.get("metrics") or {}).get("issues") == 0, bad_rows(done))
         check("deep blob count", "1 个文件" in str((rows.get("blob 缓存") or {}).get("detail", "")), rows.get("blob 缓存"))
 
         print("ext: list, disable/enable and update")
@@ -360,6 +377,68 @@ def main():
         check("recover exit 0", done and done.get("exitCode") == 0, done)
         check("recover deletes orphan staging",
               (done.get("metrics") or {}).get("stagingDeleted", 0) >= 1 and not os.path.isdir(orphan), done)
+
+        print("doctor: external PATH/env drift is detected and repaired")
+        fake_path = os.path.join(root, "state", "wire", "fake.json")
+        with open(fake_path, "r", encoding="utf-8") as handle:
+            fake = json.load(handle)
+        ghost = os.path.join(root, "current", "ghost", "bin")
+        fake["path"] = (fake.get("path") or "") + ";" + ghost
+        fake.setdefault("env", {})["PD_TEST_MARK"] = "tampered"
+        with open(fake_path, "w", encoding="utf-8") as handle:
+            json.dump(fake, handle)
+        done = call(stream, ["doctor"])
+        rows = {item.get("check"): item for item in (done.get("metrics") or {}).get("checks") or []}
+        check("drift PATH reported", (rows.get("PATH 接线") or {}).get("ok") is False, rows.get("PATH 接线"))
+        check("drift env reported", (rows.get("环境变量") or {}).get("ok") is False, rows.get("环境变量"))
+        check("drift raises issues", (done.get("metrics") or {}).get("issues", 0) >= 2, done)
+        done = call(stream, ["doctor", "--fix"])
+        check("drift fix exit 0", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["doctor"])
+        check("drift repaired", (done.get("metrics") or {}).get("issues") == 0, bad_rows(done))
+        with open(fake_path, "r", encoding="utf-8") as handle:
+            after_fix = json.load(handle)
+        check("stale PATH entry removed", "ghost" not in str(after_fix.get("path")), after_fix.get("path"))
+
+        print("home: data link creates a home junction that doctor checks and repairs")
+        home_pkg = make_pkg(os.path.join(root, "pkgs", "homepkg"), "homepkg", {
+            "data": [{"kind": "link", "source": "{{HOME}}\\cfg", "target": os.path.join(root, "appdata-home")}],
+        })
+        done = call(stream, ["install", home_pkg])
+        check("install home package", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["doctor"])
+        rows = {item.get("check"): item for item in (done.get("metrics") or {}).get("checks") or []}
+        check("home junction linked", (rows.get("家目录联接") or {}).get("ok") is True, rows.get("家目录联接"))
+        with open(fake_path, "r", encoding="utf-8") as handle:
+            fake = json.load(handle)
+        links = fake.get("links") or {}
+        home_key = find_link_key(links, os.path.join("home", "homepkg"))
+        check("fake home link recorded", home_key is not None, sorted(links))
+        if home_key is not None:
+            del links[home_key]
+        with open(fake_path, "w", encoding="utf-8") as handle:
+            json.dump(fake, handle)
+        done = call(stream, ["doctor"])
+        rows = {item.get("check"): item for item in (done.get("metrics") or {}).get("checks") or []}
+        check("broken home junction reported", (rows.get("家目录联接") or {}).get("ok") is False, rows.get("家目录联接"))
+        done = call(stream, ["doctor", "--fix"])
+        check("home fix exit 0", done and done.get("exitCode") == 0, done)
+        with open(fake_path, "r", encoding="utf-8") as handle:
+            links = json.load(handle).get("links") or {}
+        check("home junction restored", find_link_key(links, os.path.join("home", "homepkg")) is not None, sorted(links))
+
+        print("doctor: restricted session probe")
+        tmp_dir = os.path.join(root, "state", "tmp")
+        moved_dir = tmp_dir + "-moved"
+        os.rename(tmp_dir, moved_dir)
+        with open(tmp_dir, "w", encoding="utf-8") as handle:
+            handle.write("not a directory")
+        done = call(stream, ["doctor"])
+        rows = {item.get("check"): item for item in (done.get("metrics") or {}).get("checks") or []}
+        check("restricted session reported", (rows.get("受限会话") or {}).get("ok") is False, rows.get("受限会话"))
+        check("restricted session hint", "非受限" in str((rows.get("受限会话") or {}).get("detail", "")), rows.get("受限会话"))
+        os.remove(tmp_dir)
+        os.rename(moved_dir, tmp_dir)
 
     finally:
         try:

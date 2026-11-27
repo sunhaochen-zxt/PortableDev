@@ -2604,6 +2604,36 @@ async function handleWireCall(capability, op, args) {
       return wireLinkRemove(args);
     case "link.get":
       return { source: readLinkTarget(String(args.target || "")) };
+    // Read-only probes used by pd doctor: the machine's user env vars plus a package's home
+    // junction. Tests run in fake mode, where these read state\wire\fake.json instead.
+    case "env.list":
+      if (FAKE) {
+        return { env: Object.assign({}, readFake().env || {}) };
+      }
+      {
+        const document = {};
+        try {
+          const raw = powershell("[Environment]::GetEnvironmentVariables('User') | ConvertTo-Json -Compress");
+          const parsed = raw ? JSON.parse(raw) : {};
+          for (const [name, value] of Object.entries(parsed || {})) {
+            if (value !== null && value !== undefined) {
+              document[name] = String(value);
+            }
+          }
+        } catch (error) {
+          return { env: document };
+        }
+        return { env: document };
+      }
+    case "home.get":
+      {
+        const pkg = packageId(args.pkg, "home package id");
+        return {
+          machinePath: homeMachinePath(pkg),
+          stickPath: homeStickPath(pkg),
+          source: readLinkTarget(homeMachinePath(pkg)),
+        };
+      }
     case "copy.create":
       return wireCopyCreate(args);
     case "copy.remove":
