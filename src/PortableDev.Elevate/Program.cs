@@ -25,6 +25,7 @@ internal static class Program
         string? resultArg = null;
         string? expectedSha256 = null;
         var noElevate = false;
+        var alreadyRelaunched = false;
         for (var index = 1; index < args.Length; index++)
         {
             if (args[index] == "--fake" && index + 1 < args.Length)
@@ -34,6 +35,10 @@ internal static class Program
             else if (args[index] == "--no-elevate")
             {
                 noElevate = true;
+            }
+            else if (args[index] == "--relaunched")
+            {
+                alreadyRelaunched = true;
             }
             else if (args[index] == "--result" && index + 1 < args.Length)
             {
@@ -76,7 +81,7 @@ internal static class Program
             return 2;
         }
 
-        if (fakePath is null && !noElevate && !IsAdministrator())
+        if (fakePath is null && !noElevate && !alreadyRelaunched && !IsAdministrator())
         {
             // Relaunch ourselves with UAC. When we were started as "dotnet pd-elevate.dll ..." the
             // relaunch must keep the dll path, otherwise "runas dotnet request.json" would fail.
@@ -88,7 +93,8 @@ internal static class Program
             var elevatedArgs = (isDotnetHost ? Quote(Path.GetFullPath(selfDll)) + " " : string.Empty)
                 + Quote(requestPath)
                 + " --result " + Quote(resultPath)
-                + " --sha256 " + Quote(actualSha256);
+                + " --sha256 " + Quote(actualSha256)
+                + " --relaunched";
             var start = new ProcessStartInfo
             {
                 FileName = processPath,
@@ -107,6 +113,16 @@ internal static class Program
                 WriteResult(resultPath, false, "elevation cancelled: " + ex.Message, new JsonArray());
                 return 1;
             }
+        }
+
+        // One shot only: if the relaunched process is still not elevated, stop with a clear error.
+        // The alternative is an endless chain of self-elevating windows (seen when UAC is disabled
+        // and the current token is Medium).
+        if (!noElevate && fakePath is null && alreadyRelaunched && !IsAdministrator())
+        {
+            WriteResult(resultPath, false, "elevation did not take effect (token is still below High integrity); enable UAC or run from an elevated session", new JsonArray());
+            Console.Error.WriteLine("pd-elevate: elevation did not take effect (still not High integrity)");
+            return 1;
         }
 
         var fake = fakePath is null ? null : LoadFake(fakePath);
@@ -664,15 +680,27 @@ internal static class Program
     private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
 
     [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern bool GetTokenInformation(IntPtr token, int infoClass, out uint info, uint length, out uint returned);
+    private static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr buffer, uint length, out uint returned);
+
+    [DllImport("advapi32.dll")]
+    private static extern IntPtr GetSidSubAuthority(IntPtr sid, uint index);
+
+    [DllImport("advapi32.dll")]
+    private static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
     private const uint TokenQuery = 0x0008;
-    private const int TokenElevation = 20;
+    private const int TokenIntegrityLevel = 25;
+    private const uint HighIntegrity = 0x3000;
 
-    /// <summary>True only when the current process token is actually elevated (High IL).</summary>
+    /// <summary>True only when the token integrity level is High or above (really elevated).</summary>
+    /// <remarks>
+    /// TokenElevation is unreliable on this class of machine: an admin token whose process runs at
+    /// Medium integrity (UAC-filtered, or lowered by a sandbox/job) still reports TokenIsElevated=1,
+    /// which made pd-elevate skip the runas relaunch and run "elevated" scripts at Medium.
+    /// </remarks>
     private static bool IsAdministrator()
     {
         if (!OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token))
@@ -680,12 +708,42 @@ internal static class Program
             return false;
         }
 
+        var buffer = IntPtr.Zero;
         try
         {
-            return GetTokenInformation(token, TokenElevation, out var elevated, sizeof(uint), out _) && elevated != 0;
+            GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out var needed);
+            if (needed == 0)
+            {
+                return false;
+            }
+
+            buffer = Marshal.AllocHGlobal((int)needed);
+            if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, needed, out _))
+            {
+                return false;
+            }
+
+            // TOKEN_MANDATORY_LABEL starts with SID_AND_ATTRIBUTES.Sid.
+            var sid = Marshal.ReadIntPtr(buffer);
+            var subAuthorities = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+            if (subAuthorities == 0)
+            {
+                return false;
+            }
+
+            var level = (uint)Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(subAuthorities - 1)));
+            return level >= HighIntegrity;
+        }
+        catch (Exception)
+        {
+            return false;
         }
         finally
         {
+            if (buffer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
             CloseHandle(token);
         }
     }
@@ -733,6 +791,7 @@ internal static class Program
         {
             ["schema"] = 1,
             ["ok"] = ok,
+            ["tokenElevated"] = IsAdministrator(),
             ["elevated"] = IsAdministrator(),
             ["results"] = results,
         };
