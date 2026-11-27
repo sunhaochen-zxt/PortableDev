@@ -126,7 +126,13 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
   `pd-elevate.deps.json`（只放 dll 会报 hostpolicy 缺失）；
 - **部署**：把构建出的 `pd-elevate.exe`（或 `pd-elevate.dll` + `dotnet`）放到
   `<盘>\app\tools\`；storage 按这个路径查找，找不到时 HKLM/盘外写入返回 `ERR_UNSUPPORTED`；
+- **一次性重启**：助手用一个内部重启用标记（relaunched 参数）防止自我重启循环——重启后的实例若仍不是 High，
+  写 `ERR_ELEVATION` 结果并退出（UAC 关闭 + Medium 令牌的机器上，`runas` 升不上去时就是这个表现）；
+- **完整性判断**：以令牌完整性 SID（`S-1-16-xxxx`，High=12288+）为准，不用 `TokenElevation`——
+  后者在"管理员 SID + Medium 进程"的环境里会误报已提权；`pd-elevate` 与 `pd kernel status` 用同一套判断；
 - **测试**：`state\wire\fake-mode` 下 HKLM/link/copy 全部走 fake 状态，不需要 UAC；
+  fake 模式下 `state\wire\elevate-fake.json` 存在时，提权助手会以 fake 状态文件运行（**仅 fake-mode 生效**，
+  生产盘不会静默跳过提权），提权脚本 e2e 靠它免 UAC 验证链路；
   助手自身支持 `--fake <state.json>` 无 UAC 自测；真实 UAC 用 `tools/elevation-selftest.py` 手动跑；
 - 已知限制：提权批次里“机器已改、ledger 尚未写”的窗口存在（崩在中间会留下无账可撤的改动）；
   `script.elevated: true` 的包脚本未实现。

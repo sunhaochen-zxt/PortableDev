@@ -333,8 +333,11 @@ def main():
                      "target": os.path.join(tmp, "helper-copy")},
                 ],
             }, open(helper_request, "w", encoding="utf-8"))
+            # Mirror the storage flow: the stick root tells the helper where state\tmp is.
+            helper_env = dict(os.environ)
+            helper_env["PD_ROOT"] = os.path.abspath(root)
             helper_proc = subprocess.run([DOTNET, helper_dll, helper_request, "--fake", helper_state],
-                                         capture_output=True, text=True, timeout=120)
+                                         capture_output=True, text=True, timeout=120, env=helper_env)
             helper_result_data = json.load(open(helper_result, encoding="utf-8")) if os.path.isfile(helper_result) else None
             check("elevation helper fake mode", helper_proc.returncode == 0 and (helper_result_data or {}).get("ok") is True,
                   (helper_proc.returncode, (helper_proc.stderr or "")[:200]))

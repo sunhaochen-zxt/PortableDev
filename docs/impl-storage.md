@@ -133,6 +133,19 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 每完成一步就原子写回检查点，全部成功后才删除。中途失败**不回滚**（保留混合状态 + 检查点），
 重新执行同一个 `pd rollback --to <seq>` 就从断点继续；所有步骤本身幂等，检查点损坏或丢失时重跑也安全。
 
+## 7.2 persist 用户数据目录
+
+`package.json` 的 `persist: [相对目录]` 让安装目录里的目录成为**盘内联接**，指向
+`<盘根>\home\<包>\persist\<路径>`：
+
+- 安装（adopt/wire）时：持久目录建在盘上；包自带的初始内容从 staging 迁进持久目录，然后
+  `<store>\<路径>` 变成指向它的 junction。联接是**盘内**的，fake 机模式下也真实创建（不走 fake 状态）；
+- `apply` 幂等：已正确的联接不改；指向别处的联接直接报 `ERR_IO`；
+- `clean`/卸载：只删 store 里的联接，持久目录与数据保留；`remove --purge` 才把整个 home（含 persist）
+  移进 `state\trash`，`pd rollback --task` 可还原；
+- 账本：每个联接写一条 `persist.link`（undo = `storage.wire link.remove`），随 task 回滚；
+- scoop 转换会把清单里的 `persist` 原样转成这个字段。
+
 ## 8. gc
 
 | 对象 | 规则 |

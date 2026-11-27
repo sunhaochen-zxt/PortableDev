@@ -167,6 +167,9 @@ python -u tools/provides-e2e.py
 | `pd selftest` | 读记录上的 `asserts`（安装时随记录保存，目录安装没有 `package.json` 也能测）；`--full` 追加 `selftest` 工作流；命令类断言经 `proc.spawn` 在 Job Object 里执行，失败 12、`--only` 未装 20 |
 - 批量事务：`pd remove/upgrade` 加 `--atomic` 后整批全成功才保留；某个包失败时按 task 反向调用
   `rollback.run` 把已完成的卸载/升级逐条还原，再以首个错误返回（未加 --atomic 仍是旧的逐包语义）。
+- 提权脚本：`script.elevated:true` 时脚本改走 `storage.elevate run`（一次 UAC、SHA-256 绑定请求、
+  无 shell 解析、输出有上限、超时杀树）。提权脚本**没有请求协议**，只适合简单安装器；失败码
+  `ERR_ELEVATION`（令牌仍未到 High）/ `ERR_SCRIPT`（退出码非 0）/ `ERR_TIMEOUT`（25）。
 - 子命令粒度：`source list` 在 `ext.json` 里单独登记为只读并行命令，内核按最长前缀路由；
   pkgmgr 处理器只取 `cmd` 的第一个词选函数，argv 仍是去掉首段的参数（`["list", ...]`），
   所以 `source list` 与其它 `source` 子命令共用同一份解析。
@@ -181,5 +184,5 @@ python -u tools/provides-e2e.py
 | scoop 转换 | 已支持 zip/单文件 exe、位数条目（含 32 位回退）、URL `#` 片段、bin/env/extract_dir/depends/persist；仍不支持 shortcuts、msi、非 sha256 清单 |
 | 依赖求解 | `requires` 递归安装（已装满足则跳过；冲突/循环报 24；`--no-deps` 跳过）；虚拟包（已装优先/优先级/同级报错 21）；`replaces` 先卸旧包（失败尽力恢复）；`conflicts` 双向检查报 24；卸载保护（被依赖时 24，`--force` 跳过） |
 | 更多解包 | `7z` / `msi` |
-| 脚本资源配额 | proc 提供内存/进程数上限，CPU 配额未做 |
-| 批量事务 | 升级/卸载是逐包任务（失败只回滚该包），没有“整批全成功才生效”的事务语义 |
+| 脚本资源配额 | proc 提供内存/进程数上限；CPU 硬上限用 `script.cpu`（Job Object CPU rate control），累计 CPU 时间总量未做 |
+| 批量事务 | 默认仍是逐包任务；`--atomic` 提供"失败则回滚已完成的包"，但没有数据库式的跨包原子提交（中途崩溃按各 task 账本恢复） |
