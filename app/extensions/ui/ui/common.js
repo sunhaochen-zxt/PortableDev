@@ -453,6 +453,11 @@ async function streamCommand(argv, consoleEl, onDone) {
         if (ev.type === "log") {
           const rec = ev.record || ev;
           append(rec.level || "info", rec.msg || "");
+        } else if (ev.type === "step") {
+          const state = String(ev.state || "running");
+          const tag = state === "failed" ? "error" : "info";
+          const mark = state === "done" ? "ok" : state === "failed" ? "!!" : "..";
+          append(tag, "[" + mark + "] " + (ev.title || ev.stepId || "step") + (state === "running" ? "" : " (" + state + ")"));
         } else if (ev.type === "progress") {
           const pct = typeof ev.percent === "number" ? " (" + Math.round(ev.percent) + "%)" : "";
           append("info", (ev.stage || ev.msg || "进行中") + pct);

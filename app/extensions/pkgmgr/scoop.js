@@ -9,7 +9,8 @@
 "use strict";
 
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/;
-const ID = /^[a-z][a-z0-9-]{0,63}$/;
+// Package ids may start with a digit (scoop's "7zip"); the rest matches the normal id rules.
+const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function asList(value) {
@@ -42,6 +43,10 @@ function installerKind(url) {
   const lower = String(url || "").toLowerCase().split(/[?#]/)[0];
   if (lower.endsWith(".zip")) {
     return "zip";
+  }
+  // 7-Zip self-extracting archives (PortableGit, llvm-mingw, ...): "*.7z.exe#/dl.7z".
+  if (lower.endsWith(".7z.exe") || lower.endsWith(".7z")) {
+    return "7z";
   }
   if (lower.endsWith(".exe")) {
     return "exe";
@@ -90,6 +95,22 @@ function dependsOf(manifest) {
     out.push({ id: id });
   }
   return { requires: out };
+}
+
+function isHookPresent(value) {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim() !== "";
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
 }
 
 // Converts one scoop manifest to our index version entry.
@@ -145,26 +166,19 @@ function convertManifest(manifest, manifestName) {
 
   const primary = pairs[0];
 
-  // Any lifecycle hook means the bucket expects code we never run: the installed tree would be
-  // incomplete, so skip the package instead of installing something broken. This applies to
-  // every installer kind (zip manifests carry pre/post install hooks too).
-  // shortcuts/psmodulepath are features we cannot honor; installing without them silently
-  // produces an incomplete package, so skip those manifests too.
-  for (const hook of ["installer", "uninstaller", "pre_install", "post_install", "pre_uninstall", "post_uninstall", "pre_download", "post_download", "shortcuts", "psmodulepath"]) {
-    const value = manifest[hook];
-    if (value === undefined || value === null) {
-      continue;
+  // Hooks that only affect uninstallers or start-menu shortcuts are ignored: a portable install
+  // never runs scoop's uninstall sequence, and V2 does not create shortcuts. Hooks that execute
+  // install/download-time code keep the package unsupported.
+  const ignoredHooks = [];
+  for (const hook of ["uninstaller", "pre_uninstall", "post_uninstall", "shortcuts"]) {
+    if (isHookPresent(manifest[hook])) {
+      ignoredHooks.push(hook);
     }
-    if (typeof value === "string" && value.trim() === "") {
-      continue;
+  }
+  for (const hook of ["installer", "pre_install", "post_install", "psmodulepath", "pre_download", "post_download"]) {
+    if (isHookPresent(manifest[hook])) {
+      return { skip: "manifest carries " + hook + " hooks, which this installer cannot run" };
     }
-    if (Array.isArray(value) && value.length === 0) {
-      continue;
-    }
-    if (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0) {
-      continue;
-    }
-    return { skip: "manifest carries " + hook + " hooks, which this installer cannot run" };
   }
 
   const bins = [];
@@ -262,6 +276,7 @@ function convertManifest(manifest, manifestName) {
     requires: depends.requires,
     scoop: {
       kind: primary.kind,
+      ignoredHooks: ignoredHooks,
       manifest: id + ".json",
       launch: launch,
       path: pathDirs,

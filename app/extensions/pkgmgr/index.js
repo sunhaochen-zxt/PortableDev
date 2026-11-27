@@ -212,7 +212,7 @@ function parseFlags(argv) {
   return { flags, positional };
 }
 
-const PACKAGE_ID = /^[a-z][a-z0-9-]{0,63}$/;
+const PACKAGE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/;
 
 function validPackageId(value) {

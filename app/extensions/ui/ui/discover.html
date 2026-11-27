@@ -97,22 +97,28 @@ async function doSearch() {
       srcEl.className = "badge muted";
       srcEl.textContent = src || "source";
 
+      const statusEl = document.createElement("span");
+      statusEl.className = "badge muted";
+      statusEl.setAttribute("data-pkg-status", "1");
+      statusEl.hidden = true;
+
       const btns = document.createElement("div");
       const dryBtn = document.createElement("button");
       dryBtn.className = "secondary sm";
       dryBtn.textContent = "预览";
       dryBtn.style.marginRight = "6px";
-      dryBtn.addEventListener("click", () => runInstall(id, true));
+      dryBtn.addEventListener("click", () => runInstall(id, true, card));
 
       const instBtn = document.createElement("button");
       instBtn.className = "sm";
       instBtn.appendChild(makeIcon("download", 13));
       instBtn.appendChild(document.createTextNode("安装"));
-      instBtn.addEventListener("click", () => runInstall(id, false));
+      instBtn.addEventListener("click", () => runInstall(id, false, card));
 
       btns.appendChild(dryBtn);
       btns.appendChild(instBtn);
       foot.appendChild(srcEl);
+      foot.appendChild(statusEl);
       foot.appendChild(btns);
 
       card.appendChild(head);
@@ -132,15 +138,39 @@ async function doSearch() {
   }
 }
 
-async function runInstall(pkgId, dryRun) {
+let installing = false;
+
+async function runInstall(pkgId, dryRun, cardEl) {
+  if (installing) {
+    showToast("已有安装任务在进行，请稍候", "warn");
+    return;
+  }
+  installing = true;
   const card = document.getElementById("terminal-card");
   const out = document.getElementById("terminal-out");
   card.style.display = "block";
   card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const buttons = cardEl ? Array.from(cardEl.querySelectorAll("button")) : [];
+  const status = cardEl ? cardEl.querySelector("[data-pkg-status]") : null;
+  buttons.forEach((b) => { b.disabled = true; });
+  if (status) {
+    status.hidden = false;
+    status.className = "badge warn";
+    status.textContent = dryRun ? "预览中…" : "安装中…";
+  }
   const argv = dryRun ? ["install", pkgId, "--dry-run"] : ["install", pkgId];
-  await streamCommand(argv, out, (ok) => {
-    showToast(ok ? (dryRun ? "预览完成" : pkgId + " 安装完成") : "安装失败", ok ? "ok" : "error");
-  });
+  try {
+    await streamCommand(argv, out, (ok) => {
+      if (status) {
+        status.className = "badge " + (ok ? "ok" : "danger");
+        status.textContent = ok ? (dryRun ? "可安装" : "已安装 ✓") : "失败";
+      }
+      showToast(ok ? (dryRun ? pkgId + " 预览完成" : pkgId + " 安装完成") : pkgId + " 安装失败", ok ? "ok" : "error");
+    });
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+    installing = false;
+  }
 }
 
 document.getElementById("search-btn").addEventListener("click", doSearch);
