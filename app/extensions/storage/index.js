@@ -1230,6 +1230,42 @@ function powershell(script) {
   return execFileSync(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 }
 
+// Keep the entries owned by this stick (stableRoot\current\...) ahead of pre-existing PATH
+// entries: otherwise an old machine-wide install can shadow a migrated tool (e.g. code --version
+// still resolved to an installed VS Code 1.91 while the stick carries 1.144).
+function prioritizeManagedPath() {
+  if (FAKE) {
+    return false;
+  }
+  const raw = readUserPath();
+  if (!raw) {
+    return false;
+  }
+  const entries = raw.split(";").map((item) => item.trim()).filter(Boolean);
+  const prefix = path.join(stableRoot(), "current").toLowerCase() + path.sep;
+  const managed = [];
+  const others = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const key = path.resolve(entry).toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    if (key.startsWith(prefix)) {
+      managed.push(entry);
+    } else {
+      others.push(entry);
+    }
+  }
+  const ordered = managed.concat(others);
+  if (ordered.join(";") === entries.join(";")) {
+    return false;
+  }
+  writeUserPath(ordered.join(";"));
+  return true;
+}
+
 function readUserPath() {
   if (FAKE) {
     return readFake().path;
@@ -1793,9 +1829,11 @@ function realPathOfExisting(target) {
 
 function assertLauncherPath(file, op) {
   const base = path.resolve(stableRoot());
+  const launcherDir = path.join(base, "launchers");
   const target = path.resolve(file);
-  if (!inside(base, target) || path.dirname(target).toLowerCase() !== base.toLowerCase()) {
-    throw new StorageError("ERR_UNSUPPORTED", op + " only accepts launchers directly under the stable root");
+  const direct = path.dirname(target).toLowerCase();
+  if (!inside(base, target) || (direct !== base.toLowerCase() && direct !== launcherDir.toLowerCase())) {
+    throw new StorageError("ERR_UNSUPPORTED", op + " only accepts launchers under the stable root or its launchers/ directory");
   }
   if (!/\.cmd$/i.test(target)) {
     throw new StorageError("ERR_UNSUPPORTED", op + " only accepts .cmd launchers");
@@ -1810,7 +1848,9 @@ function assertLauncherPath(file, op) {
   }
 
   const real = path.resolve(realPathOfExisting(target));
-  if (path.dirname(real).toLowerCase() !== path.resolve(realBase).toLowerCase()) {
+  const realParent = path.dirname(real).toLowerCase();
+  const realBaseNorm = path.resolve(realBase).toLowerCase();
+  if (realParent !== realBaseNorm && realParent !== path.join(realBase, "launchers").toLowerCase()) {
     throw new StorageError("ERR_UNSUPPORTED", op + " path crosses a link or junction");
   }
 }
@@ -1835,6 +1875,7 @@ async function wireWriteLauncher(args) {
       ? { cap: "storage.wire", op: "launcher.remove", args: { path: file } }
       : { cap: "storage.wire", op: "launcher.write", args: { path: file, content: before } },
   });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   writeLauncher(file, content);
   return { before, after: content, changed: true };
 }
@@ -1995,7 +2036,7 @@ function launcherPath(record, launcher) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(name)) {
     throw new StorageError("ERR_PKG_INVALID", "launcher name is not a safe file name: " + JSON.stringify(name));
   }
-  return path.join(stableRoot(), name + ".cmd");
+  return path.join(stableRoot(), "launchers", name + ".cmd");
 }
 
 async function applyRecord(record, task, dryRun) {
@@ -2195,6 +2236,9 @@ async function applyRecords(args) {
 
   let generationSeq = null;
   if (args.dryRun !== true) {
+    if (prioritizeManagedPath()) {
+      changed += 1;
+    }
     if (changed > 0) {
       writeJsonAtomic(LAST_APPLY_FILE, { schema: 1, task: task || null, at: now(), packages: records.map((record) => record.id) });
     }

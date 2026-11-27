@@ -149,6 +149,11 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 - 重复条目：同包 persist 列表互相前缀（`data` 与 `data/sub`）在安装期直接拒绝（`ERR_PKG_INVALID`，exit 3）；
 - scoop 转换会把清单里的 `persist` 原样转成这个字段。
 
+## 7.3 PATH 优先级与启动器
+
+- `pd apply` 结束后把 `<稳定根>\current\...` 的 PATH 条目挪到用户 PATH 最前面，防止机器上已安装的旧版本抢在迁移版本之前（例如 `code` 命中旧 VS Code）；
+- 启动器写在 `<稳定根>\launchers\`（不再散落在稳定根根目录），用户程序的图形快捷方式也放这里；
+
 ## 8. gc
 
 | 对象 | 规则 |
