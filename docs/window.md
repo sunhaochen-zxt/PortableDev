@@ -211,7 +211,7 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 
 | 项 | 做法 |
 |---|---|
-| 主题 | 壳把 `ui.theme` 解析成 `dark` / `light`，注入 `pd.theme` 和 `<html data-theme>`；页面只用 CSS 变量。`system` 与非法值目前按 `dark` 处理（跟随系统主题尚未实现） |
+| 主题 | 壳把 `ui.theme` 解析成 `dark` / `light`，注入 `pd.theme` 和 `<html data-theme>`；页面只用 CSS 变量。`system` 与非法值目前按 `light` 处理（跟随系统主题尚未实现） |
 | 语言 | `ui.language` 注入 `pd.locale`，页面自己决定翻译 |
 | DPI | WebView2 跟随系统缩放；壳不额外缩放 |
 | 键盘 | 壳提供 `Ctrl+1..9` 切页、`Ctrl+R` 重载、`F5`；页面自己处理其余快捷键 |

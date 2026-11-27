@@ -1167,7 +1167,7 @@ html[data-style="glass"][data-theme="dark"] {
 /* Crisp, serene Apple studio silver/obsidian backdrop with clean tonal curves so clear glass refracts visibly */
 html[data-style="glass"] body {
   background-color: #dce4ee;
-  background-image: var(--pd-glass-bg, url("vendor/glass-bg-light.webp"));
+  background-image: var(--pd-glass-bg, linear-gradient(135deg, #eef3fb 0%, #dfe8f7 52%, #f6f0fb 100%));
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -1176,7 +1176,7 @@ html[data-style="glass"] body {
 
 html[data-style="glass"][data-theme="dark"] body {
   background-color: #0b0f17;
-  background-image: var(--pd-glass-bg, url("vendor/glass-bg-dark.webp"));
+  background-image: var(--pd-glass-bg, linear-gradient(135deg, #0f1420 0%, #1a2233 52%, #241b2e 100%));
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -2069,7 +2069,7 @@ html[data-style="glass-chrome"] .pd-lg-pressed::after {
    - FlClash (glass-chrome): crisp wallpaper behind semi-translucent cards & clear floating chrome
    ============================================================================ */
 html[data-wp="on"]:not([data-style="glass"]) body {
-  background-image: var(--pd-glass-bg, url("vendor/glass-bg-light.webp"));
+  background-image: var(--pd-glass-bg, linear-gradient(135deg, #eef3fb 0%, #dfe8f7 52%, #f6f0fb 100%));
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -2077,7 +2077,7 @@ html[data-wp="on"]:not([data-style="glass"]) body {
   position: relative;
 }
 html[data-wp="on"][data-theme="dark"]:not([data-style="glass"]) body {
-  background-image: var(--pd-glass-bg, url("vendor/glass-bg-dark.webp"));
+  background-image: var(--pd-glass-bg, linear-gradient(135deg, #0f1420 0%, #1a2233 52%, #241b2e 100%));
 }
 html[data-wp="on"]:not([data-style="glass"]) body::before {
   content: "";

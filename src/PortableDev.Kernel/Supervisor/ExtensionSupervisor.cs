@@ -194,7 +194,8 @@ public sealed class ExtensionSupervisor
         // requires (or provides itself). A third-party/broken extension cannot reach storage.wire
         // just because it can talk to the kernel.
         var caller = _kernel.Registry.Find(from);
-        if (caller is not null && !MayCall(caller, capability))
+        // Fail-closed: an unknown caller (unregistered/unloaded) must not get capability access.
+        if (caller is null || !MayCall(caller, capability))
         {
             _kernel.Logger.Warn("cap.denied", "extension called an undeclared capability", new JsonObject
             {

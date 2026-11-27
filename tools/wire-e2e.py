@@ -322,6 +322,12 @@ def main():
             helper_state = os.path.join(tmp, "elevate-fake.json")
             helper_request = os.path.join(tmp, "elevate-request.json")
             helper_result = os.path.join(tmp, "elevate-result.json")
+            # The helper writes its result exclusively; leftovers from an earlier run must go.
+            for leftover in (helper_result, helper_state, helper_request):
+                try:
+                    os.remove(leftover)
+                except OSError:
+                    pass
             json.dump({"schema": 1, "registry": {}, "links": {}, "copies": {}}, open(helper_state, "w", encoding="utf-8"))
             json.dump({
                 "schema": 1, "result": helper_result, "ops": [

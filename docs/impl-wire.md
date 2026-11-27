@@ -100,7 +100,6 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
 | 再 `apply` | 全部恢复 |
 | 真实机器 | 环境变量真的写进用户环境，`clean` 后真的消失 |
 | HKCU 走助手 | `tools/registry-e2e.py` 12 项：部署助手到测试盘后，装/clean/remove 的 HKCU 写入与还原全部经过 pd-elevate 的 --no-elevate 模式（本机 `reg.exe` 被策略禁用也能跑） |
-| HKCU 走助手 | `tools/registry-e2e.py` 12 项：部署助手到测试盘后，装/clean/remove 的 HKCU 写入与还原全部经过 `pd-elevate --no-elevate`（本机 `reg.exe` 被策略禁用也能跑） |
 
 ## 7. 还没做的
 
@@ -135,4 +134,3 @@ clean： 读所有记录 → 逐项还原（移除 PATH 条目、删环境变量
   生产盘不会静默跳过提权），提权脚本 e2e 靠它免 UAC 验证链路；
   助手自身支持 `--fake <state.json>` 无 UAC 自测；真实 UAC 用 `tools/elevation-selftest.py` 手动跑；
 - 已知限制：提权批次里“机器已改、ledger 尚未写”的窗口存在（崩在中间会留下无账可撤的改动）；
-  `script.elevated: true` 的包脚本未实现。

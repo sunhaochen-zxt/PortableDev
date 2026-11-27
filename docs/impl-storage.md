@@ -143,7 +143,9 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 - `apply` 幂等：已正确的联接不改；指向别处的联接直接报 `ERR_IO`；
 - `clean`/卸载：只删 store 里的联接，持久目录与数据保留；`remove --purge` 才把整个 home（含 persist）
   移进 `state\trash`，`pd rollback --task` 可还原；
-- 账本：每个联接写一条 `persist.link`（undo = `storage.wire link.remove`），随 task 回滚；
+- 账本：每个联接写一条 `persist.link`（undo = `storage.wire persist.unlink`，真实删除、不走 fake/UAC），随 task 回滚；
+- 校验：路径逐段拒绝 `.`、`..`、冒号与设备名；目标必须是包 store 目录的严格子路径；升级时用户已有文件保留（不覆盖、不报冲突）；
+- 重复条目：同包 persist 列表互相前缀（`data` 与 `data/sub`）在安装期直接拒绝（`ERR_PKG_INVALID`，exit 3）；
 - scoop 转换会把清单里的 `persist` 原样转成这个字段。
 
 ## 8. gc
@@ -252,5 +254,4 @@ python -u tools/storage-e2e.py .run
 | 租界续期 | 到期后需重新申请，没有续期接口 |
 
 | 审计全量扫描 | `log.audit query` 仍按月文件全量扫描；任务多了以后需要索引 |
-| 租界续期 | 不支持续期（只有 ttl 到期），到期后需重新申请 |
 | 扩展卸载时的数据清理 | 等 `pd remove` |

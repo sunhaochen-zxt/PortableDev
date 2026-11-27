@@ -25,23 +25,30 @@ function parseCpuPercent(value) {
 
 // Elevated scripts run through the storage helper (UAC once, SHA-256 bound request) instead of the
 // proc extension: they get no request protocol, so only simple installers are allowed to opt in.
-function resolveElevatedCommand(name) {
-  const text = String(name || "");
-  if (path.isAbsolute(text) && fs.existsSync(text)) {
-    return text;
+// Elevated interpreters are resolved ONLY from trusted absolute locations. Searching PATH here
+// would let a user-writable directory hijack the program that runs at High integrity.
+function resolveElevatedCommand(interpreter) {
+  const win = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+  const candidates = [];
+  if (interpreter === "cmd") {
+    candidates.push(path.join(win, "System32", "cmd.exe"));
   }
-  const directories = String(process.env.PATH || "").split(";").filter(Boolean);
-  const candidates = text.toLowerCase().endsWith(".exe") ? [text] : [text + ".exe", text];
-  for (const directory of directories) {
-    for (const candidate of candidates) {
-      const full = path.join(directory, candidate);
-      try {
-        if (fs.existsSync(full)) {
-          return full;
-        }
-      } catch (error) {
-        // ignore bad PATH entries
-      }
+  if (interpreter === "pwsh" || interpreter === "powershell") {
+    candidates.push(path.join(win, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+    candidates.push("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+  }
+  if (interpreter === "node") {
+    candidates.push(path.join(ROOT, "app", "runtime", "node", "node.exe"));
+    if (process.execPath) {
+      candidates.push(process.execPath);
+    }
+  }
+  if (interpreter === "python") {
+    candidates.push(path.join(ROOT, "app", "runtime", "python", "python.exe"));
+  }
+  for (const candidate of candidates) {
+    if (candidate && path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+      return candidate;
     }
   }
   return null;
@@ -49,11 +56,7 @@ function resolveElevatedCommand(name) {
 
 async function runElevatedScript(script, command, args, contentRoot, timeoutMs, environment, capabilityCall) {
   const interpreter = String(script.interpreter || "pwsh").toLowerCase();
-  const executable = interpreter === "cmd"
-    ? (process.env.ComSpec || path.join(process.env.SystemRoot || "C:\\Windows", "System32", "cmd.exe"))
-    : interpreter === "node"
-      ? process.execPath
-      : resolveElevatedCommand(command);
+  const executable = resolveElevatedCommand(interpreter === "powershell" ? "pwsh" : interpreter);
   if (!executable || !path.isAbsolute(executable)) {
     throw new ScriptError("ERR_UNSUPPORTED", "elevated script interpreter not found: " + command, 11);
   }
@@ -480,13 +483,13 @@ async function runScript(options) {
         }
 
         // A link outside the stick/stable root needs elevation; ordinary scripts must not
-        // trigger a UAC prompt behind the user's back (elevated scripts are not implemented).
+        // trigger a UAC prompt behind the user's back; only script.elevated installers may do that.
         const targetRoots = [context.root, context.stableRoot, context.home]
           .filter((value) => typeof value === "string" && value.length > 0)
           .map((value) => path.resolve(value).toLowerCase());
         const resolvedTarget = path.resolve(target).toLowerCase();
         if (!targetRoots.some((base) => resolvedTarget === base || resolvedTarget.startsWith(base + path.sep))) {
-          throw new ScriptError("ERR_UNSUPPORTED", "link target is outside the stick and the stable root; elevated wiring needs an elevated script (not implemented): " + target, 11);
+          throw new ScriptError("ERR_UNSUPPORTED", "link target is outside the stick and the stable root; ordinary scripts cannot elevate (use script.elevated): " + target, 11);
         }
         const relative = relativeInside(context.contentRoot, source);
         if (relative !== null) {
@@ -503,11 +506,11 @@ async function runScript(options) {
         const args2 = Object.assign({}, requestArgs, { task: task });
         if (command2 === "reg.set" || command2 === "reg.del") {
           // Ordinary package scripts run unelevated; forwarding HKLM would make storage try to
-          // elevate on their behalf, bypassing the (still unimplemented) elevated-script gate.
+          // elevate on their behalf; only script.elevated installers may request elevation.
           const hive = String(args2.hive || "HKCU").toUpperCase();
           if (hive !== "HKCU") {
             failedRequests += 1;
-            reply(requestId, { ok: false, error: { code: "ERR_UNSUPPORTED", message: "package scripts may only write HKCU; HKLM requires an elevated script (not implemented)" } });
+            reply(requestId, { ok: false, error: { code: "ERR_UNSUPPORTED", message: "package scripts may only write HKCU; HKLM requires script.elevated:true" } });
             return;
           }
         }

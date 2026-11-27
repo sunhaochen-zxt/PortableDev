@@ -186,6 +186,8 @@ def main():
     # persist: install-dir data directories live on the stick.
     make_pkg(os.path.join(work, "persistdemo-1.0.0.pdpkg"), "persistdemo", "1.0.0", "persist demo",
              {"persist": ["data"]}, files={"data/seed.txt": "seed data\n"})
+    make_pkg(os.path.join(work, "badpersist-1.0.0.pdpkg"), "badpersist", "1.0.0", "bad persist",
+             {"persist": ["..\\escape"]})
 
     # Wiring/home fixture (fake machine: apply creates a virtual home junction).
     make_pkg(os.path.join(work, "wiredhome-1.0.0.pdpkg"), "wiredhome", "1.0.0", "wired home", {
@@ -363,6 +365,10 @@ def main():
         check("reinstall rebinds the persisted data",
               rebound is not None and os.path.isfile(os.path.join(rebound["storePath"], "data", "new.txt")),
               rebound)
+        result = pd(root, "--json", "install", "badpersist@1.0.0", "--source", "fixtures")
+        check("persist path escaping the store is rejected (exit 3)",
+              result.returncode == 3 and "persist" in result.stdout, (result.returncode, result.stdout[-400:]))
+        check("rejected persist package left no record", record(root, "badpersist") is None, record(root, "badpersist"))
         result = pd(root, "--json", "remove", "persistdemo")
         check("persist fixture removed", result.returncode == 0, (result.returncode, result.stdout[-300:]))
 

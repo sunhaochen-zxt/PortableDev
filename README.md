@@ -68,7 +68,7 @@ python -u tools/wire-e2e.py .run                                                
 python -u tools/generation-e2e.py .run                                              # 32（含断点续跑）
 python -u tools/source-e2e.py .run                                                   # 34
 python -u tools/script-e2e.py .run                                                   # 25（含提权脚本，fake 提权）
-python -u tools/manage-e2e.py .run-manage                                            # 108（含 --atomic 批量事务、persist 用户数据）
+python -u tools/manage-e2e.py .run-manage                                            # 110（含 --atomic 批量事务、persist 用户数据与非法路径拒绝）
 python -u tools/registry-e2e.py .run-registry                                        # 12（HKCU 走 pd-elevate）
 dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）

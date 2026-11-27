@@ -106,7 +106,7 @@ pd install <目标>
 - HKLM、以及稳定根/用户目录之外的目标：storage 调 `pd-elevate`（`app\tools\pd-elevate.exe`）
   做一次提权批次；`state\wire\fake-mode` 下这些操作写 fake 状态，完全不需要提权；
 - 已知限制：提权批次里“机器已改、ledger 尚未写”的窗口存在（崩溃可能留下无账可撤的改动）；
-  `elevated:true` 的**包脚本**仍未实现（会返回 `ERR_UNSUPPORTED`）。
+  `elevated:true` 的**包脚本**已实现（见 §8.1 提权脚本）；普通脚本请求提权仍会被拒绝（`ERR_UNSUPPORTED`）。
 
 ## 6. 错误与退出码
 
@@ -165,6 +165,10 @@ python -u tools/provides-e2e.py
 |---|---|
 | `pd doctor` | 只读检查：盘标记、随盘 .NET/Node、`app\baseline\extensions` 对比、记录 vs store、残留 intent、配置解析、稳定根、current 接线解析、PATH/环境变量/注册表接线、家目录联接、受限会话探针；`--deep` 追加 blob 缓存、源冲突（同 id 多源）、文件系统（PowerShell `Get-Volume`，NTFS）；`--fix` 做“从 baseline 覆盖内置扩展 + 删 done/坏 intent + storage `wire apply` 重建机器接线 + 清失效 PATH 条目”，修完重算再出报告（`metrics.fixed/issues/checks`），问题本身不算命令失败 |
 | `pd selftest` | 读记录上的 `asserts`（安装时随记录保存，目录安装没有 `package.json` 也能测）；`--full` 追加 `selftest` 工作流；命令类断言经 `proc.spawn` 在 Job Object 里执行，失败 12、`--only` 未装 20 |
+| `pd info` | 只读详情：版本、store 路径、来源、固定状态、PATH/env/registry/launcher 接线、断言清单与已存工作流 |
+| `pd outdated` | 对每个已装包调用 `sources().resolve` 比较版本；解析失败的包只计入 `skipped`，不影响退出码 |
+| `pd env` | 打印包的 PATH 接线（`<稳定根>\current\<包>\...`）、当前进程 PATH、包声明的环境变量——和 `pd shell --profile` 对照用 |
+
 - 批量事务：`pd remove/upgrade` 加 `--atomic` 后整批全成功才保留；某个包失败时按 task 反向调用
   `rollback.run` 把已完成的卸载/升级逐条还原，再以首个错误返回（未加 --atomic 仍是旧的逐包语义）。
 - 提权脚本：`script.elevated:true` 时脚本改走 `storage.elevate run`（一次 UAC、SHA-256 绑定请求、
@@ -173,9 +177,6 @@ python -u tools/provides-e2e.py
 - 子命令粒度：`source list` 在 `ext.json` 里单独登记为只读并行命令，内核按最长前缀路由；
   pkgmgr 处理器只取 `cmd` 的第一个词选函数，argv 仍是去掉首段的参数（`["list", ...]`），
   所以 `source list` 与其它 `source` 子命令共用同一份解析。
-| `pd info` | 只读详情：版本、store 路径、来源、固定状态、PATH/env/registry/launcher 接线、断言清单与已存工作流 |
-| `pd outdated` | 对每个已装包调用 `sources().resolve` 比较版本；解析失败的包只计入 `skipped`，不影响退出码 |
-| `pd env` | 打印包的 PATH 接线（`<稳定根>\current\<包>\...`）、当前进程 PATH、包声明的环境变量——和 `pd shell --profile` 对照用 |
 
 ## 9. 还没做的
 

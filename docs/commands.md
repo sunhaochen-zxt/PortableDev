@@ -245,8 +245,9 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 - 支持：虚拟包（`requires` 写虚拟名时：已装的提供者优先满足，否则按源优先级装提供者，
   同优先级多提供者报 21 点名安装；范围同样适用）；`replaces`（先卸载被替代的已装包、保留用户数据，
   失败则尽力装回旧版本）；
-- 未支持：`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
-- 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`）。
+- 未支持：`7z`/`msi` 解包；
+- 断言支持文件类（`exists`/`missing`/`json`/`fileHash`）与 `command`（受脚本策略门禁，`--no-scripts` 时跳过）；
+- `elevated:true` 的包脚本见 §5（storage.elevate）。
 
 | `pd upgrade` | 升级（`--atomic`：整批全成功才生效，失败自动回滚已升级的包） | **是** | 需缓存 | `--all` `--to <版本>` `--dry-run` `--atomic` | 8/12/20/21/23/24 |
 
@@ -611,7 +612,7 @@ pd proc system [--filter <词>] [--elevated] [--json]
 
 | 退出码 | 常见 `ERR_*` |
 |---|---|
-| 1 | `ERR_IO`、`ERR_INTERNAL` |
+| 1 | `ERR_IO`、`ERR_INTERNAL`、`ERR_SCRIPT`、`ERR_UNAUTHORIZED` |
 | 2 | `ERR_BAD_ARGS`、`ERR_UNKNOWN_COMMAND` |
 | 3 | `ERR_INDEX_INVALID`、`ERR_PKG_INVALID`、`ERR_HASH` |
 | 4 | `ERR_ENV`、`ERR_PROTOCOL` |

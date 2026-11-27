@@ -35,6 +35,10 @@ function hashAlgo(hash) {
 }
 
 function installerKind(url) {
+  // Only real web downloads: file://, UNC and other schemes must never reach the downloader.
+  if (!/^https?:\/\//i.test(String(url || ""))) {
+    return null;
+  }
   const lower = String(url || "").toLowerCase().split(/[?#]/)[0];
   if (lower.endsWith(".zip")) {
     return "zip";
@@ -110,6 +114,10 @@ function convertManifest(manifest, manifestName) {
   const pick = (key) => (arch && arch[key] !== undefined ? arch[key] : manifest[key]);
   const urls = asList(pick("url"));
   const hashes = asList(pick("hash"));
+  // Silent truncation of extra assets is how URL/hash mismatches sneak in; refuse multi-asset manifests.
+  if (urls.length !== 1 || hashes.length !== 1) {
+    return { skip: "manifest must provide exactly one url and one sha256 hash per architecture" };
+  }
   const pairs = [];
   for (let index = 0; index < Math.max(urls.length, hashes.length); index += 1) {
     const raw = String(urls[index] !== undefined ? urls[index] : (urls[0] || ""));
@@ -221,11 +229,20 @@ function convertManifest(manifest, manifestName) {
   // junction into <stick>/home/<pkg>/persist).
   const persistPaths = [];
   for (const item of asList(pick("persist"))) {
+    if (Array.isArray(item)) {
+      return { skip: "persist [source, target] tuples are not supported" };
+    }
     const rel = String(item === undefined || item === null ? "" : item).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
     if (!rel || rel.split("/").includes("..") || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000")) {
       return { skip: "bad persist path: " + String(item) };
     }
     persistPaths.push(rel);
+  }
+
+  for (const hook of ["pre_install", "post_install", "installer"]) {
+    if (pick(hook) !== undefined) {
+      return { skip: "manifest uses the " + hook + " hook, which this installer cannot run" };
+    }
   }
 
   const depends = dependsOf(manifest);

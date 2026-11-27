@@ -115,7 +115,8 @@ public sealed class PdShell : IDisposable
             {
                 if (_handshakeMessage is { Length: > 0 })
                 {
-                    Console.Error.WriteLine(_handshakeMessage);
+                    // --json expects structured events even on the final connection failure.
+                    _renderer.Error(ErrorCodes.Env, _handshakeMessage, "retry after the kernel restarts");
                 }
 
                 return _exitCode;

@@ -149,6 +149,8 @@ def copy_runtime(dotnet_root, runtime_dir):
 
 def copy_elevate_helper(app):
     """The storage extension runs pd-elevate from app\tools; package it there."""
+    if not os.path.isdir(ELEVATE_DIR):
+        raise SystemExit("missing build output: " + ELEVATE_DIR)
     target = os.path.join(app, "tools")
     os.makedirs(target, exist_ok=True)
     copied = 0
@@ -156,6 +158,11 @@ def copy_elevate_helper(app):
         if name.endswith(".dll") or name.endswith(".exe") or name.endswith(".json"):
             shutil.copy2(os.path.join(ELEVATE_DIR, name), os.path.join(target, name))
             copied += 1
+    if not (os.path.isfile(os.path.join(target, "pd-elevate.exe")) or
+            os.path.isfile(os.path.join(target, "pd-elevate.dll"))):
+        raise SystemExit("pd-elevate helper was not copied into " + target)
+    if not os.path.isfile(os.path.join(target, "pd-elevate.runtimeconfig.json")):
+        raise SystemExit("pd-elevate.runtimeconfig.json is missing in " + target)
     return copied
 
 
@@ -247,7 +254,14 @@ def main():
     extensions = os.path.join(app, "extensions")
     os.makedirs(extensions, exist_ok=True)
 
-    check_shared_assemblies({"kernel": KERNEL_DIR, "shell": SHELL_DIR, "elevate": ELEVATE_DIR, "window": WINDOW_DIR})
+    check_shared_assemblies({
+        "kernel": KERNEL_DIR,
+        "shell": SHELL_DIR,
+        "elevate": ELEVATE_DIR,
+        "window": WINDOW_DIR,
+        # proc is a compiled extension and also loads PortableDev.Core.dll.
+        "procext": os.path.join("src", "PortableDev.ProcExt", "bin", "Debug", "net8.0", "win-x64"),
+    })
     copy_binaries(KERNEL_DIR, app)
     copy_binaries(SHELL_DIR, app)
     copy_elevate_helper(app)
@@ -256,7 +270,8 @@ def main():
     for name in sorted(os.listdir(EXTENSIONS_SRC)):
         source = os.path.join(EXTENSIONS_SRC, name)
         if os.path.isdir(source):
-            shutil.copytree(source, os.path.join(extensions, name))
+            shutil.copytree(source, os.path.join(extensions, name),
+                            ignore=shutil.ignore_patterns("_preview*.html", "*.log", ".git", "node_modules"))
 
     # proc is the only compiled extension and its dll is gitignored: take it from the build output.
     copy_proc_extension(extensions)
@@ -266,7 +281,8 @@ def main():
     for name in sorted(os.listdir(extensions)):
         source = os.path.join(extensions, name)
         if os.path.isdir(source):
-            shutil.copytree(source, os.path.join(baseline, name))
+            shutil.copytree(source, os.path.join(baseline, name),
+                            ignore=shutil.ignore_patterns("_preview*.html", "*.log", ".git", "node_modules"))
 
     if cached_runtime:
         os.replace(cache_dir, runtime_dir)

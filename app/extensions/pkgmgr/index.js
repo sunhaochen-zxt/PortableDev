@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { connect, ready } = require("./protocol");
 const { createSourceManager, compareVersions } = require("./sources");
-const { runScript, runCapturedCommand } = require("./scripts");
+const { runScript, runCapturedCommand, allowedByPolicy } = require("./scripts");
 
 const ROOT = process.env.PD_ROOT || ".";
 const CACHE = path.join(ROOT, "cache", "blobs");
@@ -240,15 +240,22 @@ function normalizePersist(value) {
     throw new PkgError("ERR_PKG_INVALID", "persist must be an array of relative paths", 3);
   }
   const result = [];
-  const seen = new Set();
   for (const item of value) {
     const rel = String(item === undefined || item === null ? "" : item).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-    if (!rel || rel.split("/").includes("..") || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000")) {
+    const segments = rel.split("/");
+    const badSegment = segments.some((segment) =>
+      !segment || segment === "." || segment === ".." || segment.includes(":") ||
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(segment));
+    if (!rel || badSegment || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000") || segments.length > 16) {
       throw new PkgError("ERR_PKG_INVALID", "bad persist path: " + String(item), 3);
     }
-    if (!seen.has(rel)) {
-      seen.add(rel);
-      result.push(rel);
+    result.push(rel);
+  }
+  // Overlapping entries (data + data/sub) would nest junctions; reject instead of guessing.
+  const sorted = result.slice().sort();
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (sorted[index] === sorted[index - 1] || sorted[index].startsWith(sorted[index - 1] + "/")) {
+      throw new PkgError("ERR_PKG_INVALID", "persist paths overlap: " + sorted[index - 1] + " / " + sorted[index], 3);
     }
   }
   return result;
@@ -349,7 +356,7 @@ function assertFilesExist(root, asserts) {
 
 function parseAssertDuration(value, fallbackMs) {
   const text = String(value === undefined || value === null ? "" : value).trim();
-  const match = /^(\\d+(?:\\.\\d+)?)\\s*(ms|s|m)?$/i.exec(text);
+  const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m)?$/i.exec(text);
   if (!match) {
     return fallbackMs;
   }
@@ -388,6 +395,10 @@ async function evaluateAsserts(root, asserts, options) {
       const run = String(assertion.run || "").trim();
       if (!run) {
         results.push({ name: label, ok: false, detail: "command assertion needs run" });
+        continue;
+      }
+      if (opts.allowCommands === false) {
+        results.push({ name: label, ok: true, detail: "command assertion skipped: scripts are disabled by policy" });
         continue;
       }
       const timeoutMs = parseAssertDuration(assertion.timeout, 20000);
@@ -952,7 +963,14 @@ async function install(message, options) {
     });
 
     event("step", { stepId: "assert", title: "assert", state: "running" });
-    await assertPackage(contentRoot, manifest.asserts, { cwd: contentRoot, pathPrefix: contentRoot });
+    // Command assertions execute code: they must obey the same policy as package scripts,
+    // otherwise --no-scripts / allowScripts=never could still run arbitrary commands.
+    const assertCommandsAllowed = allowedByPolicy(flags, settings, fromNetwork);
+    await assertPackage(contentRoot, manifest.asserts, {
+      cwd: contentRoot,
+      pathPrefix: contentRoot,
+      allowCommands: assertCommandsAllowed,
+    });
     event("step", { stepId: "assert", title: "assert", state: "done" });
 
     throwIfCancelled(id);
@@ -1470,25 +1488,32 @@ async function doctorCommand(message) {
       // (k) filesystem: junctions need NTFS
       let filesystem = "未知";
       let ntfsOk = false;
-      try {
-        const drive = String(path.parse(ROOT).root || "C:\\").replace(/[\\/]+$/, "").slice(0, 2);
-        const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
-        const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-        const result = await runCapturedCommand({
-          call: callCapability,
-          command: powershell,
-          args: ["-NoProfile", "-NonInteractive", "-Command", "(Get-Volume -DriveLetter " + drive.charAt(0) + ").FileSystem"],
-          cwd: ROOT,
-          env: assertionEnv(ROOT),
-          timeoutMs: 20000,
-        });
-        // Console tools write UTF-16 to a redirected pipe; strip the NUL bytes before matching.
-        // Their labels are localized, but the file system name itself is not.
-        const flat = String(result.output || "").replace(/\u0000/g, "");
-        ntfsOk = /\bNTFS\b/i.test(flat);
-        filesystem = ntfsOk ? "NTFS" : "未知或非 NTFS";
+      const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+      const volumeRoot = path.parse(ROOT).root || "";
+      const driveMatch = /^[A-Za-z]:$/.exec(volumeRoot.replace(/[\\/]+$/, ""));
+      const drive = driveMatch ? driveMatch[0] : null;
+      if (!drive) {
+        filesystem = "非盘符根，无法探测（NTFS 联接需要盘符）";
+      } else {
+        // Keep each probe in its own try: PowerShell being unavailable must not skip fsutil.
+        try {
+          const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+          const result = await runCapturedCommand({
+            call: callCapability,
+            command: powershell,
+            args: ["-NoProfile", "-NonInteractive", "-Command", "(Get-Volume -DriveLetter " + drive.charAt(0) + ").FileSystem"],
+            cwd: ROOT,
+            env: assertionEnv(ROOT),
+            timeoutMs: 20000,
+          });
+          const flat = String(result.output || "").replace(/\u0000/g, "");
+          ntfsOk = /\bNTFS\b/i.test(flat);
+          filesystem = ntfsOk ? "NTFS" : "未知或非 NTFS";
+        } catch (error) {
+          filesystem = "未知";
+        }
         if (!ntfsOk) {
-          // PowerShell can be unavailable in a stripped extension environment; fsutil is native.
+          // fsutil is native and does not depend on PowerShell language mode or PATH.
           try {
             const fsutil = path.join(systemRoot, "System32", "fsutil.exe");
             const fallback = await runCapturedCommand({
@@ -1504,11 +1529,9 @@ async function doctorCommand(message) {
               filesystem = "NTFS";
             }
           } catch (error) {
-            // keep "unknown"; doctor reports it as a problem either way
+            // keep unknown; doctor reports it as a problem either way
           }
         }
-      } catch (error) {
-        filesystem = "未知";
       }
       add("文件系统", ntfsOk, filesystem + (ntfsOk ? "" : "（v2 的联接需要 NTFS）"));
     }
@@ -1547,7 +1570,7 @@ async function doctorCommand(message) {
 
       // PATH/env/registry/home links are rebuilt by the storage wiring layer, which already owns
       // the before/after ledger and the elevated helper: one idempotent apply instead of N writes.
-      if (wiringRows.some((row) => row[1] !== "ok")) {
+      if (wiringRows.some((row) => row[1] !== true)) {
         try {
           await callCapability("storage.wire", "apply", { task: message.id });
           fixed += 1;
@@ -2227,6 +2250,17 @@ async function upgradeCommand(message) {
     const upgradedTasks = [];
     const ctx = (message.data && message.data.ctx) || {};
     let cancelled = false;
+    if (atomic) {
+      // --atomic is all-or-nothing: refuse the whole batch before changing anything.
+      const planError = plan.find((item) => item.action === "fail");
+      if (planError) {
+        const head = planError.error || {};
+        io.fail(new PkgError(head.code || "ERR_INTERNAL",
+          "atomic batch aborted before changing anything: " + planError.record.id + ": " +
+          (head.message || String(planError.error)), exitForCode(head.code)));
+        return;
+      }
+    }
     for (const item of plan) {
       if (isCancelled(message.id)) {
         cancelled = true;
@@ -2293,7 +2327,7 @@ async function upgradeCommand(message) {
         io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "failed" });
         io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) + suffix +
           "; partial store directories are left for pd gc" });
-        if (atomic && upgradedTasks.length > 0) {
+        if (atomic) {
           // --atomic: the batch is all-or-nothing, so undo the upgrades that already landed.
           let restored = 0;
           for (const prior of upgradedTasks.slice().reverse()) {
@@ -2314,6 +2348,16 @@ async function upgradeCommand(message) {
       }
     }
     if (cancelled) {
+      if (atomic) {
+        let restored = 0;
+        for (const prior of upgradedTasks.slice().reverse()) {
+          const undo = await rollbackTask(prior, io.event);
+          if ((undo.failed || 0) === 0) {
+            restored += 1;
+          }
+        }
+        io.event("log", { level: "warn", msg: "atomic batch cancelled; rolled back " + restored + " upgrade(s)" });
+      }
       return;
     }
 
@@ -2476,7 +2520,7 @@ async function removeCommand(message) {
         const suffix = rollback.failed > 0 ? " (rollback partial: " + rollback.failed + " step(s))" : "";
         failed.push({ package: item.pkg, code: error.code || "ERR_INTERNAL", message: (error.message || String(error)) + suffix, task: taskId });
         io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "failed" });
-        if (atomic && removedTasks.length > 0) {
+        if (atomic) {
           // --atomic: restore the packages that were already removed before failing the batch.
           let restored = 0;
           for (const prior of removedTasks.slice().reverse()) {
@@ -2497,6 +2541,16 @@ async function removeCommand(message) {
       }
     }
     if (cancelled) {
+      if (atomic) {
+        let restored = 0;
+        for (const prior of removedTasks.slice().reverse()) {
+          const undo = await rollbackTask(prior, io.event);
+          if ((undo.failed || 0) === 0) {
+            restored += 1;
+          }
+        }
+        io.event("log", { level: "warn", msg: "atomic batch cancelled; restored " + restored + " removal(s)" });
+      }
       return;
     }
 

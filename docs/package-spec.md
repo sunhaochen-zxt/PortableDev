@@ -244,7 +244,6 @@ firefox-139.0.pdpkg
 | `elevated` | 可选，`true` 时经提权助手（一次 UAC，SHA-256 绑定请求）执行；**没有请求协议**，只适合简单安装器 |
 | `timeout` | 默认 `10m` |
 | `network` | 默认 `false`；脚本内要联网须显式声明 |
-| `elevated` | 默认 `false`；需要提权须显式声明（会弹 UAC） |
 
 脚本**不能连内核**，只能往 stdout 打印请求，由 `pkgmgr` 代执行（架构 8.2）。
 请求必须带 `id`，`pkgmgr` 从脚本的 **stdin** 回一行结果：

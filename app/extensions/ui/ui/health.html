@@ -103,7 +103,7 @@ function renderResultTable(tableId, tbl, emptyText) {
       if (/status|result|state|结果|状态/i.test(colKey)) {
         const td = document.createElement("td");
         const b = document.createElement("span");
-        b.className = "badge " + (/ok|pass|正常|通过/i.test(val) ? "ok" : /warn|警/i.test(val) ? "warn" : /fail|err|缺失|失败/i.test(val) ? "danger" : "muted");
+        b.className = "badge " + (/ok|pass|正常|通过/i.test(val) ? "ok" : /warn|警/i.test(val) ? "warn" : /fail|err|缺失|失败|问题/i.test(val) ? "danger" : "muted");
         b.textContent = val || "—";
         td.appendChild(b);
         tr.appendChild(td);
@@ -125,8 +125,10 @@ async function runDoctor() {
     const timed = await pdTimed(["doctor"]);
     const tbl = extractTable(timed.result);
     const metrics = (timed.result.done && timed.result.done.metrics) || {};
-    const checks = metrics.checks !== undefined ? metrics.checks : tbl.rows.length;
-    const issues = metrics.issues !== undefined ? metrics.issues : 0;
+    // checks/issues may be arrays (per-check details) or numbers; never render "[object Object]".
+    const countOf = (value, fallback) => Array.isArray(value) ? value.length : (typeof value === "number" ? value : fallback);
+    const checks = countOf(metrics.checks, tbl.rows.length);
+    const issues = countOf(metrics.issues, 0);
     document.getElementById("kpi-checks").textContent = String(checks);
     document.getElementById("kpi-issues").textContent = String(issues);
     badge.className = "badge " + (issues === 0 ? "ok" : "warn");

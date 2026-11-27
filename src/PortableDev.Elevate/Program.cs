@@ -210,12 +210,17 @@ internal static class Program
             }
         }
 
+        // Never forward process-injection knobs to a High integrity child.
+        var blocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "NODE_OPTIONS", "DOTNET_STARTUP_HOOKS", "PYTHONSTARTUP", "PYTHONPATH",
+        };
         if (op["env"] is JsonObject environment)
         {
             foreach (var (key, value) in environment)
             {
                 var text = value?.GetValue<string>();
-                if (!string.IsNullOrEmpty(key) && text is not null)
+                if (!string.IsNullOrEmpty(key) && !blocked.Contains(key) && text is not null)
                 {
                     start.Environment[key] = text;
                 }
@@ -223,8 +228,8 @@ internal static class Program
         }
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("process did not start");
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
+        var stdout = ReadCappedAsync(process.StandardOutput, 256 * 1024);
+        var stderr = ReadCappedAsync(process.StandardError, 256 * 1024);
         var timedOut = false;
         if (!process.WaitForExit(timeoutMs))
         {
@@ -237,13 +242,31 @@ internal static class Program
         {
             ["exitCode"] = process.HasExited ? process.ExitCode : -1,
             ["timedOut"] = timedOut,
-            ["stdout"] = Truncate(stdout.GetAwaiter().GetResult(), 256 * 1024),
-            ["stderr"] = Truncate(stderr.GetAwaiter().GetResult(), 256 * 1024),
+            ["stdout"] = stdout.GetAwaiter().GetResult(),
+            ["stderr"] = stderr.GetAwaiter().GetResult(),
         };
     }
 
     private static string Truncate(string text, int max)
         => text.Length <= max ? text : text[..max];
+
+    /// <summary>Reads a pipe but keeps at most <paramref name="max"/> chars, so a chatty child
+    /// cannot OOM the elevated helper (it may print gigabytes before the timeout).</summary>
+    private static async Task<string> ReadCappedAsync(StreamReader reader, int max)
+    {
+        var buffer = new char[8192];
+        var builder = new System.Text.StringBuilder();
+        int read;
+        while ((read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+        {
+            if (builder.Length < max)
+            {
+                builder.Append(buffer, 0, Math.Min(read, max - builder.Length));
+            }
+        }
+
+        return builder.ToString();
+    }
     private static JsonNode? Execute(JsonObject op, JsonObject? fake)
     {
         var name = op["op"]?.GetValue<string>() ?? "";

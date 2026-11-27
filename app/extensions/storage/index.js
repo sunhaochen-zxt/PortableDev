@@ -1048,7 +1048,11 @@ function runHelperDirect(ops) {
 // ---- persist: install-dir directories become junctions to <stick>/home/<pkg>/persist/<rel> ----
 function normalizePersistPath(value) {
   const rel = String(value === undefined || value === null ? "" : value).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (!rel || rel.split("/").includes("..") || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000") || rel.split("/").length > 16) {
+  const segments = rel.split("/");
+  const badSegment = segments.some((segment) =>
+    !segment || segment === "." || segment === ".." || segment.includes(":") ||
+    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(segment));
+  if (!rel || badSegment || /^[A-Za-z]:/.test(rel) || rel.includes("\u0000") || segments.length > 16) {
     throw new StorageError("ERR_PKG_INVALID", "bad persist path: " + String(value));
   }
   return rel;
@@ -1064,7 +1068,8 @@ function movePersistContents(from, to) {
     const source = path.join(from, name);
     const target = path.join(to, name);
     if (fs.existsSync(target)) {
-      throw new StorageError("ERR_IO", "persist data conflict: " + target + " already exists");
+      // Upgrades keep the user's existing data; only seed files that are still missing.
+      continue;
     }
     fs.renameSync(source, target);
   }
@@ -1076,8 +1081,9 @@ async function wirePersistLink(args) {
   if (!inside(path.join(ROOT, "home"), source)) {
     throw new StorageError("ERR_UNSUPPORTED", "persist source must stay inside the stick home dir");
   }
-  if (!inside(STORE, target)) {
-    throw new StorageError("ERR_UNSUPPORTED", "persist target must stay inside the store");
+  const storeDir = path.resolve(String(args.root || ""));
+  if (!inside(STORE, target) || !storeDir || storeDir === target || !inside(storeDir, target)) {
+    throw new StorageError("ERR_UNSUPPORTED", "persist target must be a strict child of the package store dir");
   }
   // persist links are stick-local (store <-> home on the same disk), not machine wiring: they are
   // always created for real, even in the fake-machine test mode.
@@ -1104,7 +1110,7 @@ async function wirePersistLink(args) {
     target: target,
     before: null,
     after: { link: source },
-    undo: { cap: "storage.wire", op: "link.remove", args: { target: target } },
+    undo: { cap: "storage.wire", op: "persist.unlink", args: { target: target } },
   });
   fs.mkdirSync(path.dirname(target), { recursive: true });
   try {
@@ -1115,19 +1121,33 @@ async function wirePersistLink(args) {
   return { changed: true, source: source, target: target };
 }
 
+// Real, ungated removal for the stick-local persist junction (never a fake/machine link).
+function persistUnlink(args) {
+  const target = path.resolve(String(args.target || ""));
+  if (readLink(target) === null) {
+    return { changed: false };
+  }
+  if (!removeLink(target)) {
+    throw new StorageError("ERR_IO", "cannot remove persist junction: " + target);
+  }
+  return { changed: true };
+}
+
 async function applyPersist(record, task) {
   let changed = 0;
   for (const relative of recordWiring(record).persist || []) {
     const rel = normalizePersistPath(relative);
     const source = persistStickPath(record.id, rel);
     const target = path.join(record.storePath, ...rel.split("/"));
-    const result = await wirePersistLink({ task: task, source: source, target: target });
+    const result = await wirePersistLink({ task: task, root: record.storePath, source: source, target: target });
     if (result.changed) {
       changed += 1;
     }
   }
   return changed;
-}function stableRoot() {
+}
+
+function stableRoot() {
   try {
     const settings = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "settings.json"), "utf8"));
     if (settings.root && settings.root.stableRoot) {
@@ -1152,7 +1172,9 @@ function writeFake(value) {
 }
 
 function powershell(script) {
-  return execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const powershell = path.join(process.env.SystemRoot || process.env.windir || "C:\\Windows",
+    "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return execFileSync(powershell, ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 }
 
 function readUserPath() {
@@ -2025,7 +2047,6 @@ async function applyRecord(record, task, dryRun) {
     }
   }
 
-  changed += await applyPersist(record, task);
   return changed;
 }
 
@@ -2771,6 +2792,8 @@ async function handleWireCall(capability, op, args) {
       return wireLinkRemove(args);
     case "persist.link":
       return wirePersistLink(args);
+    case "persist.unlink":
+      return persistUnlink(args);
     case "link.get":
       return { source: readLinkTarget(String(args.target || "")) };
     // Read-only probes used by pd doctor: the machine's user env vars plus a package's home

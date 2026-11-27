@@ -387,6 +387,19 @@
         global.showToast("已从当前壁纸提取莫奈主题色 " + seed, "ok");
       }
     };
+    img.onerror = () => {
+      if (!silent && typeof global.showToast === "function") {
+        global.showToast("当前壁纸不可用，已保留默认配色", "warn");
+      }
+    };
+    // Only same-origin/data/blob images are read; anything else is a remote fetch we never want.
+    const safe = /^(data:|blob:)/i.test(src) || !/^[a-z][a-z0-9+.-]*:/i.test(src);
+    if (!safe) {
+      if (!silent && typeof global.showToast === "function") {
+        global.showToast("壁纸地址不受支持，已保留默认配色", "warn");
+      }
+      return;
+    }
     img.src = src;
   }
 
