@@ -46,6 +46,12 @@ function installerKind(url) {
   if (lower.endsWith(".exe")) {
     return "exe";
   }
+  if (lower.endsWith(".7z")) {
+    return "7z";
+  }
+  if (lower.endsWith(".msi")) {
+    return "msi";
+  }
   return null;
 }
 
@@ -261,6 +267,7 @@ function convertManifest(manifest, manifestName) {
       path: pathDirs,
       env: env,
       persist: persistPaths,
+      extractDir: Array.isArray(pick("extract_dir")) ? String(asList(pick("extract_dir"))[0] || "") : String(pick("extract_dir") || ""),
       exeFile: primary.kind === "exe" ? baseName(primary.url) : null,
     },
   };

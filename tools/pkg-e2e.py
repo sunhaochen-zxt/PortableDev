@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import tarfile
 import threading
 import time
@@ -72,6 +73,30 @@ def make_targz(path, entries):
             archive.addfile(info, io.BytesIO(data))
 
 
+SEVEN_ZIP = os.path.join("app", "extensions", "unpack", "vendor", "7zip", "7z.exe")
+
+
+def make_7z(path, entries):
+    """Builds a real .7z with the 7-Zip binary vendored in the unpack extension."""
+    if not os.path.isfile(SEVEN_ZIP):
+        raise SystemExit("missing vendored 7-Zip: " + SEVEN_ZIP)
+    work = tempfile.mkdtemp(prefix="pd-7z-")
+    source = os.path.join(work, "src")
+    os.makedirs(source, exist_ok=True)
+    targets = []
+    for name, data in entries.items():
+        full = os.path.join(source, *name.split("/"))
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        open(full, "wb").write(data)
+        targets.append(name)
+    # Run inside the source dir with relative names so the archive stores relative paths.
+    result = subprocess.run([os.path.abspath(SEVEN_ZIP), "a", os.path.abspath(path)] + targets,
+                            cwd=source, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit("7z failed to build fixture: " + (result.stdout + result.stderr)[-400:])
+    shutil.rmtree(work, ignore_errors=True)
+
+
 def build_fixtures(root, served, packages, port=None):
     os.makedirs(served, exist_ok=True)
     os.makedirs(packages, exist_ok=True)
@@ -101,6 +126,28 @@ def build_fixtures(root, served, packages, port=None):
             "source": {"kind": "tar.gz", "url": f"http://127.0.0.1:{port}/remote-1.0.0.tar.gz", "sha256": remote_hash},
             "unpack": {"kind": "tar.gz"},
             "asserts": [{"kind": "exists", "path": "bin/remote.txt"}],
+        }).encode(),
+    })
+
+    payload7z = os.path.join(served, "remote-1.0.0.7z")
+    make_7z(payload7z, {"bin/remote7z.txt": b"hello from a 7z payload\n"})
+    make_zip(os.path.join(packages, "remote7z-1.0.0.pdpkg"), {
+        "package.json": json.dumps({
+            "schema": 1, "id": "remote7z", "version": "1.0.0", "platform": "win-x64",
+            "source": {"kind": "7z", "url": f"http://127.0.0.1:{port}/remote-1.0.0.7z", "sha256": sha256(payload7z)},
+            "unpack": {"kind": "7z"},
+            "asserts": [{"kind": "exists", "path": "bin/remote7z.txt"}],
+        }).encode(),
+    })
+
+    payloadpick = os.path.join(served, "picked-1.0.0.7z")
+    make_7z(payloadpick, {"sub/bin/picked.txt": b"picked from a subdirectory\n"})
+    make_zip(os.path.join(packages, "picked-1.0.0.pdpkg"), {
+        "package.json": json.dumps({
+            "schema": 1, "id": "picked", "version": "1.0.0", "platform": "win-x64",
+            "source": {"kind": "7z", "url": f"http://127.0.0.1:{port}/picked-1.0.0.7z", "sha256": sha256(payloadpick)},
+            "unpack": {"kind": "7z", "extractDir": "sub"},
+            "asserts": [{"kind": "exists", "path": "bin/picked.txt"}],
         }).encode(),
     })
 
@@ -311,6 +358,22 @@ def main():
         check("remote content present", os.path.isfile(os.path.join(remote_store, "bin", "remote.txt")), remote_store)
         blobs = os.listdir(os.path.join(root, "cache", "blobs"))
         check("blob cached by hash", len(blobs) >= 1 and all(len(name) == 64 for name in blobs), blobs)
+
+        print("install a .7z payload")
+        result = pd(root, "--json", "install", os.path.join(packages, "remote7z-1.0.0.pdpkg"))
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("7z install exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        remote7z_store = metrics.get("storePath", "")
+        check("7z content present", os.path.isfile(os.path.join(remote7z_store, "bin", "remote7z.txt")), remote7z_store)
+
+        print("7z with unpack.extractDir")
+        result = pd(root, "--json", "install", os.path.join(packages, "picked-1.0.0.pdpkg"))
+        done = done_of(result.stdout)
+        metrics = (done or {}).get("metrics") or {}
+        check("extractDir install exit 0", result.returncode == 0, (result.returncode, result.stdout[-400:]))
+        picked_store = metrics.get("storePath", "")
+        check("extractDir picked the subdirectory", os.path.isfile(os.path.join(picked_store, "bin", "picked.txt")), picked_store)
 
         print("install a .pdpkg by URL")
         url_pkg = f"http://127.0.0.1:{port}/hello-copy.pdpkg"

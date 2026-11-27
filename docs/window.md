@@ -211,7 +211,8 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
 
 | 项 | 做法 |
 |---|---|
-| 主题 | 壳把 `ui.theme` 解析成 `dark` / `light`，注入 `pd.theme` 和 `<html data-theme>`；页面只用 CSS 变量。`system` 与非法值目前按 `light` 处理（跟随系统主题尚未实现） |
+| 主题 | 壳把 `ui.theme` 解析成 `dark` / `light`，注入 `pd.theme` 和 `<html data-theme>`；页面只用 CSS 变量。`system` 与非法值目前按 `light` 处理（跟随系统主题尚未实现）。设置页保存/恢复默认时会调用 `window.pd.setTheme()`，壳即时切换原生 Mica 标题栏并通过 `pd-theme` 事件通知当前页，无需刷新 |
+| 托盘 | 关闭按钮/最小化会隐藏到系统托盘（菜单：显示主窗口、系统设置、退出；双击托盘图标恢复）。冒烟测试（smoke）模式下托盘图标不参与关闭拦截 |
 | 语言 | `ui.language` 注入 `pd.locale`，页面自己决定翻译 |
 | DPI | WebView2 跟随系统缩放；壳不额外缩放 |
 | 键盘 | 壳提供 `Ctrl+1..9` 切页、`Ctrl+R` 重载、`F5`；页面自己处理其余快捷键 |
@@ -278,7 +279,7 @@ pd.on("ext", handler)                 // 扩展状态变化（spec 4.3 的 `ext`
   没有把运行时打进盘；机器上需要装 WebView2 Runtime（Win10/11 一般随 Edge 已有）；
 - 主题/语言从 `config/settings.json` 注入 `pd.theme` / `pd.locale`；图标集、快捷键、多页签还没做；
 - CSP 目前靠页面自身约束（虚拟主机映射不能加响应头），没有强制注入；
-- 不支持 `pd.config()`、托盘通知、多窗口（按第 10 节仍待定）。
+- 不支持 `pd.config()`、系统通知、多窗口（托盘图标已提供，见上表）。
 
 ## 11. 还没定的
 

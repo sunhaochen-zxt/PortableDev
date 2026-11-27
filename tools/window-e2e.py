@@ -174,6 +174,8 @@ def main():
         check("bridge injected", "object" in str(smoke_report.get("bridge", "")), smoke_report)
         check("real page loaded", "pd.local" in str(smoke_report.get("url", "")), smoke_report)
         check("smoke ok", smoke_report.get("ok") is True, smoke_report)
+        check("tray icon created", smoke_report.get("tray") is True, smoke_report)
+        check("theme switches live via pd.setTheme", smoke_report.get("themeLive") is True, smoke_report)
 
         print("smoke-check: full page loop renders kernel data")
         loop_path = os.path.join(ROOT, "loop-check.json")

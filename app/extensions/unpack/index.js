@@ -6,7 +6,7 @@
 // the disk before it is noticed. A post-extraction walk then rejects links/specials.
 const fs = require("fs");
 const path = require("path");
-const { execFileSync, spawn } = require("child_process");
+const { execFileSync, spawn, spawnSync } = require("child_process");
 const { connect, ready } = require("./protocol");
 
 const ROOT = process.env.PD_ROOT || ".";
@@ -191,6 +191,150 @@ function lift(dir, levels) {
   }
 }
 
+
+// ---- 7z / msi ----
+// .7z is unpacked with the vendored 7-Zip (no PATH lookup, works offline); .msi uses the
+// Windows Installer administrative install (msiexec /a), which extracts the file payload
+// without registering the product or requiring elevation.
+function sevenZipPath() {
+  const candidates = [process.env.PD_7Z, path.join(__dirname, "vendor", "7zip", "7z.exe")].filter(Boolean);
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  throw new UnpackError("ERR_UNSUPPORTED", "7-Zip helper is missing (expected vendor/7zip/7z.exe)");
+}
+
+function sevenZipEntries(archive) {
+  const output = execFileSync(sevenZipPath(), ["l", "-slt", archive], {
+    encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true,
+  });
+  // -slt prints the archive header first; entries start after the separator line.
+  const lines = output.split(/\r?\n/);
+  const separator = lines.findIndex((line) => line.trim() === "----------");
+  const body = separator >= 0 ? lines.slice(separator + 1).join("\n") : output;
+  const entries = [];
+  let current = null;
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, "");
+    if (line.startsWith("Path = ")) {
+      current = { name: line.slice(7).replace(/\\/g, "/"), size: 0, dir: false, link: false };
+      entries.push(current);
+      continue;
+    }
+    if (!current) {
+      continue;
+    }
+    if (line.startsWith("Size = ")) {
+      current.size = Number(line.slice(7)) || 0;
+    } else if (line.startsWith("Folder = ")) {
+      current.dir = line.endsWith("+");
+    } else if (line.startsWith("Symbolic Link = ") || line.startsWith("Hard Link = ")) {
+      current.link = true;
+    }
+  }
+  return entries;
+}
+
+// Validates names, links and the declared sizes BEFORE extraction (bomb guard).
+function assertSafeSevenZip(archive, limits) {
+  const entries = sevenZipEntries(archive);
+  let files = 0;
+  let bytes = 0;
+  for (const entry of entries) {
+    const name = entry.name;
+    if (entry.link) {
+      throw new UnpackError("ERR_UNSUPPORTED", "archive contains a link entry: " + name.slice(0, 160));
+    }
+    if (name.startsWith("/") || /^[A-Za-z]:/.test(name) || name.split("/").includes("..")) {
+      throw new UnpackError("ERR_UNSUPPORTED", "archive entry escapes the destination: " + name.slice(0, 160));
+    }
+    if (!entry.dir) {
+      files += 1;
+      bytes += entry.size;
+    }
+  }
+  if (files > limits.maxFiles) {
+    throw new UnpackError("ERR_UNSUPPORTED", "archive declares too many files (" + files + ")");
+  }
+  if (bytes > limits.maxBytes) {
+    throw new UnpackError("ERR_UNSUPPORTED", "archive declares too many bytes (" + bytes + ")");
+  }
+}
+
+function extractSevenZip(archive, dest) {
+  const result = spawnSync(sevenZipPath(), ["x", archive, "-o" + dest, "-y", "-bso0", "-bsp0"], {
+    encoding: "utf8", timeout: 15 * 60 * 1000, windowsHide: true,
+  });
+  if (result.error) {
+    throw new UnpackError("ERR_IO", "7z failed: " + result.error.message);
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || "").split(/\r?\n/).filter(Boolean).slice(-2).join(" | ");
+    throw new UnpackError("ERR_IO", "7z exited with " + result.status + (detail ? ": " + detail.slice(0, 240) : ""));
+  }
+}
+
+function moveChildren(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const name of fs.readdirSync(from)) {
+    const target = path.join(to, name);
+    if (fs.existsSync(target)) {
+      throw new UnpackError("ERR_IO", "msi payload collides with an existing entry: " + name);
+    }
+    fs.renameSync(path.join(from, name), target);
+  }
+}
+
+function extractMsi(archive, dest) {
+  const temp = path.join(path.dirname(dest), ".msi-tmp-" + process.pid + "-" + Date.now());
+  const log = temp + ".log";
+  fs.mkdirSync(temp, { recursive: true });
+  try {
+    const result = spawnSync("msiexec.exe", ["/a", archive, "/qn", "/norestart", "TARGETDIR=" + temp, "/L*v", log], {
+      timeout: 15 * 60 * 1000, windowsHide: true, encoding: "utf8",
+    });
+    const code = result.status;
+    if (code !== 0 && code !== 3010) {
+      let detail = "";
+      try {
+        detail = fs.readFileSync(log, "utf8").split(/\r?\n/).filter(Boolean).slice(-3).join(" | ");
+      } catch (error) {
+        // the log is best effort
+      }
+      throw new UnpackError("ERR_IO", "msiexec administrative install exited with " + code +
+        (detail ? ": " + detail.slice(0, 300) : ""));
+    }
+    moveChildren(temp, dest);
+    // Administrative installs also copy the source .msi into the image root; it is not payload.
+    const selfCopy = path.join(dest, path.basename(archive));
+    try { fs.rmSync(selfCopy, { force: true }); } catch (error) { /* best effort */ }
+  } finally {
+    try { fs.rmSync(temp, { recursive: true, force: true }); } catch (error) { /* best effort */ }
+    try { fs.rmSync(log, { force: true }); } catch (error) { /* best effort */ }
+  }
+}
+
+// unpack.extractDir: only keep one subdirectory of the extracted tree.
+function selectSubdir(dest, rel) {
+  const normalized = String(rel || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!normalized || normalized.split("/").includes("..") || /^[A-Za-z]:/.test(normalized)) {
+    throw new UnpackError("ERR_PKG_INVALID", "bad extractDir: " + rel);
+  }
+  const source = path.resolve(dest, normalized);
+  if (!isInside(dest, source) || !fs.existsSync(source) || !fs.statSync(source).isDirectory()) {
+    throw new UnpackError("ERR_PKG_INVALID", "extractDir is missing in the archive: " + rel);
+  }
+  const picked = dest + ".pick-" + process.pid;
+  fs.rmSync(picked, { recursive: true, force: true });
+  fs.mkdirSync(picked, { recursive: true });
+  for (const name of fs.readdirSync(source)) {
+    fs.renameSync(path.join(source, name), path.join(picked, name));
+  }
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.renameSync(picked, dest);
+}
 async function extract(args) {
   const archive = path.resolve(String(args.archive || ""));
   const dest = path.resolve(String(args.dest || ""));
@@ -202,17 +346,14 @@ async function extract(args) {
   }
 
   const kind = kindOf(archive, args.kind);
-  if (kind !== "zip" && kind !== "tar.gz") {
-    throw new UnpackError("ERR_UNSUPPORTED", "unpacking " + kind + " is not implemented yet (zip and tar.gz only)");
+  if (!["zip", "tar.gz", "7z", "msi"].includes(kind)) {
+    throw new UnpackError("ERR_UNSUPPORTED", "unpacking " + kind + " is not implemented (zip, tar.gz, 7z, msi)");
   }
 
   const stagingRoot = path.join(ROOT, "staging");
   if (!isInside(stagingRoot, dest)) {
     throw new UnpackError("ERR_UNSUPPORTED", "the destination must be inside the stick staging directory");
   }
-
-  assertSafeEntries(listEntries(archive));
-  assertNoLinkEntries(archive);
 
   const limits = {
     maxFiles: Number(args.maxFiles) > 0 ? Number(args.maxFiles) : MAX_FILES_DEFAULT,
@@ -221,9 +362,23 @@ async function extract(args) {
 
   fs.mkdirSync(dest, { recursive: true });
   try {
-    await extractWithLimits(archive, dest, limits);
+    if (kind === "zip" || kind === "tar.gz") {
+      assertSafeEntries(listEntries(archive));
+      assertNoLinkEntries(archive);
+      await extractWithLimits(archive, dest, limits);
+    } else if (kind === "7z") {
+      assertSafeSevenZip(archive, limits);
+      extractSevenZip(archive, dest);
+    } else {
+      extractMsi(archive, dest);
+    }
     // Reject links before strip/lift: lift() would otherwise follow a link out of the sandbox.
     walkStats(dest);
+    const extractDir = String(args.extractDir || "");
+    if (extractDir) {
+      selectSubdir(dest, extractDir);
+      walkStats(dest);
+    }
     const strip = Number(args.strip) > 0 ? Number(args.strip) : 0;
     if (strip > 0) {
       lift(dest, strip);

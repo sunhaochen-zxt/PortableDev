@@ -38,6 +38,9 @@ public sealed class MainForm : Form
     private string _baseStatus = string.Empty;
     private bool _smokeWritten;
     private System.Windows.Forms.Timer? _smokeTimer;
+    private NotifyIcon? _tray;
+    private bool _trayBalloonShown;
+    private bool _exitRequested;
 
     public MainForm(WindowOptions options)
     {
@@ -104,6 +107,7 @@ public sealed class MainForm : Form
         Controls.Add(_sidebar);
 
         ApplyShellTheme(_darkTheme);
+        SetupTray();
         HandleCreated += (_, _) => ApplyWindowTitleBarTheme(_darkTheme);
         Shown += async (_, _) => await InitializeAsync().ConfigureAwait(true);
         FormClosed += (_, _) =>
@@ -111,6 +115,8 @@ public sealed class MainForm : Form
             _smokeTimer?.Stop();
             _smokeTimer?.Dispose();
             _smokeTimer = null;
+            _tray?.Dispose();
+            _tray = null;
             _brandTitleFont.Dispose();
             _brandSubFont.Dispose();
             _brandBadgeFont.Dispose();
@@ -495,6 +501,20 @@ public sealed class MainForm : Form
                 report["navMs"] = Environment.TickCount64 - _navStart;
                 report["ok"] = value.Contains("object", StringComparison.OrdinalIgnoreCase)
                     && url.Contains("pd.local", StringComparison.OrdinalIgnoreCase);
+                report["tray"] = _tray?.Visible == true;
+                // Live theme switch: the page asks the bridge, the shell pushes the new theme back.
+                var before = await _webView.CoreWebView2
+                    .ExecuteScriptAsync("document.documentElement.dataset.theme")
+                    .ConfigureAwait(true);
+                report["themeBefore"] = before;
+                await _webView.CoreWebView2
+                    .ExecuteScriptAsync("window.pd && window.pd.setTheme ? (window.pd.setTheme('dark'), 'sent') : 'missing'")
+                    .ConfigureAwait(true);
+                await Task.Delay(200).ConfigureAwait(true);
+                var after = await _webView.CoreWebView2
+                    .ExecuteScriptAsync("document.documentElement.dataset.theme")
+                    .ConfigureAwait(true);
+                report["themeLive"] = after.Contains("dark", StringComparison.Ordinal);
             }
         }
         catch (Exception ex)
@@ -684,6 +704,118 @@ public sealed class MainForm : Form
         _brandHeader.Invalidate();
         _navigation.Invalidate();
         _footerPanel.Invalidate();
+        PushThemeToPage(isDark);
+    }
+
+    private void SetupTray()
+    {
+        _tray = new NotifyIcon
+        {
+            Text = "PortableDev",
+            Icon = Icon ?? SystemIcons.Application,
+            Visible = true,
+        };
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("显示主窗口", null, (_, _) => ShowFromTray());
+        menu.Items.Add("系统设置", null, (_, _) =>
+        {
+            ShowFromTray();
+            _ = BeginInvoke(async () =>
+            {
+                try
+                {
+                    await NavigateToAsync("settings").ConfigureAwait(true);
+                }
+                catch (Exception)
+                {
+                    // Pages are only known after the kernel handshake.
+                }
+            });
+        });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("退出", null, (_, _) =>
+        {
+            _exitRequested = true;
+            Close();
+        });
+        _tray.ContextMenuStrip = menu;
+        _tray.DoubleClick += (_, _) => ShowFromTray();
+    }
+
+    private bool IsSmokeRun => _options.Smoke is not null || _options.SmokeCheck is not null;
+
+    private void ShowFromTray()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+
+        Show();
+        WindowState = FormWindowState.Normal;
+        ShowInTaskbar = true;
+        Activate();
+        BringToFront();
+    }
+
+    private void PushThemeToPage(bool isDark)
+    {
+        var theme = isDark ? "dark" : "light";
+        try
+        {
+            var core = _webView.CoreWebView2;
+            if (core is null)
+            {
+                return;
+            }
+
+            var script = "document.documentElement.dataset.theme='" + theme + "';"
+                + "window.dispatchEvent(new CustomEvent('pd-theme',{detail:'" + theme + "'}));";
+            _ = core.ExecuteScriptAsync(script);
+        }
+        catch (Exception)
+        {
+            // The page is not ready yet; it reads the theme on load.
+        }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (IsSmokeRun || _exitRequested || WindowState != FormWindowState.Minimized || _tray is null)
+        {
+            return;
+        }
+
+        Hide();
+        ShowInTaskbar = false;
+        if (!_trayBalloonShown)
+        {
+            _trayBalloonShown = true;
+            _tray.BalloonTipTitle = "PortableDev";
+            _tray.BalloonTipText = "已最小化到托盘，双击托盘图标可恢复。";
+            _tray.ShowBalloonTip(2500);
+        }
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (IsSmokeRun || _exitRequested)
+        {
+            base.OnFormClosing(e);
+            return;
+        }
+
+        if (e.CloseReason == CloseReason.UserClosing && _tray is not null)
+        {
+            // The close button hides to the tray; the tray menu's "退出" really exits.
+            e.Cancel = true;
+            Hide();
+            ShowInTaskbar = false;
+            return;
+        }
+
+        base.OnFormClosing(e);
     }
 
     private void ApplyWindowTitleBarTheme(bool isDark)

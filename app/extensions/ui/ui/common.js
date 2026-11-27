@@ -24,6 +24,17 @@ function syncHtmlThemeClasses(theme) {
   } catch (error) { /* keep markup default */ }
 })();
 
+// The window shell pushes theme changes (settings save, tray/settings, config set).
+window.addEventListener("pd-theme", (event) => {
+  try {
+    const theme = event && event.detail === "dark" ? "dark" : "light";
+    syncHtmlThemeClasses(theme);
+    try { sessionStorage.setItem("pd-ui-theme", theme); } catch (error) { /* ignore */ }
+    if (window.PDWallpaper && typeof window.PDWallpaper.applyCurrent === "function") window.PDWallpaper.applyCurrent();
+    if (typeof window.pdThemeChanged === "function") window.pdThemeChanged(theme);
+  } catch (error) { /* ignore */ }
+});
+
 const _loadedScripts = Object.create(null);
 function loadVendorScript(src) {
   if (_loadedScripts[src]) return _loadedScripts[src];

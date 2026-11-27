@@ -51,7 +51,7 @@
 | `persist`（字符串数组） | 转成 package.json 的 `persist`（安装目录里的目录 → 盘上持久目录，见 package-spec 3.12） |
 | `description` / `homepage` | 进 `title` / `meta`，仅展示 |
 
-跳过（装不了也不装）：`.msi`；`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller`／`pre_install` / `post_install` / `pre_download` / `post_download` 脚本的（静默装脚本超出范围）；`shortcuts` / `psmodulepath`；没有可用 bin 的；版本号不符合 `VERSION` 的。
+跳过（装不了也不装）：`hash` 不是 sha256 的（索引强制要求 sha256）；带 `installer` / `uninstaller`／`pre_install` / `post_install` / `pre_download` / `post_download` 脚本的（静默装脚本超出范围）；`shortcuts` / `psmodulepath`；没有可用 bin 的；版本号不符合 `VERSION` 的。
 
 安全说明：安装包哈希走索引校验（和普通源一样，比对安装包的 sha256）；转换后的包没有脚本执行能力（生成的 `package.json` 不带脚本），scoop 清单里的脚本一律不运行。
 

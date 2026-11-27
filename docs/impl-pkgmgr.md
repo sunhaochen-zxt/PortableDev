@@ -182,7 +182,7 @@ python -u tools/provides-e2e.py
 
 | 项 | 说明 |
 |---|---|
-| scoop 转换 | 已支持 zip/单文件 exe、位数条目（含 32 位回退）、URL `#` 片段、bin/env/extract_dir/depends/persist；仍不支持 shortcuts、msi、非 sha256 清单 |
+| scoop 转换 | 已支持 zip/单文件 exe/**7z/msi**、位数条目（含 32 位回退）、URL `#` 片段、bin/env/extract_dir（→ `unpack.extractDir`）/depends/persist；仍不支持 shortcuts、非 sha256 清单、arm64 专用清单。msi 用 `msiexec /a` 解包，管理映像会保留 `Program Files` 等目录层；scoop 的 `extract_dir` 必须与之一致，否则该包会因找不到 launcher 被明确拒绝 |
 | 依赖求解 | `requires` 递归安装（已装满足则跳过；冲突/循环报 24；`--no-deps` 跳过）；虚拟包（已装优先/优先级/同级报错 21）；`replaces` 先卸旧包（失败尽力恢复）；`conflicts` 双向检查报 24；卸载保护（被依赖时 24，`--force` 跳过） |
 | 更多解包 | `7z` / `msi` |
 | 脚本资源配额 | proc 提供内存/进程数上限；CPU 硬上限用 `script.cpu`（Job Object CPU rate control），累计 CPU 时间总量未做 |

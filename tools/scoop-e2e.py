@@ -250,9 +250,13 @@ def make_bucket(docroot, base_url):
         "version": "1.0", "url": base_url + "/files/cyc-1.0.zip", "hash": "sha256:" + cyc_hash,
         "bin": "cyc.cmd", "depends": ["cyc-a"],
     })
-    manifest("skip-msi", {
+    # A bogus .msi payload: conversion must now attempt msi extraction and fail on the
+    # Windows Installer error instead of skipping the package as unsupported.
+    with open(os.path.join(files, "setup.msi"), "wb") as handle:
+        handle.write(b"not a real msi\n")
+    manifest("broken-msi", {
         "version": "1.0", "url": base_url + "/files/setup.msi",
-        "hash": "sha256:" + "0" * 64, "bin": "x.exe",
+        "hash": "sha256:" + sha256_file(os.path.join(files, "setup.msi")), "bin": "x.exe",
     })
     archive = shutil.make_archive(os.path.join(docroot, "bucket"), "zip", docroot, "bucket")
     return archive
@@ -329,8 +333,9 @@ def main():
             check("scripted installer refused", done and done.get("exitCode") == 20, done)
             done = call(stream, ["install", "skip-md5"])
             check("md5-only hash refused", done and done.get("exitCode") == 20, done)
-            done = call(stream, ["install", "skip-msi"])
-            check("msi refused", done and done.get("exitCode") == 20, done)
+            done = call(stream, ["install", "broken-msi"])
+            check("msi is attempted (no longer skipped)", done and done.get("exitCode") == 1, done)
+            check("msi failure code", done and done.get("error", {}).get("code") == "ERR_IO", done)
 
             print("architecture-specific fields and 32-bit-only buckets")
             done = call(stream, ["install", "arch64"])

@@ -62,7 +62,7 @@ dotnet tests/PortableDev.Core.Runner/bin/Debug/net8.0/PortableDev.Core.Runner.dl
 python -u tools/e2e.py .run                                                        # 51（带日志提供者 61）
 PD_LOG_FIXTURE=log-ext python -u tools/storage-e2e.py .run                          # 62
 PD_LOG_FIXTURE=log-alt python -u tools/storage-e2e.py .run                          # 62（换日志实现）
-python -u tools/pkg-e2e.py .run                                                     # 37
+python -u tools/pkg-e2e.py .run                                                     # 41
 python -u tools/pd-e2e.py .run                                                      # 31
 python -u tools/wire-e2e.py .run                                                    # 43
 python -u tools/generation-e2e.py .run                                              # 32（含断点续跑）
@@ -73,9 +73,9 @@ python -u tools/registry-e2e.py .run-registry                                   
 dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dll     # 8（进程原语/管道）
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）
 python -u tools/run-e2e.py                                                           # 19（pd run/shell + exec 通道）
-python -u tools/scoop-e2e.py                                                         # 28（scoop 源：zip/exe、位数条目、32 位回退、URL 片段、persist）
+python -u tools/scoop-e2e.py                                                         # 29（scoop 源：zip/exe/7z/msi、位数条目、32 位回退、URL 片段、persist）
 python -u tools/provides-e2e.py                                                      # 30（虚拟包 + replaces）
-python -u tools/window-e2e.py                                                        # 22（窗口壳：内核链路 + WebView2 桥 + 基线自愈）
+python -u tools/window-e2e.py                                                        # 24（窗口壳：内核链路 + WebView2 桥 + 托盘 + 主题即时切换 + 基线自愈）
 python -u tools/runtime-e2e.py                                                       # 11（随盘运行时：清空 DOTNET_ROOT/PATH 后跑 CLI 与窗口）
 python -u tools/features-e2e.py                                                      # 76（doctor/--deep/--fix/接线漂移/家目录/受限会话、selftest、info/env/outdated/ext/recover、子命令粒度 source/proc、恢复账本回滚、能力权限）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检

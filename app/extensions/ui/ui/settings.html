@@ -190,6 +190,10 @@ function renderGroups() {
             syncHtmlThemeClasses(next);
             try { sessionStorage.setItem("pd-ui-theme", next); } catch (e) { /* ignore */ }
             syncThemeButtons();
+            // Apply immediately in the shell chrome too (native palette + every page).
+            if (window.pd && typeof window.pd.setTheme === "function") {
+              try { await window.pd.setTheme(next); } catch (e) { /* optional */ }
+            }
           }
           showToast(item.key + " 已保存" + (restart ? "（重启内核后生效）" : ""), "ok");
           load();
@@ -207,6 +211,9 @@ function renderGroups() {
         resetBtn.disabled = true;
         try {
           await window.pd.run(["config", "unset", item.key]);
+          if (item.key === "ui.theme" && window.pd && typeof window.pd.setTheme === "function") {
+            try { await window.pd.setTheme("light"); } catch (e) { /* optional */ }
+          }
           showToast(item.key + " 已恢复默认", "ok");
           load();
         } catch (err) {
@@ -255,6 +262,13 @@ function syncThemeButtons() {
   document.getElementById("theme-light-btn").className = dark ? "secondary sm" : "sm";
   document.getElementById("theme-dark-btn").className = dark ? "sm" : "secondary sm";
 }
+
+// The shell broadcasts theme changes (settings save/reset, config set) as "pd-theme".
+window.pdThemeChanged = function () {
+  syncThemeButtons();
+  if (typeof refreshMonetSwatches === "function") refreshMonetSwatches();
+  if (typeof refreshWallpaperPreview === "function") refreshWallpaperPreview();
+};
 
 function applyExplicitTheme(target) {
   const cur = document.documentElement.dataset.theme === "dark" ? "dark" : "light";

@@ -505,14 +505,22 @@ function sanitizeFilePart(value) {
 // the ordinary dir flow (grant copy -> manifest -> script -> adopt).
 async function prepareScoopStaging({ resolved, blob, event }) {
   const scoop = (resolved.entry && resolved.entry.scoop) || {};
-  const installerKind = scoop.kind === "exe" ? "exe" : "zip";
+  const installerKind = scoop.kind === "exe"
+    ? "exe"
+    : (["zip", "7z", "msi"].includes(scoop.kind) ? scoop.kind : "zip");
   // Stage inside the stick staging directory: unpack.extract refuses anywhere else.
   const staging = path.join(ROOT, "staging", "scoop-" + sanitizeFilePart(resolved.id) + "-" + sanitizeFilePart(resolved.version) + "-" + process.pid);
   fs.rmSync(staging, { recursive: true, force: true });
   fs.mkdirSync(path.join(staging, "files"), { recursive: true });
-  if (installerKind === "zip") {
+  if (installerKind !== "exe") {
     event("step", { stepId: "fetch", title: "unpack scoop archive", state: "running" });
-    await callCapability("unpack.extract", "extract", { archive: blob.path, dest: path.join(staging, "files"), kind: "zip" });
+    await callCapability("unpack.extract", "extract", {
+      archive: blob.path,
+      dest: path.join(staging, "files"),
+      kind: installerKind,
+      // scoop's extract_dir is already applied to the launch/path entries by the converter,
+      // so staging must keep the archive's original layout.
+    });
     event("step", { stepId: "fetch", title: "unpack scoop archive", state: "done" });
   } else {
     const exeFile = String(scoop.exeFile || (resolved.id + ".exe")).split(/[\\/]/).filter(Boolean).pop() || (resolved.id + ".exe");
@@ -937,6 +945,7 @@ async function install(message, options) {
           dest: path.join(grantPath, "content"),
           kind: (manifest.unpack && manifest.unpack.kind) || "auto",
           strip: (manifest.unpack && manifest.unpack.strip) || 0,
+          extractDir: (manifest.unpack && manifest.unpack.extractDir) || "",
         });
         contentRoot = extracted.dest;
         event("step", { stepId: "fetch", title: "fetch", state: "done" });
