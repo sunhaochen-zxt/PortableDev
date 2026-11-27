@@ -7,6 +7,14 @@
   "entry": "index.js",
   "interpreter": "node",
   "requiresKernel": ">=1",
+  "requires": [
+    "storage.grant",
+    "storage.adopt",
+    "storage.current",
+    "storage.record",
+    "storage.gc",
+    "storage.ledger"
+  ],
   "provides": [],
   "commands": [
     {

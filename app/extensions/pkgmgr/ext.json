@@ -23,8 +23,11 @@
     "storage.uninstall",
     "storage.wire",
     "download.fetch",
+    "download.bin",
     "unpack.extract",
-    "rollback.run"
+    "rollback.run",
+    "proc.spawn",
+    "proc.snapshot"
   ],
   "commands": [
     {

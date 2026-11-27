@@ -190,6 +190,22 @@ public sealed class ExtensionSupervisor
             return;
         }
 
+        // Permission enforcement: an extension may only call capabilities it declares in ext.json
+        // requires (or provides itself). A third-party/broken extension cannot reach storage.wire
+        // just because it can talk to the kernel.
+        var caller = _kernel.Registry.Find(from);
+        if (caller is not null && !MayCall(caller, capability))
+        {
+            _kernel.Logger.Warn("cap.denied", "extension called an undeclared capability", new JsonObject
+            {
+                ["extension"] = from,
+                ["capability"] = capability,
+            });
+            await SendCallErrorAsync(from, id, ErrorCodes.Unauthorized,
+                $"extension '{from}' did not declare capability '{capability}' in ext.json requires").ConfigureAwait(false);
+            return;
+        }
+
         var provider = FindProvider(capability);
         if (provider is null)
         {
@@ -246,6 +262,32 @@ public sealed class ExtensionSupervisor
             }
             await SendCallErrorAsync(from, id, ErrorCodes.ExtMissing, "extension " + provider + " is not connected").ConfigureAwait(false);
         }
+    }
+
+    private static bool MayCall(ExtensionManifest caller, string capability)
+    {
+        if (caller.Provides.Any(item => string.Equals(item.Name, capability, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        foreach (var declared in caller.Requires)
+        {
+            if (declared.EndsWith(".*", StringComparison.Ordinal))
+            {
+                var family = declared[..^1];
+                if (capability.StartsWith(family, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            else if (string.Equals(declared, capability, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task ExpireCallAsync(string id, TimeSpan timeout)

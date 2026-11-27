@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "name": "capprobe",
+  "version": "0.0.1",
+  "title": "Capability permission probe",
+  "priority": 61,
+  "entry": "index.js",
+  "interpreter": "node",
+  "requiresKernel": ">=1",
+  "requires": [
+    "storage.record"
+  ],
+  "provides": [],
+  "commands": [
+    {
+      "name": "capprobe",
+      "summary": "probe declared vs undeclared capability calls",
+      "usage": "pd capprobe ok|denied",
+      "mutates": true
+    }
+  ],
+  "lifecycle": {
+    "start": "on-demand",
+    "startTimeout": "5s",
+    "heartbeatTimeout": "120s",
+    "stopTimeout": "3s",
+    "restart": "on-crash",
+    "maxRestarts": 2
+  }
+}

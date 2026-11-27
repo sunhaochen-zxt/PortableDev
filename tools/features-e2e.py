@@ -111,6 +111,7 @@ def deploy(root):
         shutil.copytree(os.path.join("app", "extensions", name), os.path.join(app_ext, name), dirs_exist_ok=True)
         shutil.copytree(os.path.join("app", "extensions", name), os.path.join(baseline, name), dirs_exist_ok=True)
     shutil.copytree(os.path.join("tests", "fixtures", "log-ext"), os.path.join(app_ext, "log"), dirs_exist_ok=True)
+    shutil.copytree(os.path.join("tests", "fixtures", "cap-probe"), os.path.join(app_ext, "capprobe"), dirs_exist_ok=True)
     shutil.copytree(os.path.join("tests", "fixtures", "log-ext"), os.path.join(baseline, "log"), dirs_exist_ok=True)
     runtime = os.path.join(root, "app", "runtime")
     os.makedirs(os.path.join(runtime, "node"), exist_ok=True)
@@ -238,6 +239,12 @@ def main():
             "protocol": 1, "client": "features-e2e", "clientVersion": "0.0.1", "features": ["json"]}})
         hello = recv(stream)
         check("hello.ok", hello and hello.get("kind") == "hello.ok", hello)
+
+        print("capability permissions: declared calls pass, undeclared calls are refused")
+        done = call(stream, ["capprobe", "ok"])
+        check("declared capability allowed", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["capprobe", "denied"])
+        check("undeclared capability rejected", done and (done.get("error") or {}).get("code") == "ERR_UNAUTHORIZED", done)
 
         print("recovery: dropped intent triggers an automatic ledger rollback")
         check("orphan staging dropped", not os.path.isdir(orphan_target), orphan_target)

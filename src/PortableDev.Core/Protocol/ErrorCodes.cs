@@ -3,6 +3,9 @@ namespace PortableDev.Core.Protocol;
 /// <summary>Stable error codes (spec 6.2). Never localize these.</summary>
 public static class ErrorCodes
 {
+    /// <summary>An extension called a capability it did not declare in ext.json requires.</summary>
+    public const string Unauthorized = "ERR_UNAUTHORIZED";
+
     public const string UnknownCommand = "ERR_UNKNOWN_COMMAND";
     public const string BadArgs = "ERR_BAD_ARGS";
     public const string ExtMissing = "ERR_EXT_MISSING";

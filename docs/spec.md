@@ -920,6 +920,7 @@
 | `ERR_UNKNOWN_COMMAND` | 没有这个命令 |
 | `ERR_BAD_ARGS` | 参数不对 |
 | `ERR_EXT_MISSING` | 扩展不存在或加载失败 |
+| `ERR_UNAUTHORIZED` | 扩展调用了 `ext.json` 的 `requires` 里没有声明的能力 |
 | `ERR_UNSUPPORTED` | 脚本请求了白名单外的操作，或包用了不支持的能力 |
 | `ERR_EXT_TIMEOUT` | 扩展卡死 |
 | `ERR_CANCELLED` | 被取消 |

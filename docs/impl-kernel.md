@@ -155,6 +155,11 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
 - 子命令级独占：扩展可以在 `ext.json` 里把 `"source list"` 这类多词命令单独登记，
   内核按**最长前缀**解析（最多 3 段），用该条目的 `mutates`/`parallel` 决定是否串行；
   扩展仍收到去掉首段的 argv，所以旧处理器不用改解析。pkgmgr 的 `source list` 是第一个实例。
+- 能力调用的权限强制：扩展的 `ext.json` 里的 `requires` 就是能力白名单，内核在
+  `ForwardCallAsync` 转发前校验——未声明（且不是它自己 `provides` 的）能力直接回
+  `ERR_UNAUTHORIZED`，只记 `cap.denied` 日志，不打扰提供者；`requires` 支持 `storage.*` 通配，
+  内置扩展都按实际调用补全。测试夹具 `cap-probe` 用「声明过的 storage.record 通过 / 未声明的
+  storage.uninstall 被拒」双向验证。
 - 崩溃恢复的账本阶段：`RecoveryService` 把被 drop 的 task 放进 `RecoveryReport.DroppedTasks`；
   正常启动时 `Supervisor.SetRecoveryRollbackTasks` 通过 `PD_RECOVERY_ROLLBACK` 交给 `rollback` 扩展，
   它在 `ready` 后自动回滚并写 `recovery.rollback` 审计记录；一次性初始化模式（部署/测试用）落盘到

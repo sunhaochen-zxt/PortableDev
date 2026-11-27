@@ -1,0 +1,77 @@
+adopt
+  ok   adopt exit 0
+  ok   store path shape
+  ok   store dir exists
+  ok   payload written
+  ok   tree hash present
+  ok   record written
+  ok   record version
+  ok   current pointer exists
+  ok   current resolves to store
+  ok   intents cleaned
+  ok   staging cleaned
+idempotent adopt
+  ok   second adopt exit 0
+  ok   same store path
+  ok   no duplicate store dir
+abort
+  ok   abort exit 0
+  ok   abort removed staging
+  ok   staging empty after abort
+  ok   no extra store dir after abort
+grant expiry
+  ok   expired grant rejected
+  ok   expired grant left no store dir
+gc
+  ok   gc exit 0
+  ok   gc removed staging
+  ok   gc removed store
+  ok   orphan staging gone
+  ok   orphan store gone
+  ok   real package survives gc
+gc refuses corrupt records unless --force
+  ok   gc without force fails on corrupt record
+  ok   gc --force runs with corrupt record
+gc respects generations
+  ok   gc keeps generation-referenced store
+  ok   gc removes store once unreferenced
+gc keep and blobs
+  ok   blobs untouched without --blobs
+  ok   --blobs removes unreferenced blob
+  ok   gc dry-run reports generation trims
+  ok   gc dry-run deletes nothing
+  ok   gc trims generations
+ledger
+  ok   ledger exit 0
+  ok   ledger entries recorded
+  ok   audit stream written by provider
+  ok   audit has begin boundary
+  ok   audit entries carry undo
+rollback
+  ok   v2 install exit 0
+  ok   record moved to v2
+  ok   current moved to v2
+  ok   probe reported its task id
+  ok   missing generation exits 20
+  ok   rollback dry-run exit 0
+  ok   dry-run plans the undo actions
+  ok   dry-run changes nothing
+  ok   rollback exit 0
+  ok   rollback reverted both entries
+  ok   record back to v1
+  ok   current back to v1
+  ok   rollback leaves store untouched
+  ok   rollback progress recorded in audit
+  ok   second rollback is a no-op
+audit expiry
+  ok   rollback after audit vacuum exits 20
+  ok   rollback after audit vacuum code
+log integration
+  ok   storage logged through provider
+crash recovery
+  ok   recovery run exit 0
+  ok   recovery adopted record
+  ok   recovery cleared intent
+  ok   recovered record points at store
+
+62 passed, 0 failed
