@@ -87,5 +87,6 @@
     reply: function (promptId, value) { return call("reply", { promptId: promptId, value: value }); },
     env: function () { return call("env", {}); },
     navigate: function (pageId) { return call("navigate", { page: pageId }); },
+    setTheme: function (theme) { window.pd.theme = theme; return call("theme", { theme: theme }); },
   };
 })();

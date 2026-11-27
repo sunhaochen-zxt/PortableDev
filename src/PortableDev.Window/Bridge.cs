@@ -13,6 +13,7 @@ public sealed class Bridge
     private readonly WebView2 _webView;
     private readonly KernelLink _link;
     private readonly Func<string, Task> _navigate;
+    private readonly Action<string>? _onThemeChanged;
     private readonly ConcurrentDictionary<string, string> _prompts = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _ownTasks = new(StringComparer.Ordinal);
     private bool _extSubscribed;
@@ -33,16 +34,28 @@ public sealed class Bridge
         ["gc"] = ["--blobs", "--keep"],
     };
 
-    public Bridge(WebView2 webView, KernelLink link, Func<string, Task> navigate, Dictionary<string, ExtPolicy> policies)
+    public Bridge(WebView2 webView, KernelLink link, Func<string, Task> navigate, Dictionary<string, ExtPolicy> policies, Action<string>? onThemeChanged = null)
     {
         _webView = webView;
         _link = link;
         _navigate = navigate;
         _policies = policies;
+        _onThemeChanged = onThemeChanged;
     }
 
     /// <summary>Called by the shell on every navigation so commands are attributed to the right extension.</summary>
     public void SetPageContext(string extension) => _pageExtension = extension;
+
+    private void NotifyTheme(string? theme)
+    {
+        if (string.IsNullOrWhiteSpace(theme))
+        {
+            return;
+        }
+
+        var normalized = string.Equals(theme.Trim(), "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light";
+        _onThemeChanged?.Invoke(normalized);
+    }
 
     /// <summary>Loads per-extension command policies from the installed ext.json files.</summary>
     public static Dictionary<string, ExtPolicy> LoadPolicies(string extensionsDir)
@@ -241,6 +254,14 @@ public sealed class Bridge
                     // this already; run used to leave its task unknown).
                     var done = await _link.RunWithEventsAsync(argv, events, timeout, MaxEvents,
                         taskId => _ownTasks[taskId] = true).ConfigureAwait(false);
+                    if (argv.Length >= 4
+                        && string.Equals(argv[0], "config", StringComparison.Ordinal)
+                        && string.Equals(argv[1], "set", StringComparison.Ordinal)
+                        && string.Equals(argv[2], "ui.theme", StringComparison.Ordinal)
+                        && (JsonUtil.Int(done, "exitCode") ?? 1) == 0)
+                    {
+                        NotifyTheme(argv[3]);
+                    }
                     Reply(id, new JsonObject { ["done"] = done.DeepClone(), ["events"] = events });
                     return;
                 }
@@ -295,6 +316,13 @@ public sealed class Bridge
                     await _navigate(JsonUtil.String(parameters, "page") ?? string.Empty).ConfigureAwait(false);
                     Reply(id, new JsonObject());
                     return;
+                case "theme":
+                {
+                    var theme = JsonUtil.String(parameters, "theme") ?? string.Empty;
+                    NotifyTheme(theme);
+                    Reply(id, new JsonObject { ["theme"] = string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase) ? "dark" : "light" });
+                    return;
+                }
                 default:
                     throw new InvalidOperationException("unknown bridge method: " + method);
             }

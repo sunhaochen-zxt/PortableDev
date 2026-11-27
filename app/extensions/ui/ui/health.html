@@ -1,0 +1,194 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>健康体检 · PortableDev</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-left">
+      <h1><span class="hero-icon" data-icon="shield" data-size="17"></span>健康体检</h1>
+      <div class="muted">检查便携盘环境完整性（pd doctor）与已装包自带断言（pd selftest）</div>
+    </div>
+    <div class="hero-actions">
+      <button class="sm" id="run-doctor"><span data-icon="shield" data-size="14"></span>运行体检</button>
+      <button class="secondary sm" id="run-selftest"><span data-icon="terminal" data-size="14"></span>运行自检</button>
+      <button class="secondary sm" id="run-selftest-full"><span data-icon="cpu" data-size="14"></span>完整工作流自检</button>
+    </div>
+  </header>
+
+  <section class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-top"><span>体检项</span><span class="kpi-icon info" data-icon="shield" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-checks">—</div>
+      <div class="kpi-sub">盘标记 / 运行时 / 扩展 / store</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-top"><span>发现问题</span><span class="kpi-icon warn" data-icon="list" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-issues">—</div>
+      <div class="kpi-sub">只读体检；修复请用 CLI --fix</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-top"><span>断言通过</span><span class="kpi-icon ok" data-icon="box" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-passed">—</div>
+      <div class="kpi-sub">pd selftest 通过数</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-top"><span>断言失败</span><span class="kpi-icon" data-icon="terminal" data-size="15"></span></div>
+      <div class="kpi-val" id="kpi-failed">—</div>
+      <div class="kpi-sub">不改 store、不卸载包</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2><span data-icon="shield" data-size="15"></span>环境体检结果（pd doctor）</h2>
+      <span class="badge muted" id="doctor-badge">等待运行</span>
+    </div>
+    <div class="table-wrap">
+      <table id="doctor-table">
+        <thead></thead>
+        <tbody><tr><td class="loading">正在运行体检…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2><span data-icon="terminal" data-size="15"></span>包断言自检结果（pd selftest）</h2>
+      <span class="badge muted" id="selftest-badge">点击右上角「运行自检」</span>
+    </div>
+    <div class="table-wrap">
+      <table id="selftest-table">
+        <thead></thead>
+        <tbody><tr><td class="empty">尚未运行包自检，点击「运行自检」或「完整工作流自检」开始。</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="common.js"></script>
+<script>
+function renderResultTable(tableId, tbl, emptyText) {
+  const head = document.querySelector("#" + tableId + " thead");
+  const body = document.querySelector("#" + tableId + " tbody");
+  head.textContent = "";
+  body.textContent = "";
+
+  if (!tbl.columns.length || !tbl.rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.className = "empty";
+    td.textContent = emptyText;
+    tr.appendChild(td);
+    body.appendChild(tr);
+    return;
+  }
+
+  const htr = document.createElement("tr");
+  for (const col of tbl.columns) {
+    const th = document.createElement("th");
+    th.textContent = col.title || col.key;
+    htr.appendChild(th);
+  }
+  head.appendChild(htr);
+
+  for (const row of tbl.rows) {
+    const tr = document.createElement("tr");
+    for (let i = 0; i < row.length; i++) {
+      const colKey = String((tbl.columns[i] && (tbl.columns[i].key || tbl.columns[i].title)) || "");
+      const val = String(row[i] ?? "");
+      if (/status|result|state|结果|状态/i.test(colKey)) {
+        const td = document.createElement("td");
+        const b = document.createElement("span");
+        b.className = "badge " + (/ok|pass|正常|通过/i.test(val) ? "ok" : /warn|警/i.test(val) ? "warn" : /fail|err|缺失|失败/i.test(val) ? "danger" : "muted");
+        b.textContent = val || "—";
+        td.appendChild(b);
+        tr.appendChild(td);
+      } else {
+        tr.appendChild(cell(row, i, i === 0 ? "mono" : ""));
+      }
+    }
+    body.appendChild(tr);
+  }
+}
+
+async function runDoctor() {
+  const btn = document.getElementById("run-doctor");
+  const badge = document.getElementById("doctor-badge");
+  btn.disabled = true;
+  badge.className = "badge muted";
+  badge.textContent = "体检中…";
+  try {
+    const timed = await pdTimed(["doctor"]);
+    const tbl = extractTable(timed.result);
+    const metrics = (timed.result.done && timed.result.done.metrics) || {};
+    const checks = metrics.checks !== undefined ? metrics.checks : tbl.rows.length;
+    const issues = metrics.issues !== undefined ? metrics.issues : 0;
+    document.getElementById("kpi-checks").textContent = String(checks);
+    document.getElementById("kpi-issues").textContent = String(issues);
+    badge.className = "badge " + (issues === 0 ? "ok" : "warn");
+    badge.textContent = issues === 0 ? "全部健康" : issues + " 处待处理";
+    renderResultTable("doctor-table", tbl, "体检完成，无异常输出");
+    showTiming("doctor " + timed.ms + "ms");
+  } catch (error) {
+    badge.className = "badge danger";
+    badge.textContent = "体检失败";
+    const body = document.querySelector("#doctor-table tbody");
+    body.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    renderError(td, error);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function runSelftest(full) {
+  const b1 = document.getElementById("run-selftest");
+  const b2 = document.getElementById("run-selftest-full");
+  const badge = document.getElementById("selftest-badge");
+  b1.disabled = true;
+  b2.disabled = true;
+  badge.className = "badge muted";
+  badge.textContent = full ? "完整自检中…" : "自检中…";
+  try {
+    const argv = full ? ["selftest", "--full"] : ["selftest"];
+    const timed = await pdTimed(argv);
+    const tbl = extractTable(timed.result);
+    const metrics = (timed.result.done && timed.result.done.metrics) || {};
+    const passed = metrics.passed !== undefined ? metrics.passed : 0;
+    const failed = metrics.failed !== undefined ? metrics.failed : 0;
+    document.getElementById("kpi-passed").textContent = String(passed);
+    document.getElementById("kpi-failed").textContent = String(failed);
+    badge.className = "badge " + (failed === 0 ? "ok" : "danger");
+    badge.textContent = failed === 0 ? "全部通过 (" + passed + ")" : failed + " 项失败";
+    renderResultTable("selftest-table", tbl, "当前已装包未声明断言项");
+    showTiming(argv.join(" ") + " " + timed.ms + "ms");
+  } catch (error) {
+    badge.className = "badge danger";
+    badge.textContent = "自检失败";
+    const body = document.querySelector("#selftest-table tbody");
+    body.textContent = "";
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    renderError(td, error);
+    tr.appendChild(td);
+    body.appendChild(tr);
+  } finally {
+    b1.disabled = false;
+    b2.disabled = false;
+  }
+}
+
+document.getElementById("run-doctor").addEventListener("click", runDoctor);
+document.getElementById("run-selftest").addEventListener("click", () => runSelftest(false));
+document.getElementById("run-selftest-full").addEventListener("click", () => runSelftest(true));
+runDoctor();
+</script>
+</body>
+</html>

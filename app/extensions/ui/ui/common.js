@@ -60,6 +60,9 @@ function toggleTheme(persist) {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = next;
   try { sessionStorage.setItem("pd-ui-theme", next); } catch (e) { /* ignore */ }
+  if (window.pd && typeof window.pd.setTheme === "function") {
+    window.pd.setTheme(next).catch(() => { /* optional */ });
+  }
   if (persist && window.pd && window.pd.run) {
     window.pd.run(["config", "set", "ui.theme", next]).catch(() => { /* optional */ });
   }

@@ -13,19 +13,19 @@ namespace PortableDev.Window;
 public sealed class MainForm : Form
 {
     private readonly WindowOptions _options;
-    private readonly Panel _sidebar = new();
-    private readonly Panel _brandHeader = new();
+    private readonly SmoothPanel _sidebar = new();
+    private readonly SmoothPanel _brandHeader = new();
     private readonly Panel _sidebarDivider = new();
-    private readonly Panel _footerPanel = new();
+    private readonly SmoothPanel _footerPanel = new();
     private readonly Panel _footerDivider = new();
-    private readonly ListBox _navigation = new();
+    private readonly SmoothNavListBox _navigation = new();
     private readonly Label _status = new();
     private readonly List<JsonObject> _pages = new();
-    private readonly Font _brandTitleFont = new("Segoe UI", 12.5f, FontStyle.Bold);
-    private readonly Font _brandSubFont = new("Segoe UI", 8.25f, FontStyle.Regular);
-    private readonly Font _brandBadgeFont = new("Segoe UI", 10.5f, FontStyle.Bold);
-    private readonly Font _navFont = new("Segoe UI", 9.75f, FontStyle.Regular);
-    private readonly Font _navActiveFont = new("Segoe UI", 9.75f, FontStyle.Bold);
+    private readonly Font _brandTitleFont = new("Segoe UI", 11.5f, FontStyle.Bold);
+    private readonly Font _brandSubFont = new("Segoe UI", 8f, FontStyle.Regular);
+    private readonly Font _brandBadgeFont = new("Segoe UI", 9.5f, FontStyle.Bold);
+    private readonly Font _navFont = new("Segoe UI", 9.5f, FontStyle.Regular);
+    private readonly Font _navActiveFont = new("Segoe UI", 9.5f, FontStyle.Bold);
     private readonly Font _statusFont = new("Segoe UI", 8.25f, FontStyle.Regular);
     private WebView2 _webView = new();
     private KernelLink? _link;
@@ -52,15 +52,15 @@ public sealed class MainForm : Form
         _darkTheme = string.Equals(initialLook.Theme, "dark", StringComparison.OrdinalIgnoreCase);
 
         _sidebar.Dock = DockStyle.Left;
-        _sidebar.Width = 228;
+        _sidebar.Width = 224;
         _sidebar.Padding = new Padding(0);
 
         _brandHeader.Dock = DockStyle.Top;
-        _brandHeader.Height = 68;
+        _brandHeader.Height = 60;
         _brandHeader.Paint += PaintBrandHeader;
 
         _footerPanel.Dock = DockStyle.Bottom;
-        _footerPanel.Height = 46;
+        _footerPanel.Height = 40;
         _footerPanel.Padding = new Padding(14, 0, 12, 0);
 
         _footerDivider.Dock = DockStyle.Top;
@@ -77,7 +77,7 @@ public sealed class MainForm : Form
         _navigation.Dock = DockStyle.Fill;
         _navigation.BorderStyle = BorderStyle.None;
         _navigation.DrawMode = DrawMode.OwnerDrawFixed;
-        _navigation.ItemHeight = 44;
+        _navigation.ItemHeight = 38;
         _navigation.IntegralHeight = false;
         _navigation.Cursor = Cursors.Hand;
         _navigation.DrawItem += DrawNavigationItem;
@@ -278,7 +278,20 @@ public sealed class MainForm : Form
 
             var look = ReadLook();
             ApplyShellTheme(string.Equals(look.Theme, "dark", StringComparison.OrdinalIgnoreCase));
-            _bridge = new Bridge(_webView, _link, NavigateToAsync, Bridge.LoadPolicies(_options.Extensions));
+            _bridge = new Bridge(
+                _webView,
+                _link,
+                NavigateToAsync,
+                Bridge.LoadPolicies(_options.Extensions),
+                theme =>
+                {
+                    if (IsDisposed || !IsHandleCreated)
+                    {
+                        return;
+                    }
+
+                    BeginInvoke(() => ApplyShellTheme(string.Equals(theme, "dark", StringComparison.OrdinalIgnoreCase)));
+                });
             await _bridge.AttachAsync(System.Text.Json.JsonSerializer.Serialize(look.Theme), System.Text.Json.JsonSerializer.Serialize(look.Locale)).ConfigureAwait(true);
 
             // The shell only ever shows local extension pages: block any other navigation and
@@ -301,10 +314,20 @@ public sealed class MainForm : Form
             // Navigate explicitly: relying on SelectedIndexChanged is fragile (adding items
             // can already leave the selection at 0, in which case no event fires and the view
             // stays blank until the user's first click).
-            SelectSidebarIndex(0);
+            // The headless smoke-check scrapes the overview page (env/version blocks); a UI
+            // extension may reorder its pages, so pick it by id instead of assuming index 0.
+            var firstIndex = 0;
+            if (_options.SmokeCheck is not null)
+            {
+                var overview = _pages.FindIndex(page =>
+                    string.Equals(JsonUtil.String(page, "id"), "overview", StringComparison.Ordinal));
+                firstIndex = overview >= 0 ? overview : 0;
+            }
+
+            SelectSidebarIndex(firstIndex);
             _baseStatus = "内核 " + _link.KernelVersion + " · " + Path.GetFileName(_options.Root);
             _status.Text = _baseStatus;
-            await NavigateToPageAsync(_pages[0]).ConfigureAwait(true);
+            await NavigateToPageAsync(_pages[firstIndex]).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -414,7 +437,7 @@ public sealed class MainForm : Form
         _webView = new WebView2
         {
             Dock = DockStyle.Fill,
-            DefaultBackgroundColor = _darkTheme ? Color.FromArgb(11, 17, 32) : Color.FromArgb(241, 245, 249),
+            DefaultBackgroundColor = _darkTheme ? Color.FromArgb(39, 39, 39) : Color.FromArgb(249, 249, 249),
         };
         Controls.Add(_webView);
         _webView.BringToFront();
@@ -703,31 +726,43 @@ public sealed class MainForm : Form
     private void ApplyShellTheme(bool isDark)
     {
         _darkTheme = isDark;
-        var windowBg = isDark ? Color.FromArgb(11, 17, 32) : Color.FromArgb(241, 245, 249);
-        var sidebarBg = isDark ? Color.FromArgb(15, 23, 42) : Color.FromArgb(255, 255, 255);
-        var divider = isDark ? Color.FromArgb(30, 41, 59) : Color.FromArgb(226, 232, 240);
-        var muted = isDark ? Color.FromArgb(148, 163, 184) : Color.FromArgb(100, 116, 139);
+        // WinUI 3 native palette: Mica shell surface (#F3F3F3 / #202020) + content layer (#F9F9F9 / #272727).
+        var contentBg = isDark ? Color.FromArgb(39, 39, 39) : Color.FromArgb(249, 249, 249);
+        var sidebarBg = isDark ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243);
+        var divider = isDark ? Color.FromArgb(49, 49, 49) : Color.FromArgb(229, 229, 229);
+        var muted = isDark ? Color.FromArgb(158, 158, 158) : Color.FromArgb(118, 118, 118);
 
-        BackColor = windowBg;
-        _sidebar.BackColor = sidebarBg;
-        _brandHeader.BackColor = sidebarBg;
-        _navigation.BackColor = sidebarBg;
-        _footerPanel.BackColor = sidebarBg;
-        _footerDivider.BackColor = divider;
-        _sidebarDivider.BackColor = divider;
-        _status.ForeColor = muted;
+        SuspendLayout();
         try
         {
-            _webView.DefaultBackgroundColor = windowBg;
+            BackColor = sidebarBg;
+            _sidebar.BackColor = sidebarBg;
+            _brandHeader.BackColor = sidebarBg;
+            _navigation.BackColor = sidebarBg;
+            _footerPanel.BackColor = sidebarBg;
+            _footerDivider.BackColor = divider;
+            _sidebarDivider.BackColor = divider;
+            _status.BackColor = sidebarBg;
+            _status.ForeColor = muted;
+            try
+            {
+                _webView.DefaultBackgroundColor = contentBg;
+            }
+            catch (Exception)
+            {
+                // Ignore before handle initialization.
+            }
+
+            ApplyWindowTitleBarTheme(isDark);
         }
-        catch (Exception)
+        finally
         {
-            // Ignore before handle initialization.
+            ResumeLayout(false);
         }
 
-        ApplyWindowTitleBarTheme(isDark);
         _brandHeader.Invalidate();
         _navigation.Invalidate();
+        _footerPanel.Invalidate();
     }
 
     private void ApplyWindowTitleBarTheme(bool isDark)
@@ -742,10 +777,15 @@ public sealed class MainForm : Form
             var value = isDark ? 1 : 0;
             const int DwmwaUseImmersiveDarkMode = 20;
             _ = DwmSetWindowAttribute(Handle, DwmwaUseImmersiveDarkMode, ref value, sizeof(int));
+
+            // Request Windows 11 native Mica backdrop where supported (22H2+); harmlessly ignored on older builds.
+            var backdrop = 2; // DWMSBT_MAINWINDOW
+            const int DwmwaSystemBackdropType = 38;
+            _ = DwmSetWindowAttribute(Handle, DwmwaSystemBackdropType, ref backdrop, sizeof(int));
         }
         catch (Exception)
         {
-            // Older Windows builds ignore this attribute safely.
+            // Older Windows builds ignore these attributes safely.
         }
     }
 
@@ -755,20 +795,23 @@ public sealed class MainForm : Form
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.Clear(_brandHeader.BackColor);
 
-        var badgeRect = new Rectangle(16, 17, 34, 34);
-        using (var path = CreateRoundedRect(badgeRect, 9))
-        using (var brush = new LinearGradientBrush(badgeRect, Color.FromArgb(37, 99, 235), Color.FromArgb(79, 70, 229), 45f))
+        // WinUI 3 compact app emblem: 30x30 with 6px radius in Windows 11 Accent Blue.
+        var badgeRect = new Rectangle(14, 15, 30, 30);
+        var accent = _darkTheme ? Color.FromArgb(96, 205, 255) : Color.FromArgb(0, 95, 184);
+        var badgeText = _darkTheme ? Color.FromArgb(16, 16, 16) : Color.White;
+        using (var path = CreateRoundedRect(badgeRect, 6))
+        using (var brush = new SolidBrush(accent))
         {
             g.FillPath(brush, path);
         }
 
-        TextRenderer.DrawText(g, "PD", _brandBadgeFont, badgeRect, Color.White,
+        TextRenderer.DrawText(g, "PD", _brandBadgeFont, badgeRect, badgeText,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
 
-        var titleColor = _darkTheme ? Color.FromArgb(241, 245, 249) : Color.FromArgb(15, 23, 42);
-        var subColor = _darkTheme ? Color.FromArgb(148, 163, 184) : Color.FromArgb(100, 116, 139);
-        TextRenderer.DrawText(g, "PortableDev", _brandTitleFont, new Point(58, 15), titleColor, TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(g, "v2 Workbench", _brandSubFont, new Point(59, 37), subColor, TextFormatFlags.NoPadding);
+        var titleColor = _darkTheme ? Color.FromArgb(255, 255, 255) : Color.FromArgb(26, 26, 26);
+        var subColor = _darkTheme ? Color.FromArgb(158, 158, 158) : Color.FromArgb(97, 97, 97);
+        TextRenderer.DrawText(g, "PortableDev", _brandTitleFont, new Point(52, 13), titleColor, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, "Windows 便携开发环境", _brandSubFont, new Point(53, 33), subColor, TextFormatFlags.NoPadding);
     }
 
     private void OnNavigationMouseMove(object? sender, MouseEventArgs e)
@@ -823,21 +866,22 @@ public sealed class MainForm : Form
             g.FillRectangle(bgBrush, e.Bounds);
         }
 
+        // WinUI 3 NavigationView item: 5px rounded subtle fill + 3x16 centered accent pill on left.
         var selected = (e.State & DrawItemState.Selected) != 0;
         var hovered = e.Index == _hoverIndex && !selected;
-        var pillRect = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 3, e.Bounds.Width - 20, e.Bounds.Height - 6);
+        var pillRect = new Rectangle(e.Bounds.X + 8, e.Bounds.Y + 2, e.Bounds.Width - 16, e.Bounds.Height - 4);
 
         if (selected)
         {
-            var pillColor = _darkTheme ? Color.FromArgb(30, 41, 59) : Color.FromArgb(239, 246, 255);
-            var accentColor = _darkTheme ? Color.FromArgb(96, 165, 250) : Color.FromArgb(37, 99, 235);
-            using (var pillPath = CreateRoundedRect(pillRect, 9))
+            var pillColor = _darkTheme ? Color.FromArgb(45, 45, 45) : Color.FromArgb(233, 233, 233);
+            var accentColor = _darkTheme ? Color.FromArgb(96, 205, 255) : Color.FromArgb(0, 95, 184);
+            using (var pillPath = CreateRoundedRect(pillRect, 5))
             using (var pillBrush = new SolidBrush(pillColor))
             {
                 g.FillPath(pillBrush, pillPath);
             }
 
-            var barRect = new Rectangle(pillRect.X + 1, pillRect.Y + 8, 3, pillRect.Height - 16);
+            var barRect = new Rectangle(pillRect.X + 1, pillRect.Y + (pillRect.Height - 16) / 2, 3, 16);
             using (var barPath = CreateRoundedRect(barRect, 2))
             using (var barBrush = new SolidBrush(accentColor))
             {
@@ -846,8 +890,8 @@ public sealed class MainForm : Form
         }
         else if (hovered)
         {
-            var hoverColor = _darkTheme ? Color.FromArgb(22, 32, 51) : Color.FromArgb(241, 245, 249);
-            using var hoverPath = CreateRoundedRect(pillRect, 9);
+            var hoverColor = _darkTheme ? Color.FromArgb(41, 41, 41) : Color.FromArgb(236, 236, 236);
+            using var hoverPath = CreateRoundedRect(pillRect, 5);
             using var hoverBrush = new SolidBrush(hoverColor);
             g.FillPath(hoverBrush, hoverPath);
         }
@@ -857,13 +901,13 @@ public sealed class MainForm : Form
         var iconName = item?.Icon ?? "box";
 
         var fgColor = selected
-            ? (_darkTheme ? Color.FromArgb(96, 165, 250) : Color.FromArgb(37, 99, 235))
-            : (_darkTheme ? Color.FromArgb(203, 213, 225) : Color.FromArgb(51, 65, 85));
+            ? (_darkTheme ? Color.FromArgb(255, 255, 255) : Color.FromArgb(26, 26, 26))
+            : (_darkTheme ? Color.FromArgb(214, 214, 214) : Color.FromArgb(60, 60, 60));
 
-        var iconRect = new Rectangle(pillRect.X + 14, pillRect.Y + (pillRect.Height - 16) / 2, 16, 16);
+        var iconRect = new Rectangle(pillRect.X + 13, pillRect.Y + (pillRect.Height - 16) / 2, 16, 16);
         DrawNavIcon(g, iconName, iconRect, fgColor);
 
-        var textRect = new Rectangle(iconRect.Right + 11, pillRect.Y, pillRect.Width - 44, pillRect.Height);
+        var textRect = new Rectangle(iconRect.Right + 11, pillRect.Y, pillRect.Width - 42, pillRect.Height);
         TextRenderer.DrawText(g, title, selected ? _navActiveFont : _navFont, textRect, fgColor,
             TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
@@ -919,6 +963,16 @@ public sealed class MainForm : Form
                 g.DrawLine(pen, r.Left + 2f, r.Top + 8f, r.Left + 3f, r.Top + 8f);
                 g.DrawLine(pen, r.Left + 2f, r.Top + 12f, r.Left + 3f, r.Top + 12f);
                 break;
+            case "shield":
+                g.DrawPolygon(pen, [
+                    new PointF(r.Left + 8, r.Top + 2),
+                    new PointF(r.Right - 2.5f, r.Top + 4.5f),
+                    new PointF(r.Right - 3f, r.Top + 9.5f),
+                    new PointF(r.Left + 8, r.Bottom - 2),
+                    new PointF(r.Left + 3f, r.Top + 9.5f),
+                    new PointF(r.Left + 2.5f, r.Top + 4.5f),
+                ]);
+                break;
             case "sliders":
                 g.DrawLine(pen, r.Left + 2, r.Top + 4.5f, r.Right - 2, r.Top + 4.5f);
                 g.DrawLine(pen, r.Left + 2, r.Top + 11.5f, r.Right - 2, r.Top + 11.5f);
@@ -955,6 +1009,60 @@ public sealed class MainForm : Form
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private sealed class SmoothPanel : Panel
+    {
+        public SmoothPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+            UpdateStyles();
+        }
+    }
+
+    /// <summary>Flicker-free owner-drawn ListBox: paints empty area cleanly without WM_ERASEBKGND flashes.</summary>
+    private sealed class SmoothNavListBox : ListBox
+    {
+        private const int WmEraseBkgnd = 0x0014;
+
+        public SmoothNavListBox()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
+            UpdateStyles();
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WmEraseBkgnd)
+            {
+                m.Result = (IntPtr)1;
+                return;
+            }
+
+            base.WndProc(ref m);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using (var bg = new SolidBrush(BackColor))
+            {
+                e.Graphics.FillRectangle(bg, ClientRectangle);
+            }
+
+            for (var index = 0; index < Items.Count; index++)
+            {
+                var rect = GetItemRectangle(index);
+                if (!e.ClipRectangle.IntersectsWith(rect))
+                {
+                    continue;
+                }
+
+                var state = SelectedIndex == index ? DrawItemState.Selected : DrawItemState.Default;
+                OnDrawItem(new DrawItemEventArgs(e.Graphics, Font, rect, index, state, ForeColor, BackColor));
+            }
+        }
+    }
 
     private sealed record PageItem(string Title, string Icon, JsonObject Page)
     {

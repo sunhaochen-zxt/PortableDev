@@ -9,7 +9,7 @@
   "requiresKernel": ">=1",
   "permissions": [
     { "kind": "ui", "allow": true },
-    { "kind": "commands", "allow": ["list", "info", "search", "outdated", "fetch", "install", "remove", "upgrade", "source", "proc", "kernel", "log", "version", "config"] }
+    { "kind": "commands", "allow": ["list", "info", "search", "outdated", "fetch", "install", "remove", "upgrade", "source", "proc", "kernel", "doctor", "selftest", "log", "version", "config"] }
   ],
   "pages": [
     { "id": "overview", "title": "概览", "entry": "ui/overview.html", "icon": "home", "order": 10, "nav": "sidebar" },
@@ -17,6 +17,7 @@
     { "id": "discover", "title": "软件商店", "entry": "ui/discover.html", "icon": "compass", "order": 30, "nav": "sidebar" },
     { "id": "sources", "title": "软件源", "entry": "ui/sources.html", "icon": "globe", "order": 40, "nav": "sidebar" },
     { "id": "processes", "title": "进程监控", "entry": "ui/processes.html", "icon": "cpu", "order": 50, "nav": "sidebar" },
+    { "id": "health", "title": "健康体检", "entry": "ui/health.html", "icon": "shield", "order": 55, "nav": "sidebar" },
     { "id": "logs", "title": "实时日志", "entry": "ui/logs.html", "icon": "list", "order": 60, "nav": "sidebar" },
     { "id": "settings", "title": "系统设置", "entry": "ui/settings.html", "icon": "sliders", "order": 70, "nav": "sidebar" }
   ],
