@@ -29,6 +29,8 @@ public sealed class PdShell : IDisposable
     private string? _taskId;
     private bool _done;
     private int _exitCode = ExitCodes.Internal;
+    private bool _handshakeTransient;
+    private string? _handshakeMessage;
     private int? _childExitCode;
     private int _cancelRequested;
     private bool _disposed;
@@ -89,9 +91,41 @@ public sealed class PdShell : IDisposable
         // Probing or stopping must never start a daemon; otherwise a failed CI check or a
         // "why is this dead" look leaves a kernel behind. Only real commands auto-start.
         var noAutoStart = IsCommand("kernel", "status") || IsCommand("kernel", "stop");
-        var (client, connectError) = noAutoStart
-            ? (await PipeClient.TryConnectAsync(_pipeName, 500, _options.Trace, token).ConfigureAwait(false), null)
-            : await ConnectAsync(token).ConfigureAwait(false);
+        PipeClient? client = null;
+        string? connectError = null;
+        for (var attempt = 0; ; attempt++)
+        {
+            (client, connectError) = noAutoStart
+                ? (await PipeClient.TryConnectAsync(_pipeName, 500, _options.Trace, token).ConfigureAwait(false), null)
+                : await ConnectAsync(token).ConfigureAwait(false);
+            if (client is null)
+            {
+                break;
+            }
+
+            _client = client;
+            if (await HandshakeAsync(token).ConfigureAwait(false))
+            {
+                break;
+            }
+
+            client.Dispose();
+            _client = null;
+            if (!_handshakeTransient || attempt >= 10)
+            {
+                if (_handshakeMessage is { Length: > 0 })
+                {
+                    Console.Error.WriteLine(_handshakeMessage);
+                }
+
+                return _exitCode;
+            }
+
+            // A kernel that is still shutting down accepts the pipe and then closes it; wait for it
+            // to exit and let the next attempt autostart a fresh one.
+            await Task.Delay(250, token).ConfigureAwait(false);
+        }
+
         if (client is null && noAutoStart)
         {
             if (IsCommand("kernel", "stop"))
@@ -118,11 +152,6 @@ public sealed class PdShell : IDisposable
         _client = client;
         try
         {
-            if (!await HandshakeAsync(token).ConfigureAwait(false))
-            {
-                return _exitCode;
-            }
-
             if (!await SendRequestAsync().ConfigureAwait(false))
             {
                 return _exitCode;
@@ -215,6 +244,8 @@ public sealed class PdShell : IDisposable
 
     private async Task<bool> HandshakeAsync(CancellationToken token)
     {
+        _handshakeTransient = false;
+        _handshakeMessage = null;
         var hello = new Envelope
         {
             Kind = Kinds.Hello,
@@ -237,7 +268,17 @@ public sealed class PdShell : IDisposable
             },
         };
 
-        await _client!.SendAsync(hello).ConfigureAwait(false);
+        try
+        {
+            await _client!.SendAsync(hello).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            _handshakeTransient = true;
+            _handshakeMessage = "kernel closed the connection during handshake";
+            _exitCode = ExitCodes.Env;
+            return false;
+        }
 
         var timeout = ResolveHandshakeTimeout();
         Envelope? reply;
@@ -249,7 +290,8 @@ public sealed class PdShell : IDisposable
         catch (TimeoutException)
         {
             ClosePipe();
-            Console.Error.WriteLine("kernel did not answer the handshake within " + TimeUtil.FormatDuration(timeout));
+            _handshakeTransient = true;
+            _handshakeMessage = "kernel did not answer the handshake within " + TimeUtil.FormatDuration(timeout);
             _exitCode = ExitCodes.Env;
             return false;
         }
@@ -268,7 +310,8 @@ public sealed class PdShell : IDisposable
                 return false;
             }
 
-            Console.Error.WriteLine("kernel closed the connection during handshake");
+            _handshakeTransient = true;
+            _handshakeMessage = "kernel closed the connection during handshake";
             _exitCode = ExitCodes.Env;
             return false;
         }
@@ -277,6 +320,15 @@ public sealed class PdShell : IDisposable
         {
             var code = JsonUtil.String(reply.Data, "code") ?? ErrorCodes.Protocol;
             var message = JsonUtil.String(reply.Data, "message") ?? "kernel refused the connection";
+            if (string.Equals(code, "ERR_CANCELLED", StringComparison.Ordinal) || string.Equals(code, ErrorCodes.Busy, StringComparison.Ordinal))
+            {
+                // The old kernel is still shutting down; retry once it is gone.
+                _handshakeTransient = true;
+                _handshakeMessage = message;
+                _exitCode = ExitCodes.ForError(code);
+                return false;
+            }
+
             _renderer.Error(code, message, JsonUtil.String(reply.Data, "hint"));
             _exitCode = ExitCodes.ForError(code);
             return false;
