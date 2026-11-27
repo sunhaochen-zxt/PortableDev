@@ -2198,6 +2198,8 @@ async function upgradeCommand(message) {
     const upgraded = [];
     const skipped = [];
     const failed = [];
+    const atomic = flags.atomic === true;
+    const upgradedTasks = [];
     const ctx = (message.data && message.data.ctx) || {};
     let cancelled = false;
     for (const item of plan) {
@@ -2257,6 +2259,7 @@ async function upgradeCommand(message) {
           },
         );
         upgraded.push({ package: pkg, from: item.record.version, to: item.resolved.version, storePath: metrics.storePath || null, task: taskId });
+        upgradedTasks.push(taskId);
         io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "done" });
       } catch (error) {
         const rollback = await rollbackTask(taskId, io.event);
@@ -2265,6 +2268,20 @@ async function upgradeCommand(message) {
         io.event("step", { stepId: "up-" + pkg, title: "upgrade " + pkg, state: "failed" });
         io.event("log", { level: "error", msg: "upgrade failed for " + pkg + ": " + (error.message || String(error)) + suffix +
           "; partial store directories are left for pd gc" });
+        if (atomic && upgradedTasks.length > 0) {
+          // --atomic: the batch is all-or-nothing, so undo the upgrades that already landed.
+          let restored = 0;
+          for (const prior of upgradedTasks.slice().reverse()) {
+            const undo = await rollbackTask(prior, io.event);
+            if ((undo.failed || 0) === 0) {
+              restored += 1;
+            }
+          }
+          upgraded.length = 0;
+          failed[failed.length - 1].message += "; atomic: rolled back " + restored + " package(s)";
+          io.event("log", { level: "warn", msg: "atomic batch aborted; rolled back " + restored + " upgrade(s)" });
+          break;
+        }
         if (isCancelled(message.id)) {
           cancelled = true;
           break;
@@ -2407,6 +2424,8 @@ async function removeCommand(message) {
 
     const removed = [];
     const failed = [];
+    const atomic = flags.atomic === true;
+    const removedTasks = [];
     let cancelled = false;
     for (const item of targets) {
       if (isCancelled(message.id)) {
@@ -2425,12 +2444,27 @@ async function removeCommand(message) {
           io.event("log", { level: "warn", msg: "ledger commit failed: " + (ledgerError.message || String(ledgerError)) });
         }
         removed.push({ package: item.pkg, version: item.record.version, homePurged: result.homePurged === true, homeTrash: result.homeTrash || null, task: taskId });
+        removedTasks.push(taskId);
         io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "done" });
       } catch (error) {
         const rollback = await rollbackTask(taskId, io.event);
         const suffix = rollback.failed > 0 ? " (rollback partial: " + rollback.failed + " step(s))" : "";
         failed.push({ package: item.pkg, code: error.code || "ERR_INTERNAL", message: (error.message || String(error)) + suffix, task: taskId });
         io.event("step", { stepId: "rm-" + item.pkg, title: "remove " + item.pkg, state: "failed" });
+        if (atomic && removedTasks.length > 0) {
+          // --atomic: restore the packages that were already removed before failing the batch.
+          let restored = 0;
+          for (const prior of removedTasks.slice().reverse()) {
+            const undo = await rollbackTask(prior, io.event);
+            if ((undo.failed || 0) === 0) {
+              restored += 1;
+            }
+          }
+          removed.length = 0;
+          failed[failed.length - 1].message += "; atomic: restored " + restored + " package(s)";
+          io.event("log", { level: "warn", msg: "atomic batch aborted; restored " + restored + " removal(s)" });
+          break;
+        }
         if (isCancelled(message.id)) {
           cancelled = true;
           break;

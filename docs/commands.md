@@ -238,7 +238,7 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
   多源优先级（包括 scoop bucket 源）、yanked、离线缓存、`--source`/`--refresh`/`--offline`）、`--pin` 锁定包；
 - 支持：包脚本（受限请求协议；本地默认跑、网络源需 `--allow-scripts`，`--no-scripts` 优先）、
   PATH/环境变量/HKCU/HKLM/启动器接线、`data.link`/`data.copy`、`{{HOME}}` 家目录联接；
-- 支持：`pd upgrade` / `pd remove` / `pd list` 生命周期命令（见 5.2）；
+| `pd upgrade` | 升级（`--atomic`：整批全成功才生效，失败自动回滚已升级的包） | **是** | 需缓存 | `--all` `--to <版本>` `--dry-run` `--atomic` | 8/12/20/21/23/24 |
 - 支持：依赖递归安装（`requires` 按拓扑先装依赖；已装且满足范围则跳过；冲突/循环直接失败 24；
   失败时已装好的依赖保留；`--no-deps` 跳过；`--dry-run` 显示依赖计划）；
 - 支持：虚拟包（`requires` 写虚拟名时：已装的提供者优先满足，否则按源优先级装提供者，
@@ -247,7 +247,7 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 - 未支持：`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
 - 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`）。
 
-### 5.2 `pd upgrade` / `pd remove` / `pd list` / `pd info` / `pd outdated` / `pd env`
+| `pd upgrade` | 升级（`--atomic`：整批全成功才生效，失败自动回滚已升级的包） | **是** | 需缓存 | `--all` `--to <版本>` `--dry-run` `--atomic` | 8/12/20/21/23/24 |
 
 三条命令都基于“记录 + 存档点”工作：**每个包一个审计任务**，批量时某包失败只回滚该包，
 其他包继续，最后汇总（退出码取首个错误的映射）。

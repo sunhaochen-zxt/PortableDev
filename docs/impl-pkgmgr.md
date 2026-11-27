@@ -165,6 +165,8 @@ python -u tools/provides-e2e.py
 |---|---|
 | `pd doctor` | 只读检查：盘标记、随盘 .NET/Node、`app\baseline\extensions` 对比、记录 vs store、残留 intent、配置解析、稳定根、current 接线解析、PATH/环境变量/注册表接线、家目录联接、受限会话探针；`--deep` 追加 blob 缓存、源冲突（同 id 多源）、文件系统（PowerShell `Get-Volume`，NTFS）；`--fix` 做“从 baseline 覆盖内置扩展 + 删 done/坏 intent + storage `wire apply` 重建机器接线 + 清失效 PATH 条目”，修完重算再出报告（`metrics.fixed/issues/checks`），问题本身不算命令失败 |
 | `pd selftest` | 读记录上的 `asserts`（安装时随记录保存，目录安装没有 `package.json` 也能测）；`--full` 追加 `selftest` 工作流；命令类断言经 `proc.spawn` 在 Job Object 里执行，失败 12、`--only` 未装 20 |
+- 批量事务：`pd remove/upgrade` 加 `--atomic` 后整批全成功才保留；某个包失败时按 task 反向调用
+  `rollback.run` 把已完成的卸载/升级逐条还原，再以首个错误返回（未加 --atomic 仍是旧的逐包语义）。
 - 子命令粒度：`source list` 在 `ext.json` 里单独登记为只读并行命令，内核按最长前缀路由；
   pkgmgr 处理器只取 `cmd` 的第一个词选函数，argv 仍是去掉首段的参数（`["list", ...]`），
   所以 `source list` 与其它 `source` 子命令共用同一份解析。

@@ -319,6 +319,20 @@ def main():
         check("remove flaky", result.returncode == 0, (result.returncode, result.stdout[-300:]))
 
 
+        print("atomic batch upgrade")
+        result = pd(root, "--json", "install", "demo@1.0.0", "--source", "fixtures", "--force")
+        check("demo forced to 1.0.0 for the atomic case", result.returncode == 0 and record(root, "demo").get("version") == "1.0.0", (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "install", "flaky@1.0.0", "--source", "fixtures", "--force")
+        check("flaky forced to 1.0.0 for the atomic case", result.returncode == 0 and record(root, "flaky").get("version") == "1.0.0", (result.returncode, result.stdout[-300:]))
+        result = pd(root, "--json", "upgrade", "--all", "--atomic")
+        done = done_of(result.stdout)
+        check("atomic batch exits 12 on the broken package", result.returncode == 12, (result.returncode, result.stdout[-500:]))
+        check("atomic rolled demo back to 1.0.0", record(root, "demo") and record(root, "demo").get("version") == "1.0.0", record(root, "demo"))
+        check("atomic left flaky at 1.0.0", record(root, "flaky") and record(root, "flaky").get("version") == "1.0.0", record(root, "flaky"))
+        check("atomic failure mentions the rollback", "atomic" in str((done or {}).get("error")) or "atomic" in result.stdout, (done, result.stdout[-400:]))
+        result = pd(root, "--json", "remove", "demo", "flaky")
+        check("atomic fixtures removed", result.returncode == 0, (result.returncode, result.stdout[-300:]))
+
         print("cross-machine record must not restore another machine's old values")
         result = pd(root, "--json", "install", "wiredhome@1.0.0", "--source", "fixtures")
         check("install wiredhome for cross-machine case", result.returncode == 0, (result.returncode, result.stdout[-300:]))
