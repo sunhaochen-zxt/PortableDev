@@ -147,6 +147,22 @@ def copy_runtime(dotnet_root, runtime_dir):
     return copied_version
 
 
+def copy_proc_extension(extensions):
+    """proc is the only compiled extension: its dll is gitignored, so a fresh checkout has to get
+    it from the ProcExt build output instead of relying on a hand-copied file."""
+    source = os.path.join("src", "PortableDev.ProcExt", "bin", "Debug", "net8.0", "win-x64")
+    target = os.path.join(extensions, "proc")
+    if not os.path.isdir(source):
+        raise SystemExit("missing " + source + "; build src/PortableDev.ProcExt first")
+    os.makedirs(target, exist_ok=True)
+    copied = 0
+    for name in os.listdir(source):
+        if name.endswith(".dll") or name.endswith(".json"):
+            shutil.copy2(os.path.join(source, name), os.path.join(target, name))
+            copied += 1
+    return copied
+
+
 def check_shared_assemblies(dirs):
     """The app dirs each carry their own copy of PortableDev.Core.dll; copying them in order can
     silently overwrite a fresh kernel with a stale window copy. Refuse to deploy such a mix."""
@@ -229,6 +245,9 @@ def main():
         source = os.path.join(EXTENSIONS_SRC, name)
         if os.path.isdir(source):
             shutil.copytree(source, os.path.join(extensions, name))
+
+    # proc is the only compiled extension and its dll is gitignored: take it from the build output.
+    copy_proc_extension(extensions)
 
     # Pristine copy of the built-in extensions: `pd doctor --fix` restores from here.
     baseline = os.path.join(app, "baseline", "extensions")

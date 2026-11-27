@@ -42,6 +42,8 @@ dotnet build tests/PortableDev.Core.Runner/PortableDev.Core.Runner.csproj -c Deb
 > 这块盘上 mtime 粒度不可靠，必须加 `--no-incremental`，否则增量构建可能跳过编译。
 > 改 `PortableDev.Core` 后六个工程都要重建：`tools/deploy-dev.py` 会校验各 bin 目录里的
 > `PortableDev.Core.dll` 是否同一份，不一致直接拒部署（避免旧窗口副本覆盖新内核）。
+> `proc` 是唯一的编译型扩展，它的 dll 不入库，部署时会从 `PortableDev.ProcExt` 的构建输出拷进
+> `app\extensions\proc\`（所以全新 clone 先按上面的清单构建，再部署）。
 
 本地试玩（生成一个可双击的测试盘）：
 
