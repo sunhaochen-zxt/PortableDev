@@ -330,7 +330,19 @@ path.add / env.set / reg.set / reg.del / launch / assert
 | `fileHash` | `path`、`sha256` | 单个文件校验 |
 | `x-*` | — | 自定义，未识别则跳过 |
 
-断言失败 → 整个安装回滚（架构 11.1）。
+断言失败 → 整个安装回滚（架构 11.1）。安装时断言随记录保存，之后用 `pd selftest` 复跑
+（store 里没有 `package.json` 也能测）。
+
+`selftest` 字段（可选）声明 `pd selftest --full` 才跑的完整工作流：
+
+```json
+"selftest": [
+  { "name": "build hello", "run": "cl hello.c && hello.exe", "expect": "hello", "timeout": "60s" }
+]
+```
+
+每项字段同 `command` 断言（`run` / `expect` / `match` / `timeout`），`name` 只用于报告；
+默认的 `pd selftest` 不跑它，避免日常检查触发重编译。
 
 ### 3.10 启动器 `launch`
 

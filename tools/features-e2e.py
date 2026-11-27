@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""pd doctor + pd selftest e2e.
+
+- doctor reports a healthy stick, flags a deleted built-in extension, restores it with --fix
+  and clears stale intents;
+- selftest runs the assertions stored on the record, honours --only/--full and exits 12/20.
+
+Usage: python -u tools/features-e2e.py [stick-root]
+"""
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import time
+
+DOTNET = r"Z:\PortableDev\tools\dotnet-sdk\8.0.426\dotnet.exe"
+KERNEL = os.path.join("src", "PortableDev.Kernel", "bin", "Debug", "net8.0", "win-x64", "pd-kernel.dll")
+PRODUCT_EXTENSIONS = ["storage", "rollback", "download", "unpack", "pkgmgr", "proc"]
+
+PASS = 0
+FAIL = 0
+
+
+def check(name, ok, detail=""):
+    global PASS, FAIL
+    if ok:
+        PASS += 1
+        print(f"  ok   {name}")
+    else:
+        FAIL += 1
+        print(f"  FAIL {name} {str(detail)[:400]}")
+
+
+def read_exact(stream, n):
+    buf = b""
+    while len(buf) < n:
+        chunk = stream.read(n - len(buf))
+        if not chunk:
+            return buf
+        buf += chunk
+    return buf
+
+
+def send(stream, obj):
+    data = json.dumps(obj, ensure_ascii=False).encode()
+    stream.write(struct.pack("<I", len(data)) + data)
+    stream.flush()
+
+
+def recv(stream):
+    head = read_exact(stream, 4)
+    if len(head) < 4:
+        return None
+    size = struct.unpack("<I", head)[0]
+    return json.loads(read_exact(stream, size))
+
+
+def stick_id(root):
+    with open(os.path.join(root, "state", "stick.json"), "r", encoding="utf-8") as handle:
+        return json.load(handle)["stickId"]
+
+
+def connect(root, timeout=30):
+    bs = chr(92)
+    pipe = bs + bs + "." + bs + "pipe" + bs + "portabledev-" + stick_id(root)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            return open(pipe, "r+b", buffering=0)
+        except OSError:
+            time.sleep(0.1)
+    raise SystemExit("pipe never appeared")
+
+
+COUNTER = [0]
+
+
+def call(stream, argv, timeout=180, events=None):
+    COUNTER[0] += 1
+    task = f"r{COUNTER[0]}"
+    send(stream, {"v": 1, "kind": "req", "id": task, "data": {"argv": argv, "opts": {}}})
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        env = recv(stream)
+        if env is None:
+            return None
+        if env.get("kind") != "evt":
+            continue
+        event = env.get("data") or {}
+        if events is not None:
+            events.append(event)
+        if event.get("type") == "done":
+            return event
+    return None
+
+
+def default_root():
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(os.path.dirname(os.path.dirname(here)), ".run-features")
+
+
+def deploy(root):
+    """Builtin extensions + their pristine baseline + a fake bundled runtime for doctor."""
+    app_ext = os.path.join(root, "app", "extensions")
+    baseline = os.path.join(root, "app", "baseline", "extensions")
+    for name in PRODUCT_EXTENSIONS:
+        shutil.copytree(os.path.join("app", "extensions", name), os.path.join(app_ext, name), dirs_exist_ok=True)
+        shutil.copytree(os.path.join("app", "extensions", name), os.path.join(baseline, name), dirs_exist_ok=True)
+    shutil.copytree(os.path.join("tests", "fixtures", "log-ext"), os.path.join(app_ext, "log"), dirs_exist_ok=True)
+    shutil.copytree(os.path.join("tests", "fixtures", "log-ext"), os.path.join(baseline, "log"), dirs_exist_ok=True)
+    runtime = os.path.join(root, "app", "runtime")
+    os.makedirs(os.path.join(runtime, "node"), exist_ok=True)
+    os.makedirs(os.path.join(runtime, "shared", "Microsoft.NETCore.App", "8.0.0"), exist_ok=True)
+    open(os.path.join(runtime, "dotnet.exe"), "w", encoding="utf-8").close()
+    open(os.path.join(runtime, "node", "node.exe"), "w", encoding="utf-8").close()
+    os.makedirs(os.path.join(root, "state", "wire"), exist_ok=True)
+    with open(os.path.join(root, "state", "wire", "fake-mode"), "w", encoding="utf-8") as handle:
+        handle.write("1\n")
+    for directory in ("store", "current", "staging", "packages"):
+        os.makedirs(os.path.join(root, directory), exist_ok=True)
+    for directory in ("records", "intent", "wire", "logs", "tmp", "sources"):
+        os.makedirs(os.path.join(root, "state", directory), exist_ok=True)
+
+
+def check_row(done, name):
+    checks = (done or {}).get("metrics", {}).get("checks") or []
+    for item in checks:
+        if item.get("check") == name:
+            return item
+    return None
+
+
+def make_pkg(directory, pkg_id, extra=None):
+    shutil.rmtree(directory, ignore_errors=True)
+    os.makedirs(os.path.join(directory, "files"))
+    manifest = {"schema": 1, "id": pkg_id, "version": "1.0.0", "platform": "win-x64"}
+    if extra:
+        manifest.update(extra)
+    with open(os.path.join(directory, "package.json"), "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle)
+    with open(os.path.join(directory, "files", "marker.txt"), "w", encoding="utf-8") as handle:
+        handle.write(pkg_id)
+    return directory
+
+
+def installed_ids(root):
+    return sorted(os.path.splitext(name)[0] for name in os.listdir(os.path.join(root, "state", "records")) if name.endswith(".json"))
+
+
+def main():
+    root = sys.argv[1] if len(sys.argv) > 1 else default_root()
+    print(f"stick root: {root}")
+    shutil.rmtree(root, ignore_errors=True)
+    subprocess.run([DOTNET, KERNEL, "--root", root, "--init", "--once"],
+                   check=True, capture_output=True, text=True)
+    deploy(root)
+    env = dict(os.environ)
+    env["DOTNET_ROOT"] = os.path.dirname(DOTNET)
+    # The fake app/runtime/node/node.exe only satisfies doctor's existence check; extensions must
+    # run with a real Node, so override the bundled path for this hermetic root.
+    real_node = shutil.which("node")
+    if not real_node:
+        for candidate in (r"C:\Dev\tools\nodejs\26.13.0\node.exe",):
+            if os.path.isfile(candidate):
+                real_node = candidate
+                break
+    if real_node:
+        env["PD_NODE"] = real_node
+    # Same for the dotnet-hosted extension (proc): the fake app/runtime/dotnet.exe only exists so
+    # doctor's existence check passes, never to execute anything.
+    env["PD_DOTNET"] = DOTNET
+    log = open(os.path.join(root, "kernel.out"), "w", encoding="utf-8")
+    child = subprocess.Popen([DOTNET, KERNEL, "--root", root], stdout=log, stderr=subprocess.STDOUT, env=env)
+    stream = None
+    try:
+        stream = connect(root)
+        send(stream, {"v": 1, "kind": "hello", "data": {
+            "protocol": 1, "client": "features-e2e", "clientVersion": "0.0.1", "features": ["json"]}})
+        hello = recv(stream)
+        check("hello.ok", hello and hello.get("kind") == "hello.ok", hello)
+
+        print("doctor: healthy stick")
+        done = call(stream, ["doctor"])
+        check("healthy exit 0", done and done.get("exitCode") == 0, done)
+        check("healthy no issues", done and done.get("metrics", {}).get("issues") == 0, done)
+
+        print("doctor: deleted built-in extension is reported, not silently restored")
+        unpack = os.path.join(root, "app", "extensions", "unpack")
+        shutil.rmtree(unpack, ignore_errors=True)
+        done = call(stream, ["doctor", "--json"], events=[])
+        row = check_row(done, "内置扩展")
+        check("missing extension reported", row is not None and row.get("ok") is False, row)
+        check("doctor did not repair without --fix", not os.path.isdir(unpack), os.listdir(os.path.join(root, "app", "extensions")))
+
+        print("doctor --fix restores from the baseline")
+        done = call(stream, ["doctor", "--fix"])
+        check("fix exit 0", done and done.get("exitCode") == 0, done)
+        check("fixed count", done and done.get("metrics", {}).get("fixed", 0) >= 1, done)
+        check("extension restored", os.path.isfile(os.path.join(unpack, "ext.json")), os.listdir(unpack) if os.path.isdir(unpack) else "missing")
+        done = call(stream, ["doctor"])
+        check("healthy again", done and done.get("metrics", {}).get("issues") == 0, done)
+
+        print("doctor: stale intent is reported and cleaned")
+        stale = os.path.join(root, "state", "intent", "stale.json")
+        with open(stale, "w", encoding="utf-8") as handle:
+            json.dump({"pkg": "stale", "phase": "done"}, handle)
+        done = call(stream, ["doctor"])
+        row = check_row(done, "残留 intent")
+        check("intent reported", row is not None and row.get("ok") is False, row)
+        done = call(stream, ["doctor", "--fix"])
+        check("stale intent removed", not os.path.exists(stale), done)
+
+        print("selftest: stored assertions pass")
+        good = make_pkg(os.path.join(root, "pkgs", "good"), "goodpkg", {"asserts": [
+            {"kind": "exists", "path": "marker.txt"},
+            {"kind": "command", "run": "cmd /c echo hello-assert", "expect": "hello-assert", "timeout": "10s"},
+        ]})
+        done = call(stream, ["install", good])
+        check("install with command assert", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["selftest"])
+        check("selftest ok", done and done.get("ok") is True, done)
+        check("selftest passed count", done and done.get("metrics", {}).get("passed", 0) >= 2, done)
+        done = call(stream, ["selftest", "--only", "goodpkg"])
+        check("selftest --only", done and done.get("ok") is True, done)
+        done = call(stream, ["selftest", "--only", "nope"])
+        check("selftest unknown --only exits 20", done and done.get("exitCode") == 20
+              and (done.get("error") or {}).get("code") == "ERR_PKG_NOT_FOUND", done)
+
+        print("selftest: failing command assertion fails selftest with 12")
+        bad = make_pkg(os.path.join(root, "pkgs", "bad"), "badpkg", {"asserts": [
+            {"kind": "command", "run": "cmd /c echo nope", "expect": "expected-text"},
+        ]})
+        done = call(stream, ["install", bad])
+        check("install with failing assert exits 12", done and done.get("exitCode") == 12
+              and (done.get("error") or {}).get("code") == "ERR_ASSERT", done)
+        check("failed install rolled back", "badpkg" not in installed_ids(root), installed_ids(root))
+
+        print("selftest --full runs the manifest selftest workflow")
+        full = make_pkg(os.path.join(root, "pkgs", "full"), "fullpkg", {"selftest": [
+            {"name": "workflow", "run": "cmd /c echo full-ok", "expect": "full-ok", "timeout": "10s"},
+        ]})
+        done = call(stream, ["install", full])
+        check("install full-only package", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["selftest", "--full"])
+        check("selftest --full ok", done and done.get("ok") is True, done)
+        check("selftest --full passed count", done and done.get("metrics", {}).get("passed", 0) >= 1, done)
+    finally:
+        try:
+            call(stream, ["kernel", "stop"], timeout=30) if stream is not None else None
+        except Exception:
+            pass
+        try:
+            child.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            child.kill()
+        log.close()
+    print(f"\n{PASS} passed, {FAIL} failed")
+    return 0 if FAIL == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

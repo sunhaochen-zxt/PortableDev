@@ -54,7 +54,7 @@ python tools/deploy-dev.py            # 生成 .run-app/
 套件会自己拉起/停止内核，必须串行跑（先删 `.run/state/lock.json`）：
 
 ```bash
-dotnet tests/PortableDev.Core.Runner/bin/Debug/net8.0/PortableDev.Core.Runner.dll   # 21
+dotnet tests/PortableDev.Core.Runner/bin/Debug/net8.0/PortableDev.Core.Runner.dll   # 24
 python -u tools/e2e.py .run                                                        # 51（带日志提供者 61）
 PD_LOG_FIXTURE=log-ext python -u tools/storage-e2e.py .run                          # 62
 PD_LOG_FIXTURE=log-alt python -u tools/storage-e2e.py .run                          # 62（换日志实现）
@@ -70,9 +70,10 @@ dotnet tests/PortableDev.Proc.Runner/bin/Debug/net8.0/PortableDev.Proc.Runner.dl
 python -u tools/proc-e2e.py                                                          # 28（proc 扩展 + 系统枚举 + pkgmgr 接入）
 python -u tools/run-e2e.py                                                           # 19（pd run/shell + exec 通道）
 python -u tools/scoop-e2e.py                                                         # 22（scoop 源 + requires 递归）
-python -u tools/provides-e2e.py                                                      # 18（虚拟包 + replaces）
-python -u tools/window-e2e.py                                                        # 21（窗口壳：内核链路 + WebView2 桥）
+python -u tools/provides-e2e.py                                                      # 30（虚拟包 + replaces）
+python -u tools/window-e2e.py                                                        # 22（窗口壳：内核链路 + WebView2 桥 + 基线自愈）
 python -u tools/runtime-e2e.py                                                       # 11（随盘运行时：清空 DOTNET_ROOT/PATH 后跑 CLI 与窗口）
+python -u tools/features-e2e.py                                                      # 21（doctor/--fix 与 selftest/命令断言）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```

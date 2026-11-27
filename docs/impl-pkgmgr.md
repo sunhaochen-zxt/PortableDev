@@ -159,6 +159,16 @@ python -u tools/scoop-e2e.py
 python -u tools/provides-e2e.py
 ```
 
+## 8.1 只读与自检命令
+
+| 命令 | 实现要点 |
+|---|---|
+| `pd doctor` | 只读检查：盘标记、随盘 .NET/Node、`app\baseline\extensions` 对比、记录 vs store、残留 intent、配置解析；`--fix` 只做“从 baseline 覆盖内置扩展 + 删 done/坏 intent”，修完重算再出报告（`metrics.fixed/issues/checks`），问题本身不算命令失败 |
+| `pd selftest` | 读记录上的 `asserts`（安装时随记录保存，目录安装没有 `package.json` 也能测）；`--full` 追加 `selftest` 工作流；命令类断言经 `proc.spawn` 在 Job Object 里执行，失败 12、`--only` 未装 20 |
+| `pd info` | 只读详情：版本、store 路径、来源、固定状态、PATH/env/registry/launcher 接线、断言清单与已存工作流 |
+| `pd outdated` | 对每个已装包调用 `sources().resolve` 比较版本；解析失败的包只计入 `skipped`，不影响退出码 |
+| `pd env` | 打印包的 PATH 接线（`<稳定根>\current\<包>\...`）、当前进程 PATH、包声明的环境变量——和 `pd shell --profile` 对照用 |
+
 ## 9. 还没做的
 
 | 项 | 说明 |

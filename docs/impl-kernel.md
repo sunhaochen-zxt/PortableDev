@@ -152,6 +152,10 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
   `itemDropped` 回调计数（`DropOldest` 下 `TryWrite` 恒返 true，靠返回值计数永远是 0），随后补写一条
   `log.dropped` 警告记录；`Flush()`/`Dispose()` 也会 drain 队列，所以通道按多读者配置，提供者状态字段加锁。
 - 内置命令先入命令表：扩展与内置重名时拒绝的是扩展，内置命令不会被静默顶掉。
+- `pd ext`：`list` 与 `kernel ext list` 同源；`enable/disable` 只改 `ext.json` 的 `enabled`；
+  `update` 校验 `ext.json` 名字 → `Supervisor.StopAsync(名)` 停该扩展 → 换目录 → 返回 `restartRequired`
+  （注册表启动只扫一次，无热重载、无 rollback）。`pd recover` 现场跑一遍 `RecoveryService`，
+  策略只认 `recovery.intentDefault`，`--adopt/--drop/--dry-run` 一律拒绝。
 - 内置扩展自愈：内核在 `registry.scan` 之前把 `app\baseline\extensions` 与 `extensions\` 对比，
   补回缺失/版本不一致的内置扩展（记 `ext.restored` 警告），所以删掉 `ui` 的盘仍能开窗；
   手动体检与修复用 `pd doctor --fix`。

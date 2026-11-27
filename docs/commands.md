@@ -91,8 +91,7 @@ pd [全局开关] <命令> [参数...]
 > `install` / `remove` / `upgrade` / `list` / `rollback` / `apply` / `clean` / `gc` /
 > `source` / `index` / `search` / `fetch` / `proc` / `run` / `shell` / `ui pages`。
 >
-> **未实现（2026-11-27）**：`adopt` / `pkg` / `bundle`。另外 ext rollback 子命令也未实现，
-> 敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
+> **未实现（2026-11-27）**：`adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
 
 ### 4.1 信息类
 
@@ -183,7 +182,6 @@ pd [全局开关] <命令> [参数...]
 | `pd ext list` | 列出已装扩展（版本、来源、状态、命令数） | 否 | 能 | `--json` | — |
 | `pd ext enable/disable <名>` | 启用/禁用扩展（写 `ext.json` 的 `enabled`，**需重启内核生效**） | **是** | 能 | — | 2/3/20 |
 | `pd ext update <名> <绝对路径>` | 用目录或 zip 替换扩展（停该扩展 → 换文件 → 提示重启内核） | **是**（写 `extensions\`） | 能 | — | 2/3/4/10/20 |
-| ext rollback 子命令 | 回退到上一版（**未实现**） | **是** | 能 | — | 20 |
 
 ### 4.9 界面
 
@@ -400,7 +398,7 @@ store 里没有 `package.json` 也能测）：
 - 命令类：`run`（经 `proc.spawn` 在 Job Object 里执行，`cmd /d /s /c`）、`expect`、
   `match`（`contains` 默认 / `equals` / `regex`）、`timeout`（默认 20s）；输出取 stdout+stderr；
 - `--full`：额外跑 `package.json` 里的 `selftest: [{name, run, expect, match, timeout}]` 工作流；
-- `--only <包>`：只测指定包（没装 → 20）；
+- `--only`：只测指定包（值传包名；没装 → 20）；
 - 输出 table（包/检查/结果/说明）+ done.metrics（`passed` / `failed`）；任一项失败 → `12`。
 
 断言失败只影响 selftest 的退出码，不改 store、不卸载任何包。
@@ -539,7 +537,7 @@ pd ext update <名字> <绝对路径（目录或 zip）>
 - `update`：校验新目录/zip 里的 `ext.json` 名字与目标一致 → 停掉该扩展进程（不重启）→
   旧目录删除 → 新目录就位 → 返回 `restartRequired`。源路径必须是**绝对路径**（避免 shell 与内核
   cwd 不一致带来的歧义）；
-- 没有热重载：扩展注册表在启动时扫描一次，换文件后重启内核即可；`ext rollback` 未实现。
+- 没有热重载：扩展注册表在启动时扫描一次，换文件后重启内核即可；也没有 rollback，内置扩展靠 baseline 自愈。
 - 细节见 [kernel.md](kernel.md) 第 6 节。
 
 ---
