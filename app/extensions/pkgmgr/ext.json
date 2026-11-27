@@ -137,7 +137,7 @@
       "mutates": true,
       "parallel": false,
       "summary": "health check the stick and optionally repair built-in extensions/intents",
-      "usage": "pd doctor [--fix] [--json]"
+      "usage": "pd doctor [--fix] [--deep] [--json]"
     },
     {
       "name": "index",

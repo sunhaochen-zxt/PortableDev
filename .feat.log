@@ -1,0 +1,63 @@
+stick root: Z:\PortableDev\.run-features
+  ok   hello.ok
+doctor: healthy stick
+  ok   healthy exit 0
+  ok   healthy no issues
+doctor: deleted built-in extension is reported, not silently restored
+  ok   missing extension reported
+  ok   doctor did not repair without --fix
+doctor --fix restores from the baseline
+  ok   fix exit 0
+  ok   fixed count
+  ok   extension restored
+  ok   healthy again
+doctor: stale intent is reported and cleaned
+  ok   intent reported
+  ok   stale intent removed
+selftest: stored assertions pass
+  ok   install with command assert
+  ok   selftest ok
+  ok   selftest passed count
+  ok   selftest --only
+  ok   selftest unknown --only exits 20
+selftest: failing command assertion fails selftest with 12
+  ok   install with failing assert exits 12
+  ok   failed install rolled back
+selftest --full runs the manifest selftest workflow
+  ok   install full-only package
+  ok   selftest --full ok
+  ok   selftest --full passed count
+info/env: wiring is reported
+  ok   install wired
+  ok   info exit 0
+  ok   info kv
+  ok   info wiring count
+  ok   info unknown exits 20
+  ok   env metrics
+outdated: local source with a newer build
+  ok   source add
+  ok   outdated exit 0
+  ok   outdated lists goodpkg 2.0.0
+doctor --deep: stable root, current links, blobs, sources and filesystem
+  ok   source add lower priority
+  ok   deep exit 0
+  ok   deep check present: 稳定根
+  ok   deep check present: current 接线
+  ok   deep check present: blob 缓存
+  ok   deep check present: 源冲突
+  ok   deep check present: 文件系统
+  ok   deep filesystem is NTFS
+  ok   deep reports shadowed goodpkg
+  ok   deep no issues
+  ok   deep blob count
+ext: list, disable/enable and update
+  ok   ext list exit 0
+  ok   ext list rows
+  ok   ext disable
+  ok   ext enable
+  ok   ext update
+recover: settles orphan staging
+  ok   recover exit 0
+  ok   recover deletes orphan staging
+
+48 passed, 0 failed

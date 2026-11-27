@@ -128,7 +128,7 @@ pd [全局开关] <命令> [参数...]
 |---|---|---|---|---|---|
 | `pd apply` | 重建接线（PATH/环境变量/联接/启动器） | **是** | 能 | `--dry-run` `--force` | 3/4/8 |
 | `pd clean` | 撤销 apply 改过的东西 | **是** | 能 | `--dry-run` `--keep-data` | 3/8 |
-| `pd doctor` | 体检 | **是**（实现上保守独占，`--fix` 会改盘） | 能 | `--fix` `--json` | 3 |
+| `pd doctor` | 体检（`--deep` 加查缓存/源冲突/文件系统） | **是**（实现上保守独占，`--fix` 会改盘） | 能 | `--fix` `--deep` `--json` | 3 |
 | `pd selftest` | 跑已装包自带断言 | 否 | 能 | `--only <包>` `--full` `--json` | 12/20 |
 | `pd adopt <目录>` | 把现有工具收编成包 | **是** | 能 | `--id` `--version` `--exe` `--copy` `--dry-run` | 2/3/4/8/10/20 |
 | `pd pkg pack <包>` | 把已装的包打回 `.pdpkg` | 否 | 能 | `--out` `--with-files` | 3/20 |
@@ -378,6 +378,16 @@ pd gc [--keep <n>] [--blobs] [--dry-run] [--force]
 | 记录 vs store | 每条记录的 `storePath` 存在、`<稳定根>\current\<包>` 存在 |
 | 残留 intent | `state\intent` 里还有没有待恢复文件 |
 | 配置 | `config\settings.json` 可解析 |
+| 稳定根 | 稳定根存在；是联接时报告指向哪里，普通目录会注明"未指向盘根" |
+| current 接线 | 每个包的 `<稳定根>\current\<包>` 能解析且指向它的 `storePath` |
+
+`--deep` 额外做三项较慢的检查：
+
+| 检查 | 说明 |
+|---|---|
+| blob 缓存 | 统计 `cache\blobs` 文件数与体积，0 字节文件算问题 |
+| 源冲突 | 同一包 id 出现在多个启用源里时列出被遮蔽的候选（信息项，不算问题） |
+| 文件系统 | 用 `Get-Volume` 确认盘是 NTFS（联接需要） |
 
 输出 table + kv + done.metrics（`issues` / `fixed` / `checks`）。**问题本身不算命令失败**：
 体检跑完即 exit 0，内部错误才报 `ERR_IO`(1)。

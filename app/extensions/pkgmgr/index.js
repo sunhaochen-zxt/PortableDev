@@ -1145,7 +1145,129 @@ async function doctorCommand(message) {
     const settingsDoc = readJsonSafe(path.join(root, "config", "settings.json"));
     add("配置", settingsDoc !== null, settingsDoc !== null ? "config/settings.json 可解析" : "config/settings.json 无法解析");
 
-    let fixed = 0;
+    // (g) stable root: the machine-side anchor for PATH/env wiring
+    let stableOk = false;
+    let stableDetail = "";
+    try {
+      const stat = fs.lstatSync(stableRoot);
+      stableOk = true;
+      if (stat.isSymbolicLink()) {
+        let target = "";
+        try { target = fs.realpathSync(stableRoot); } catch (error) { target = fs.readlinkSync(stableRoot); }
+        stableDetail = "联接 -> " + target;
+      } else {
+        stableDetail = "普通目录（未指向盘根）";
+      }
+    } catch (error) {
+      stableOk = false;
+      stableDetail = "稳定根不存在: " + stableRoot;
+    }
+    add("稳定根", stableOk, stableDetail);
+
+    // (h) current links: every record must have a link that resolves to its store
+    const brokenLinks = [];
+    for (const item of records) {
+      try {
+        const full = await callCapability("storage.record", "get", { pkg: item.id });
+        const target = path.join(stableRoot, "current", String(item.id));
+        if (!fs.existsSync(target)) {
+          brokenLinks.push(item.id + "(current 缺失)");
+          continue;
+        }
+        const actual = fs.realpathSync(target);
+        const expected = fs.realpathSync(String(full.storePath || ""));
+        if (process.platform === "win32" ? actual.toLowerCase() !== expected.toLowerCase() : actual !== expected) {
+          brokenLinks.push(item.id + "(指向错误)");
+        }
+      } catch (error) {
+        brokenLinks.push(item.id + "(" + (error.code || "ERR_IO") + ")");
+      }
+    }
+    add("current 接线", brokenLinks.length === 0,
+      brokenLinks.length > 0 ? brokenLinks.join("; ") : records.length + " 个包联接正常");
+
+    if (flags.deep === true) {
+      // (i) blob cache: every blob must exist and be non-empty
+      let blobCount = 0;
+      let blobBytes = 0;
+      const emptyBlobs = [];
+      try {
+        const walk = (directory) => {
+          for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+            const full = path.join(directory, entry.name);
+            if (entry.isDirectory()) {
+              walk(full);
+            } else {
+              const stat = fs.statSync(full);
+              blobCount += 1;
+              blobBytes += stat.size;
+              if (stat.size === 0) {
+                emptyBlobs.push(path.relative(CACHE, full));
+              }
+            }
+          }
+        };
+        walk(CACHE);
+      } catch (error) {
+        blobCount = 0;
+      }
+      add("blob 缓存", emptyBlobs.length === 0,
+        blobCount + " 个文件 / " + Math.round(blobBytes / 1024) + " KB" +
+        (emptyBlobs.length > 0 ? "，空文件: " + emptyBlobs.slice(0, 3).join(", ") : ""));
+
+      // (j) shadowed source candidates: the same id offered by more than one enabled source
+      const owners = Object.create(null);
+      let enabledSources = [];
+      try {
+        const manager = sources();
+        const loaded = await manager.load();
+        enabledSources = (loaded.sources || loaded || []).filter((source) => source && source.enabled !== false);
+        for (const source of enabledSources) {
+          try {
+            const loadedIndex = await manager.loadIndex(source, { offline: true });
+            const index = loadedIndex.index || loadedIndex;
+            for (const id of Object.keys(index.packages || {})) {
+              (owners[id] = owners[id] || []).push(source.name);
+            }
+          } catch (error) {
+            // unreachable sources are reported by pd outdated/source, not by doctor
+          }
+        }
+      } catch (error) {
+        enabledSources = [];
+      }
+      const shadowed = Object.entries(owners).filter(([, names]) => names.length > 1)
+        .map(([id, names]) => id + "(" + names.join("/") + ")");
+      add("源冲突", true,
+        shadowed.length === 0
+          ? enabledSources.length + " 个启用源，无重复包"
+          : shadowed.length + " 个包被遮蔽: " + shadowed.slice(0, 3).join("; "));
+
+      // (k) filesystem: junctions need NTFS
+      let filesystem = "未知";
+      let ntfsOk = false;
+      try {
+        const drive = String(path.parse(ROOT).root || "C:\\").replace(/[\\/]+$/, "").slice(0, 2);
+        const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+        const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+        const result = await runCapturedCommand({
+          call: callCapability,
+          command: powershell,
+          args: ["-NoProfile", "-NonInteractive", "-Command", "(Get-Volume -DriveLetter " + drive.charAt(0) + ").FileSystem"],
+          cwd: ROOT,
+          env: assertionEnv(ROOT),
+          timeoutMs: 20000,
+        });
+        // fsutil writes UTF-16 to a redirected pipe; strip the NUL bytes before matching.
+        // Its labels are localized, but the file system name itself is not.
+        const flat = String(result.output || "").replace(/\u0000/g, "");
+        ntfsOk = /\bNTFS\b/i.test(flat);
+        filesystem = ntfsOk ? "NTFS" : "未知或非 NTFS";
+      } catch (error) {
+        filesystem = "未知";
+      }
+      add("文件系统", ntfsOk, filesystem + (ntfsOk ? "" : "（v2 的联接需要 NTFS）"));
+    }    let fixed = 0;
     if (flags.fix === true) {
       for (const name of baselineNames) {
         const target = path.join(installedRoot, name, "ext.json");

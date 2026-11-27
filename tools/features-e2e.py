@@ -161,6 +161,16 @@ def make_pdpkg(directory, pkg_id, version):
     return dest
 
 
+def set_stable_root(root):
+    """Point the stable root at the hermetic root so current links and doctor agree."""
+    path = os.path.join(root, "config", "settings.json")
+    with open(path, "r", encoding="utf-8") as handle:
+        settings = json.load(handle)
+    settings.setdefault("root", {})["stableRoot"] = root
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(settings, handle)
+
+
 def installed_ids(root):
     return sorted(os.path.splitext(name)[0] for name in os.listdir(os.path.join(root, "state", "records")) if name.endswith(".json"))
 
@@ -172,6 +182,7 @@ def main():
     subprocess.run([DOTNET, KERNEL, "--root", root, "--init", "--once"],
                    check=True, capture_output=True, text=True)
     deploy(root)
+    set_stable_root(root)
     env = dict(os.environ)
     env["DOTNET_ROOT"] = os.path.dirname(DOTNET)
     # The fake app/runtime/node/node.exe only satisfies doctor's existence check; extensions must
@@ -298,6 +309,27 @@ def main():
         check("outdated exit 0", done and done.get("exitCode") == 0, done)
         check("outdated lists goodpkg 2.0.0",
               any(len(row) >= 3 and row[0] == "goodpkg" and row[2] == "2.0.0" for row in rows), rows)
+
+        print("doctor --deep: stable root, current links, blobs, sources and filesystem")
+        blob_dir = os.path.join(root, "cache", "blobs", "ab")
+        os.makedirs(blob_dir, exist_ok=True)
+        with open(os.path.join(blob_dir, "blob1"), "wb") as handle:
+            handle.write(b"blob-data")
+        source2 = os.path.join(root, "src-old")
+        os.makedirs(source2, exist_ok=True)
+        make_pdpkg(source2, "goodpkg", "1.5.0")
+        done = call(stream, ["source", "add", "localdev2", source2, "--kind", "dir", "--priority", "5"])
+        check("source add lower priority", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["doctor", "--deep"])
+        rows = {item.get("check"): item for item in (done.get("metrics") or {}).get("checks") or []}
+        check("deep exit 0", done and done.get("exitCode") == 0, done)
+        for name in ("稳定根", "current 接线", "blob 缓存", "源冲突", "文件系统"):
+            check("deep check present: " + name, name in rows, sorted(rows))
+        check("deep filesystem is NTFS", rows.get("文件系统", {}).get("ok") is True, rows.get("文件系统"))
+        check("deep reports shadowed goodpkg", "goodpkg" in str(rows.get("源冲突", {}).get("detail", "")),
+              rows.get("源冲突"))
+        check("deep no issues", (done.get("metrics") or {}).get("issues") == 0, done)
+        check("deep blob count", "1 个文件" in str((rows.get("blob 缓存") or {}).get("detail", "")), rows.get("blob 缓存"))
 
         print("ext: list, disable/enable and update")
         events = []
