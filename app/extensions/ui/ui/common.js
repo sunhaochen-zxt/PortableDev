@@ -421,6 +421,7 @@ async function streamCommand(argv, consoleEl, onDone) {
 
   append("info", "$ pd " + argv.join(" "));
   let unsub = null;
+  let finished = null;
   try {
     const taskId = await window.pd.exec(argv);
     await new Promise((resolve) => {
@@ -435,6 +436,7 @@ async function streamCommand(argv, consoleEl, onDone) {
         } else if (ev.type === "error") {
           append("error", (ev.code ? ev.code + ": " : "") + (ev.message || "执行失败"));
         } else if (ev.type === "done") {
+          finished = ev;
           const ok = (ev.exitCode === 0);
           append(ok ? "info" : "error", (ev.summary || (ok ? "完成" : "退出码 " + ev.exitCode)));
           if (unsub) { try { unsub(); } catch (e) { /* ignore */ } }
@@ -442,7 +444,7 @@ async function streamCommand(argv, consoleEl, onDone) {
         }
       });
     });
-    if (onDone) onDone(true);
+    if (onDone) onDone(finished ? finished.exitCode === 0 : true);
   } catch (error) {
     if (unsub) { try { unsub(); } catch (e) { /* ignore */ } }
     append("error", (error && error.message) || String(error));
