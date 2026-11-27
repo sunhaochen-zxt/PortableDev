@@ -120,8 +120,8 @@ internal static class Program
         // and the current token is Medium).
         if (!noElevate && fakePath is null && alreadyRelaunched && !IsAdministrator())
         {
-            WriteResult(resultPath, false, "elevation did not take effect (token is still below High integrity); enable UAC or run from an elevated session", new JsonArray());
-            Console.Error.WriteLine("pd-elevate: elevation did not take effect (still not High integrity)");
+            WriteResult(resultPath, false, "elevation did not take effect (token integrity " + TokenIntegrity() + ", need >= " + HighIntegrity + "); enable UAC or run from an elevated session", new JsonArray());
+            Console.Error.WriteLine("pd-elevate: elevation did not take effect (token integrity " + TokenIntegrity() + ")");
             return 1;
         }
 
@@ -695,17 +695,33 @@ internal static class Program
     private const int TokenIntegrityLevel = 25;
     private const uint HighIntegrity = 0x3000;
 
+    /// <summary>Current token integrity level (S-1-16-xxxx sub-authority), or 0 when unreadable.</summary>
+    private static uint TokenIntegrity()
+    {
+        try
+        {
+            return IsAdministratorCore();
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
+    }
+
     /// <summary>True only when the token integrity level is High or above (really elevated).</summary>
     /// <remarks>
     /// TokenElevation is unreliable on this class of machine: an admin token whose process runs at
     /// Medium integrity (UAC-filtered, or lowered by a sandbox/job) still reports TokenIsElevated=1,
     /// which made pd-elevate skip the runas relaunch and run "elevated" scripts at Medium.
     /// </remarks>
-    private static bool IsAdministrator()
+    private static bool IsAdministrator() => TokenIntegrity() >= HighIntegrity;
+
+    /// <summary>Raw token integrity level; 0 when it cannot be read.</summary>
+    private static uint IsAdministratorCore()
     {
         if (!OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token))
         {
-            return false;
+            return 0;
         }
 
         var buffer = IntPtr.Zero;
@@ -714,13 +730,13 @@ internal static class Program
             GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out var needed);
             if (needed == 0)
             {
-                return false;
+                return 0;
             }
 
             buffer = Marshal.AllocHGlobal((int)needed);
             if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, needed, out _))
             {
-                return false;
+                return 0;
             }
 
             // TOKEN_MANDATORY_LABEL starts with SID_AND_ATTRIBUTES.Sid.
@@ -728,15 +744,14 @@ internal static class Program
             var subAuthorities = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
             if (subAuthorities == 0)
             {
-                return false;
+                return 0;
             }
 
-            var level = (uint)Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(subAuthorities - 1)));
-            return level >= HighIntegrity;
+            return (uint)Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(subAuthorities - 1)));
         }
         catch (Exception)
         {
-            return false;
+            return 0;
         }
         finally
         {
@@ -792,6 +807,7 @@ internal static class Program
             ["schema"] = 1,
             ["ok"] = ok,
             ["tokenElevated"] = IsAdministrator(),
+            ["integrity"] = TokenIntegrity(),
             ["elevated"] = IsAdministrator(),
             ["results"] = results,
         };
