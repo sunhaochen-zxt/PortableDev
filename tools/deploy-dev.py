@@ -319,14 +319,22 @@ def main():
                          (init.stderr or init.stdout or "").strip()[-600:])
 
     sep = os.sep
+    # The GUI is a console-subsystem dotnet host: launching it directly leaves a black
+    # console window whose closure kills the app. PortableDev.exe is a tiny GUI-subsystem
+    # launcher (app/launcher) that sets DOTNET_ROOT and uses CREATE_NO_WINDOW, so the window
+    # shows without any console and double-clicking the exe is enough.
+    launcher_bin = os.path.join("app", "launcher", "PortableDev.exe")
+    if not os.path.isfile(launcher_bin):
+        raise SystemExit("missing GUI launcher: " + launcher_bin)
+    exe_launcher = os.path.join(dest, "PortableDev.exe")
+    shutil.copy2(launcher_bin, exe_launcher)
     launcher = os.path.join(dest, "\u542f\u52a8 PortableDev.cmd")
     write_lines(launcher, [
         "@echo off",
         "setlocal",
         "for %%i in (\"%~dp0.\") do set \"ROOT=%%~fi\"",
-        "set \"DOTNET_ROOT=%ROOT%" + sep + "app" + sep + "runtime\"",
-        "start \"\" \"%ROOT%" + sep + "app" + sep + "runtime" + sep + "dotnet.exe\" "
-        "\"%ROOT%" + sep + "app" + sep + "pd-window.dll\" --root \"%ROOT%\"",
+        "start \"\" \"%ROOT%" + sep + "PortableDev.exe\"",
+        "exit /b 0",
     ])
 
     cli = os.path.join(dest, "pd.cmd")
@@ -342,7 +350,7 @@ def main():
     readme = os.path.join(dest, "README.txt")
     with open(readme, "w", encoding="utf-8") as handle:
         handle.write("PortableDev \u672c\u5730\u6d4b\u8bd5\u76d8\r\n\r\n")
-        handle.write("\u53cc\u51fb \u542f\u52a8 PortableDev.cmd \u6253\u5f00\u7a97\u53e3\u58f3\uff08\u4f1a\u81ea\u52a8\u62c9\u8d77\u5185\u6838\uff09\u3002\r\n")
+        handle.write("\u53cc\u51fb PortableDev.exe \u6253\u5f00\u7a97\u53e3\u58f3\uff08\u65e0\u9ed1\u7a97\uff0c\u4f1a\u81ea\u52a8\u62c9\u8d77\u5185\u6838\uff09\uff1b\u547d\u4ee4\u884c\u7528 pd.cmd\u3002\r\n")
         handle.write("\u547d\u4ee4\u884c\u7528 pd.cmd\uff0c\u4f8b\u5982\uff1apd.cmd list / pd.cmd install <\u76ee\u6807>\r\n")
         handle.write("\r\n\u968f\u76d8 .NET \u8fd0\u884c\u65f6\u5728 app" + sep + "runtime\uff08.NET " + runtime_version +
                      "\uff09\uff0c\u672c\u673a\u4e0d\u9700\u8981\u5b89\u88c5 .NET\u3002\r\n")
