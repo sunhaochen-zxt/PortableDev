@@ -1047,6 +1047,32 @@ function readJsonSafe(file) {
   }
 }
 
+// Reads the process integrity level (Low/Medium/High/System) from whoami /groups. Best effort:
+// an unreadable result only leaves a generic detail, never a false doctor issue.
+async function readIntegrityLevel() {
+  try {
+    const systemRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+    const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const result = await runCapturedCommand({
+      call: callCapability,
+      command: powershell,
+      args: ["-NoProfile", "-NonInteractive", "-Command", "whoami /groups"],
+      cwd: ROOT,
+      env: assertionEnv(ROOT),
+      timeoutMs: 20000,
+    });
+    const flat = String(result.output || "").replace(/\u0000/g, "");
+    const match = /S-1-16-(\d+)/.exec(flat);
+    if (!match) {
+      return { label: null };
+    }
+    const labels = { "4096": "低", "8192": "中", "12288": "高", "16384": "系统" };
+    return { label: labels[match[1]] || "未知" };
+  } catch (error) {
+    return { label: null };
+  }
+}
+
 function expandWiringValue(record, value, stableRoot) {
   const home = path.join(stableRoot, "home", String(record.id));
   let text = String(value === undefined || value === null ? "" : value)
@@ -1291,8 +1317,9 @@ async function doctorCommand(message) {
       add(check, ok, detail);
     }
 
-    // (h) restricted / read-only session: a probe write fails first and silently breaks installs.
-    let sessionWritable = true;
+    // (h) restricted / read-only session: probe a write, then read the integrity level. A Low-IL
+    // session can often still write the stick but breaks toolchains that need admin paths.
+    let sessionOk = true;
     let sessionDetail = "当前会话可写";
     try {
       const probeDir = path.join(root, "state", "tmp");
@@ -1301,10 +1328,21 @@ async function doctorCommand(message) {
       fs.writeFileSync(probe, "probe");
       fs.rmSync(probe, { force: true });
     } catch (error) {
-      sessionWritable = false;
+      sessionOk = false;
       sessionDetail = "当前会话不可写（受限/只读会话，错误 " + (error.code || error.message) + "）：请用非受限会话重新运行";
     }
-    add("受限会话", sessionWritable, sessionDetail);
+
+    if (sessionOk) {
+      const integrity = await readIntegrityLevel();
+      if (integrity.label) {
+        sessionDetail = "完整性级别: " + integrity.label;
+        if (integrity.label === "低") {
+          sessionOk = false;
+          sessionDetail = "受限会话（Low IL）：部分工具链/提权操作会失败，请用非受限会话重新运行";
+        }
+      }
+    }
+    add("受限会话", sessionOk, sessionDetail);
 
     // (g) stable root: the machine-side anchor for PATH/env wiring
     let stableOk = false;

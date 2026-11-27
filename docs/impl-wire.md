@@ -32,6 +32,22 @@
 
 所有写操作都是**幂等**的：目标值已等于现值就不写、不记账（所以重复 `pd apply` 是 0 changes）。
 
+## 2.1 只读探针（供 pd doctor）
+
+`storage.wire` 除了写接线，还提供只读探针；fake 模式读 `state\wire\fake.json`，生产环境读真实用户配置：
+
+| op | 返回 | 实现 |
+|---|---|---|
+| `path.get` | `{ value }` 用户 PATH 字符串 | `[Environment]::GetEnvironmentVariable('Path','User')` |
+| `env.list` | `{ env: {名字: 值} }` 全部用户环境变量 | 一次 PowerShell 调用取整张表 |
+| `env.get` | `{ value }` 单个用户环境变量 | 单变量读取 |
+| `registry.get` | `{ value: {type,value}|null }` | 走提权助手的 `registry.get`，失败回退 `reg.exe` |
+| `home.get` | `{ machinePath, stickPath, source }` 家目录联接现状 | 与 `link.get` 同一套读法 |
+
+这些 op 以 `.get`/`list` 结尾，命中 `isReadOnlyCall`，不排队不加锁。
+`pd doctor --fix` 修机器接线时反过来调一次 `wire apply`（幂等重建）+ `path.remove` 清失效条目，
+都照常走 ledger，可被 `pd rollback` 回滚。
+
 ## 3. `pd apply` / `pd clean`
 
 ```
