@@ -152,6 +152,9 @@ StopAll；`kernel stop --force` 直接杀扩展树，不再等优雅退出；关
   `itemDropped` 回调计数（`DropOldest` 下 `TryWrite` 恒返 true，靠返回值计数永远是 0），随后补写一条
   `log.dropped` 警告记录；`Flush()`/`Dispose()` 也会 drain 队列，所以通道按多读者配置，提供者状态字段加锁。
 - 内置命令先入命令表：扩展与内置重名时拒绝的是扩展，内置命令不会被静默顶掉。
+- 子命令级独占：扩展可以在 `ext.json` 里把 `"source list"` 这类多词命令单独登记，
+  内核按**最长前缀**解析（最多 3 段），用该条目的 `mutates`/`parallel` 决定是否串行；
+  扩展仍收到去掉首段的 argv，所以旧处理器不用改解析。pkgmgr 的 `source list` 是第一个实例。
 - `pd ext`：`list` 与 `kernel ext list` 同源；`enable/disable` 只改 `ext.json` 的 `enabled`；
   `update` 校验 `ext.json` 名字 → `Supervisor.StopAsync(名)` 停该扩展 → 换目录 → 返回 `restartRequired`
   （注册表启动只扫一次，无热重载、无 rollback）。`pd recover` 现场跑一遍 `RecoveryService`，

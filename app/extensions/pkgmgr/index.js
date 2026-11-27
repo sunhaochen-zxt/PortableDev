@@ -3014,7 +3014,9 @@ connect({
 
     if (message.kind === "ext.invoke") {
       const argv = (message.data && message.data.argv) || [];
-      const command = (message.data && message.data.cmd) || argv[0] || "";
+      // The kernel may route a longer entry ("source list") while the handler stays the same: the
+      // first token selects the handler, the rest of argv keeps the subcommand parsing unchanged.
+      const command = String((message.data && message.data.cmd) || argv[0] || "").split(/\s+/)[0];
       if (command === "install") {
         runCommand(message, install);
       } else if (command === "remove") {

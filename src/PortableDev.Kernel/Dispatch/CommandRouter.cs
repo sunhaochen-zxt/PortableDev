@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using PortableDev.Core.Extensions;
 using PortableDev.Core.Protocol;
 using PortableDev.Core.Util;
 using PortableDev.Kernel.Dispatch;
@@ -23,6 +24,21 @@ public sealed class CommandRouter
 
     public IReadOnlyList<BuiltinCommand> Builtins => _builtins.All;
 
+    private (CommandEntry? Entry, int Matched) ResolveExtensionCommand(string[] argv)
+    {
+        var limit = Math.Min(argv.Length, 3);
+        for (var take = limit; take >= 1; take--)
+        {
+            var name = string.Join(' ', argv.Take(take));
+            if (_kernel.Registry.Commands.TryResolve(name, out var candidate) && candidate.ExtensionName is not null)
+            {
+                return (candidate, take);
+            }
+        }
+
+        return (null, 0);
+    }
+
     public async Task<CommandResult> ExecuteAsync(TaskContext ctx)
     {
         if (ctx.Argv.Length == 0)
@@ -38,9 +54,13 @@ public sealed class CommandRouter
         }
 
         var head = ctx.Argv[0];
-        if (_kernel.Registry.Commands.TryResolve(head, out var entry) && entry.ExtensionName is not null)
+        // Longest-prefix resolution: an extension may register "source list" next to "source", so
+        // read-only subcommands can run in parallel while the mutating parent stays exclusive.
+        var (entry, _) = ResolveExtensionCommand(ctx.Argv);
+        if (entry is not null)
         {
             // spec 4.1: extension commands are exclusive by default; only parallel:true opts out.
+            // Extensions still receive argv without the first token, so their own parsing is unchanged.
             return await RunSerializedAsync(!entry.Parallel, ctx,
                 () => _kernel.Supervisor.InvokeAsync(ctx, entry, ctx.Argv[1..])).ConfigureAwait(false);
         }

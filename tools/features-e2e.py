@@ -378,6 +378,17 @@ def main():
         check("recover deletes orphan staging",
               (done.get("metrics") or {}).get("stagingDeleted", 0) >= 1 and not os.path.isdir(orphan), done)
 
+        print("subcommand granularity: source list resolves as its own read-only command")
+        events = []
+        done = call(stream, ["complete", "source"], events=events)
+        rows = next((item.get("rows") for item in events if item.get("type") == "table"), [])
+        names = [row[0] for row in rows if row]
+        check("complete includes source list", "source list" in names, names[:10])
+        done = call(stream, ["source", "list"])
+        check("source list runs", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["source", "status"])
+        check("source fallback validates subcommand", done and done.get("exitCode") == 2, done)
+
         print("doctor: external PATH/env drift is detected and repaired")
         fake_path = os.path.join(root, "state", "wire", "fake.json")
         with open(fake_path, "r", encoding="utf-8") as handle:

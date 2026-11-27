@@ -140,6 +140,13 @@
       "usage": "pd doctor [--fix] [--deep] [--json]"
     },
     {
+      "name": "source list",
+      "mutates": false,
+      "parallel": true,
+      "summary": "list configured package sources (read-only subcommand of pd source)",
+      "usage": "pd source list [--json]"
+    },
+    {
       "name": "index",
       "mutates": false,
       "parallel": true,

@@ -178,7 +178,9 @@ public sealed class ExtensionManifest
             }
 
             var commandName = JsonUtil.String(command, "name") ?? string.Empty;
-            if (!System.Text.RegularExpressions.Regex.IsMatch(commandName, "^[a-z][a-z0-9-]*$"))
+            // Sub-command granularity: "source list" may be registered separately from "source",
+            // so read-only subcommands can opt out of the mutating command's exclusivity.
+            if (!System.Text.RegularExpressions.Regex.IsMatch(commandName, "^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*){0,2}$"))
             {
                 errors.Add($"invalid command name '{commandName}'");
                 continue;
