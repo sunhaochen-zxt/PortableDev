@@ -690,3 +690,414 @@ td.actions button + button { margin-left: 6px; }
   .kpi-grid { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 1fr; }
 }
+
+
+/* ============================================================================
+   Style Picker Cards (Settings Page)
+   ============================================================================ */
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.style-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--control-bg);
+  border: 2px solid var(--border);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+}
+
+.style-option:hover {
+  border-color: var(--accent-border);
+  background: var(--control-hover);
+  transform: translateY(-1px);
+}
+
+.style-option.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.style-preview {
+  width: 100%;
+  height: 52px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+}
+
+.style-preview.winui3 {
+  background: linear-gradient(90deg, #f3f3f3 0 30%, #f9f9f9 30% 100%);
+}
+html[data-theme="dark"] .style-preview.winui3 {
+  background: linear-gradient(90deg, #202020 0 30%, #272727 30% 100%);
+}
+.style-preview.md3 {
+  background: linear-gradient(135deg, #f3effa 0%, #dfe0ff 100%);
+}
+html[data-theme="dark"] .style-preview.md3 {
+  background: linear-gradient(135deg, #1e1f26 0%, #2a3c9e 100%);
+}
+.style-preview.glass {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.55), transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(167, 139, 250, 0.55), transparent 55%),
+    #e2ecfc;
+}
+html[data-theme="dark"] .style-preview.glass {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.55), transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.55), transparent 55%),
+    #0b1224;
+}
+
+.style-preview-chip {
+  height: 22px;
+  border-radius: 6px;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+html[data-theme="dark"] .style-preview-chip {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.style-preview.md3 .style-preview-chip { border-radius: 999px; }
+.style-preview.glass .style-preview-chip {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.style-name { font-size: 14px; font-weight: 700; color: var(--fg); }
+.style-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+
+/* ============================================================================
+   STYLE 2: Material Design 3 (Material You Tonal Surfaces + Expressive Pills)
+   ============================================================================ */
+html[data-style="md3"][data-theme="light"],
+html[data-style="md3"]:not([data-theme="dark"]) {
+  --bg: #faf8ff;
+  --panel: #f3effa;
+  --panel-solid: #ffffff;
+  --panel-subtle: #e9e4f4;
+  --control-bg: #ebe6f6;
+  --control-hover: #e1dbf0;
+  --fg: #1b1b21;
+  --fg-2: #46464f;
+  --muted: #5d5d6b;
+  --accent: #4355b9;
+  --accent-hover: #3647a3;
+  --accent-fg: #ffffff;
+  --accent-soft: #dfe0ff;
+  --accent-border: rgba(67, 85, 185, 0.35);
+  --border: transparent;
+  --border-strong: rgba(67, 85, 185, 0.22);
+  --border-bottom: rgba(67, 85, 185, 0.32);
+  --ok: #146c2e;
+  --ok-soft: #c4eed0;
+  --warn: #8c5000;
+  --warn-soft: #ffddb3;
+  --danger: #ba1a1a;
+  --danger-soft: #ffdad6;
+  --info: #0061a4;
+  --info-soft: #d1e4ff;
+  --shadow-sm: none;
+  --shadow: 0 2px 10px rgba(27, 27, 33, 0.08);
+  --shadow-lg: 0 12px 32px rgba(27, 27, 33, 0.16);
+  --radius: 22px;
+  --radius-sm: 14px;
+}
+
+html[data-style="md3"][data-theme="dark"] {
+  --bg: #121318;
+  --panel: #1e1f26;
+  --panel-solid: #282931;
+  --panel-subtle: #2b2d38;
+  --control-bg: #2a2c37;
+  --control-hover: #343746;
+  --fg: #e3e1ec;
+  --fg-2: #c6c5d0;
+  --muted: #9897a6;
+  --accent: #bac3ff;
+  --accent-hover: #ced5ff;
+  --accent-fg: #0d2077;
+  --accent-soft: #2a3c9e;
+  --accent-border: rgba(186, 195, 255, 0.35);
+  --border: transparent;
+  --border-strong: rgba(186, 195, 255, 0.20);
+  --border-bottom: rgba(186, 195, 255, 0.32);
+  --ok: #82db99;
+  --ok-soft: #104922;
+  --warn: #ffb95c;
+  --warn-soft: #5c3400;
+  --danger: #ffb4ab;
+  --danger-soft: #690005;
+  --info: #9ecaff;
+  --info-soft: #00497d;
+  --shadow-sm: none;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --radius: 22px;
+  --radius-sm: 14px;
+}
+
+html[data-style="md3"] .hero-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+}
+
+html[data-style="md3"] button,
+html[data-style="md3"] .btn,
+html[data-style="md3"] .tab-btn,
+html[data-style="md3"] .tabs,
+html[data-style="md3"] .badge,
+html[data-style="md3"] #pd-timing {
+  border-radius: 9999px;
+}
+
+html[data-style="md3"] button,
+html[data-style="md3"] .btn {
+  padding: 9px 18px;
+  position: relative;
+  overflow: hidden;
+}
+
+html[data-style="md3"] button.sm {
+  padding: 6px 14px;
+}
+
+html[data-style="md3"] button.secondary {
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-color: transparent;
+}
+
+html[data-style="md3"] button.secondary:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+html[data-style="md3"][data-theme="dark"] button.secondary:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+html[data-style="md3"] input[type="text"],
+html[data-style="md3"] input[type="search"],
+html[data-style="md3"] select {
+  border-radius: 14px;
+  border: 1.5px solid transparent;
+  padding: 9px 14px;
+}
+
+html[data-style="md3"] .input-box input { padding-left: 38px; }
+
+html[data-style="md3"] input:focus,
+html[data-style="md3"] select:focus {
+  border-color: var(--accent);
+}
+
+html[data-style="md3"] .quick-tile {
+  border-radius: 18px;
+  padding: 14px 16px;
+}
+
+html[data-style="md3"] .modal-box {
+  border-radius: 28px;
+  padding: 24px 26px;
+}
+
+html[data-style="md3"] .md3-ripple {
+  position: absolute;
+  border-radius: 50%;
+  transform: scale(0);
+  background: currentColor;
+  opacity: 0.22;
+  pointer-events: none;
+  animation: md3Ripple 0.45s cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes md3Ripple {
+  to { transform: scale(2.8); opacity: 0; }
+}
+
+/* ============================================================================
+   STYLE 3: Liquid Glass (Refractive Specular Frost + Luminous Ambient Mesh)
+   ============================================================================ */
+html[data-style="glass"][data-theme="light"],
+html[data-style="glass"]:not([data-theme="dark"]) {
+  --bg: #e8f0fc;
+  --panel: rgba(255, 255, 255, 0.58);
+  --panel-solid: rgba(255, 255, 255, 0.84);
+  --panel-subtle: rgba(255, 255, 255, 0.42);
+  --control-bg: rgba(255, 255, 255, 0.56);
+  --control-hover: rgba(255, 255, 255, 0.80);
+  --fg: #0f172a;
+  --fg-2: #334155;
+  --muted: #475569;
+  --accent: #007aff;
+  --accent-hover: #0066d6;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(0, 122, 255, 0.14);
+  --accent-border: rgba(0, 122, 255, 0.35);
+  --border: rgba(255, 255, 255, 0.72);
+  --border-strong: rgba(15, 23, 42, 0.14);
+  --border-bottom: rgba(15, 23, 42, 0.18);
+  --ok: #047857;
+  --ok-soft: rgba(16, 185, 129, 0.18);
+  --warn: #b45309;
+  --warn-soft: rgba(245, 158, 11, 0.20);
+  --danger: #dc2626;
+  --danger-soft: rgba(239, 68, 68, 0.16);
+  --info: #0284c7;
+  --info-soft: rgba(14, 165, 233, 0.18);
+  --term-bg: rgba(15, 23, 42, 0.86);
+  --term-fg: #f1f5f9;
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.90), inset 0 -1px 0 rgba(15, 23, 42, 0.06), 0 8px 28px rgba(15, 23, 42, 0.08);
+  --glass-btn-rim: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 2px 10px rgba(15, 23, 42, 0.06);
+  --radius: 20px;
+  --radius-sm: 12px;
+}
+
+html[data-style="glass"][data-theme="dark"] {
+  --bg: #070d1c;
+  --panel: rgba(20, 29, 52, 0.54);
+  --panel-solid: rgba(18, 26, 46, 0.88);
+  --panel-subtle: rgba(255, 255, 255, 0.06);
+  --control-bg: rgba(255, 255, 255, 0.08);
+  --control-hover: rgba(255, 255, 255, 0.15);
+  --fg: #f8fafc;
+  --fg-2: #cbd5e1;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --accent-fg: #041322;
+  --accent-soft: rgba(56, 189, 248, 0.18);
+  --accent-border: rgba(56, 189, 248, 0.42);
+  --border: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --border-bottom: rgba(255, 255, 255, 0.26);
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.18);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.18);
+  --danger: #fb7185;
+  --danger-soft: rgba(251, 113, 133, 0.20);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.18);
+  --term-bg: rgba(5, 9, 20, 0.86);
+  --term-fg: #e2e8f0;
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 0 rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --glass-btn-rim: inset 0 1px 0 rgba(255, 255, 255, 0.20), 0 4px 12px rgba(0, 0, 0, 0.28);
+  --radius: 20px;
+  --radius-sm: 12px;
+}
+
+html[data-style="glass"] body {
+  background-image:
+    radial-gradient(ellipse 65% 50% at 10% 0%, rgba(56, 189, 248, 0.30), transparent 60%),
+    radial-gradient(ellipse 60% 48% at 90% 8%, rgba(167, 139, 250, 0.28), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 50% 100%, rgba(52, 211, 153, 0.20), transparent 62%);
+  background-attachment: fixed;
+}
+
+html[data-style="glass"][data-theme="dark"] body {
+  background-image:
+    radial-gradient(ellipse 65% 50% at 10% 0%, rgba(37, 99, 235, 0.34), transparent 60%),
+    radial-gradient(ellipse 60% 48% at 90% 10%, rgba(124, 58, 237, 0.30), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 50% 100%, rgba(6, 182, 212, 0.22), transparent 62%);
+  background-attachment: fixed;
+}
+
+html[data-style="glass"] .kpi,
+html[data-style="glass"] .card,
+html[data-style="glass"] .pkg-card,
+html[data-style="glass"] .modal-box,
+html[data-style="glass"] .toast,
+html[data-style="glass"] #pd-timing {
+  backdrop-filter: blur(22px) saturate(185%);
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
+  box-shadow: var(--glass-rim);
+  border: 1px solid var(--border);
+}
+
+html[data-style="glass"] .kpi {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+html[data-style="glass"] .kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.32) 0%, transparent 45%);
+  pointer-events: none;
+}
+
+html[data-style="glass"][data-theme="dark"] .kpi::before {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.10) 0%, transparent 45%);
+}
+
+html[data-style="glass"] .kpi:hover,
+html[data-style="glass"] .pkg-card:hover {
+  transform: translateY(-2px);
+}
+
+html[data-style="glass"] .hero-icon {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 6px 16px rgba(59, 130, 246, 0.35);
+}
+
+html[data-style="glass"] button,
+html[data-style="glass"] .btn {
+  border-radius: 999px;
+  box-shadow: var(--glass-btn-rim);
+}
+
+html[data-style="glass"] button:not(.secondary):not(.ghost):not(.danger):not(.tab-btn):not(.quick-tile):not(.style-option) {
+  background: linear-gradient(135deg, #007aff 0%, #5856d6 100%);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 6px 16px rgba(0, 122, 255, 0.28);
+}
+
+html[data-style="glass"] button.secondary,
+html[data-style="glass"] .quick-tile,
+html[data-style="glass"] .tabs {
+  backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: var(--glass-btn-rim);
+  border-color: var(--border);
+}
+
+html[data-style="glass"] .quick-tile { border-radius: 15px; }
+html[data-style="glass"] .tabs { border-radius: 999px; padding: 3px; }
+html[data-style="glass"] .tab-btn { border-radius: 999px; }
+html[data-style="glass"] .badge { border-radius: 999px; }
+
+html[data-style="glass"] input[type="text"],
+html[data-style="glass"] input[type="search"],
+html[data-style="glass"] select {
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+@media (max-width: 900px) {
+  .style-grid { grid-template-columns: 1fr; }
+}

@@ -19,6 +19,14 @@
   </header>
 
   <section class="card">
+    <div class="card-head">
+      <h2><span data-icon="sliders" data-size="15"></span>界面视觉风格</h2>
+      <span class="badge" id="active-style-badge">—</span>
+    </div>
+    <div class="style-grid" id="style-picker"></div>
+  </section>
+
+  <section class="card">
     <div class="toolbar">
       <div class="input-box">
         <span data-icon="search" data-size="15"></span>
@@ -186,6 +194,46 @@ async function load() {
     btn.disabled = false;
   }
 }
+
+function renderStylePicker() {
+  const picker = document.getElementById("style-picker");
+  const badge = document.getElementById("active-style-badge");
+  const current = getUiStyle();
+  badge.textContent = getUiStyleName(current);
+  picker.textContent = "";
+  for (const st of PD_STYLES) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "style-option" + (st.id === current ? " active" : "");
+
+    const prev = document.createElement("div");
+    prev.className = "style-preview " + st.id;
+    const c1 = document.createElement("div");
+    c1.className = "style-preview-chip";
+    const c2 = document.createElement("div");
+    c2.className = "style-preview-chip";
+    prev.appendChild(c1);
+    prev.appendChild(c2);
+
+    const name = document.createElement("div");
+    name.className = "style-name";
+    name.textContent = st.name;
+
+    const desc = document.createElement("div");
+    desc.className = "style-desc";
+    desc.textContent = st.desc;
+
+    btn.appendChild(prev);
+    btn.appendChild(name);
+    btn.appendChild(desc);
+    btn.addEventListener("click", () => {
+      setUiStyle(st.id);
+      renderStylePicker();
+    });
+    picker.appendChild(btn);
+  }
+}
+renderStylePicker();
 
 document.getElementById("theme-quick").addEventListener("click", () => {
   toggleTheme(true);

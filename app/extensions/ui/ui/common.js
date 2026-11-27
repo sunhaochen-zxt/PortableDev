@@ -1,12 +1,43 @@
 // Shared helpers for the PortableDev built-in UI pages.
 // All dynamic values are rendered via textContent / DOM APIs (never raw innerHTML).
-(function applyTheme() {
+const PD_STYLES = [
+  { id: "winui3", name: "WinUI 3 原生一体", desc: "Windows 11 设置页质感 · 极速零闪烁" },
+  { id: "md3", name: "Material Design 3", desc: "Material You 色调表面 · 大圆角胶囊与涟漪" },
+  { id: "glass", name: "液态玻璃 Liquid Glass", desc: "镜面折射高光 · 柔光毛玻璃悬浮层" },
+];
+
+(function applyThemeAndStyle() {
   try {
-    const saved = sessionStorage.getItem("pd-ui-theme");
-    const theme = saved || (window.pd && window.pd.theme) || document.documentElement.dataset.theme || "light";
+    const savedTheme = sessionStorage.getItem("pd-ui-theme");
+    const theme = savedTheme || (window.pd && window.pd.theme) || document.documentElement.dataset.theme || "light";
     document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+    const savedStyle = localStorage.getItem("pd-ui-style") || "winui3";
+    document.documentElement.dataset.style = ["winui3", "md3", "glass"].includes(savedStyle) ? savedStyle : "winui3";
   } catch (error) { /* keep markup default */ }
 })();
+
+function getUiStyle() {
+  return document.documentElement.dataset.style || "winui3";
+}
+
+function getUiStyleName(id) {
+  const hit = PD_STYLES.find((s) => s.id === (id || getUiStyle()));
+  return hit ? hit.name : "WinUI 3 原生一体";
+}
+
+function setUiStyle(styleId) {
+  const valid = ["winui3", "md3", "glass"].includes(styleId) ? styleId : "winui3";
+  document.documentElement.dataset.style = valid;
+  try { localStorage.setItem("pd-ui-style", valid); } catch (e) { /* ignore */ }
+  showToast("已切换外观风格：" + getUiStyleName(valid), "ok");
+  return valid;
+}
+
+function cycleUiStyle() {
+  const order = ["winui3", "md3", "glass"];
+  const next = order[(order.indexOf(getUiStyle()) + 1) % order.length];
+  return setUiStyle(next);
+}
 
 const PD_ICONS = {
   home: "M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5.5v-6.5h-5V21H4a1 1 0 0 1-1-1z",
@@ -240,6 +271,23 @@ async function streamCommand(argv, consoleEl, onDone) {
 }
 
 document.addEventListener("DOMContentLoaded", hydrateIcons);
+
+// Subtle MD3 tactile ripple on button press when Material Design 3 style is active.
+document.addEventListener("pointerdown", (e) => {
+  if (document.documentElement.dataset.style !== "md3") return;
+  const btn = e.target && e.target.closest && e.target.closest("button");
+  if (!btn || btn.disabled) return;
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const ripple = document.createElement("span");
+  ripple.className = "md3-ripple";
+  ripple.style.width = size + "px";
+  ripple.style.height = size + "px";
+  ripple.style.left = (e.clientX - rect.left - size / 2) + "px";
+  ripple.style.top = (e.clientY - rect.top - size / 2) + "px";
+  btn.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 480);
+});
 
 // Press "/" or Ctrl+K anywhere outside an input to focus the page's search bar.
 document.addEventListener("keydown", (e) => {
