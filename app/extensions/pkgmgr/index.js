@@ -2097,7 +2097,166 @@ async function removeCommand(message) {
   }
 }
 
-async function listCommand(message) {
+async function infoCommand(message) {
+  const io = commandIo(message);
+  const { positional } = commandContext(message);
+  const id = String(positional[0] || "").trim();
+  try {
+    if (!id) {
+      throw new PkgError("ERR_BAD_ARGS", "info needs a package name", 2);
+    }
+    const record = await callCapability("storage.record", "get", { pkg: id });
+    const wiring = record.wiring || {};
+    io.event("kv", {
+      title: "package",
+      items: {
+        id: record.id,
+        version: record.version,
+        origin: record.origin || "local",
+        storePath: record.storePath || "",
+        pinned: record.pinned === true,
+        source: record.source || "",
+        installedAt: record.installedAt || record.recoveredAt || "",
+      },
+    });
+    const pathEntries = (wiring.path || []).map((item) => typeof item === "string" ? item : String(item.relative || item.path || item));
+    const envEntries = Object.entries(wiring.env || {});
+    const registryEntries = wiring.registry || [];
+    const launchEntries = wiring.launch || [];
+    const rows = [];
+    for (const entry of pathEntries) {
+      rows.push(["path", entry, ""]);
+    }
+    for (const [name, value] of envEntries) {
+      rows.push(["env", name, String(value)]);
+    }
+    for (const entry of registryEntries) {
+      rows.push(["registry", (entry.hive || "HKCU") + "\\" + String(entry.key || ""), String(entry.name || "")]);
+    }
+    for (const entry of launchEntries) {
+      rows.push(["launcher", String(entry.name || ""), String(entry.exe || "")]);
+    }
+    if (rows.length > 0) {
+      io.event("table", {
+        title: "wiring",
+        columns: [
+          { key: "kind", title: "类型" },
+          { key: "target", title: "落点" },
+          { key: "value", title: "值" },
+        ],
+        rows: rows,
+      });
+    }
+    const asserts = Array.isArray(record.asserts) ? record.asserts : [];
+    if (asserts.length > 0) {
+      io.event("table", {
+        title: "asserts",
+        columns: [
+          { key: "kind", title: "类型" },
+          { key: "detail", title: "内容" },
+        ],
+        rows: asserts.map((item) => [String(item.kind || ""), String(item.path || item.run || "")]),
+      });
+    }
+    io.done({
+      summary: record.id + " " + record.version,
+      metrics: { package: record.id, version: record.version, wiring: rows.length, asserts: asserts.length },
+    });
+  } catch (error) {
+    io.fail(error.code ? error : new PkgError("ERR_IO", error.message || String(error), 1));
+  }
+}
+
+async function outdatedCommand(message) {
+  const io = commandIo(message);
+  const { flags } = commandContext(message);
+  try {
+    const records = sortedRecords((await callCapability("storage.record", "list", {})).items);
+    const manager = sources();
+    const rows = [];
+    let skipped = 0;
+    for (const record of records) {
+      try {
+        const resolved = await manager.resolve(record.id, flags.offline === true ? { offline: true } : {});
+        if (compareVersions(resolved.version, record.version) > 0) {
+          rows.push([record.id, record.version, resolved.version, resolved.source.name]);
+        }
+      } catch (error) {
+        skipped += 1;
+        io.event("log", { level: "debug", msg: record.id + ": " + (error.message || String(error)) });
+      }
+    }
+    io.event("table", {
+      title: "outdated",
+      columns: [
+        { key: "package", title: "包" },
+        { key: "installed", title: "已装" },
+        { key: "latest", title: "最新" },
+        { key: "source", title: "源" },
+      ],
+      rows: rows,
+    });
+    io.done({
+      summary: rows.length + " 个可升级" + (skipped > 0 ? "，" + skipped + " 个无法解析" : ""),
+      metrics: { outdated: rows.length, skipped: skipped, packages: rows.map((row) => row[0]) },
+    });
+  } catch (error) {
+    io.fail(error.code ? error : new PkgError("ERR_IO", error.message || String(error), 1));
+  }
+}
+
+async function envCommand(message) {
+  const io = commandIo(message);
+  try {
+    const settings = readSettings();
+    const stableRoot = String((settings.root && settings.root.stableRoot) || "C:\\\\Dev");
+    const records = sortedRecords((await callCapability("storage.record", "list", {})).items);
+    const pathRows = [];
+    for (const record of records) {
+      const full = await callCapability("storage.record", "get", { pkg: record.id });
+      for (const relative of (full.wiring && full.wiring.path) || []) {
+        const target = typeof relative === "string" ? relative : String(relative.relative || relative.path || relative);
+        pathRows.push([record.id, path.join(stableRoot, "current", String(record.id), target)]);
+      }
+    }
+    const currentPath = String(process.env.PATH || "").split(";").filter(Boolean);
+    io.event("table", {
+      title: "package PATH",
+      columns: [
+        { key: "package", title: "包" },
+        { key: "path", title: "目录" },
+      ],
+      rows: pathRows,
+    });
+    io.event("table", {
+      title: "process PATH",
+      columns: [{ key: "index", title: "#" }, { key: "entry", title: "条目" }],
+      rows: currentPath.map((entry, index) => [String(index), entry]),
+    });
+    const envRows = [];
+    for (const record of records) {
+      const full = await callCapability("storage.record", "get", { pkg: record.id });
+      for (const [name, value] of Object.entries((full.wiring && full.wiring.env) || {})) {
+        envRows.push([record.id, name, String(value)]);
+      }
+    }
+    io.event("table", {
+      title: "package env",
+      columns: [
+        { key: "package", title: "包" },
+        { key: "name", title: "变量" },
+        { key: "value", title: "值" },
+      ],
+      rows: envRows,
+    });
+    io.done({
+      summary: pathRows.length + " 个 PATH 条目，" + envRows.length + " 个环境变量（pd shell --profile 会把后者注入会话）",
+      metrics: { path: pathRows.length, env: envRows.length, stableRoot: stableRoot },
+    });
+  } catch (error) {
+    io.fail(error.code ? error : new PkgError("ERR_IO", error.message || String(error), 1));
+  }
+}async function listCommand(message) {
   const io = commandIo(message);
   const { flags } = commandContext(message);
   try {
@@ -2495,6 +2654,12 @@ connect({
         runCommand(message, listCommand);
       } else if (command === "doctor") {
         runCommand(message, doctorCommand);
+      } else if (command === "info") {
+        runCommand(message, infoCommand);
+      } else if (command === "outdated") {
+        runCommand(message, outdatedCommand);
+      } else if (command === "env") {
+        runCommand(message, envCommand);
       } else if (command === "selftest") {
         runCommand(message, selftestCommand);
       } else if (command === "source") {

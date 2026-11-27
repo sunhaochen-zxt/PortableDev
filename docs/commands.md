@@ -91,8 +91,8 @@ pd [全局开关] <命令> [参数...]
 > `install` / `remove` / `upgrade` / `list` / `rollback` / `apply` / `clean` / `gc` /
 > `source` / `index` / `search` / `fetch` / `proc` / `run` / `shell` / `ui pages`。
 >
-> **未实现（2026-11-27）**：`ext` / `recover` / `outdated` /
-> `info` / `env` / `adopt` / `pkg` / `bundle`。敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
+> **未实现（2026-11-27）**：`adopt` / `pkg` / `bundle`。另外 ext rollback 子命令也未实现，
+> 敲了会得到 `ERR_UNKNOWN_COMMAND`（2）。
 
 ### 4.1 信息类
 
@@ -103,7 +103,7 @@ pd [全局开关] <命令> [参数...]
 | `pd help [命令]` | 帮助 | 否 | 能 | `--json` | 2 |
 | `pd complete <前缀>` | 补全候选 | 否 | 能 | `--json` | 2 |
 | `pd log` | 查日志（由日志提供者实现） | 否 | 能 | `--tail` `--since` `--until` `--level` `--unit` `--pkg` `--grep` `--follow` `--json` `--disk-usage` `--vacuum` | 2/20 |
-| `pd env` | 看托管的环境变量与 PATH | 否 | 能 | `--diff` | 4 |
+| `pd env` | 看托管的环境变量与 PATH 接线 | 否 | 能 | `--json` | — |
 
 ### 4.2 包管理
 
@@ -114,9 +114,9 @@ pd [全局开关] <命令> [参数...]
 | `pd upgrade [包...]` | 升级 | **是** | 需缓存 | `--all` `--dry-run` `--to <版本>` | 2/3/4/8/10/11/12/15/20/22/23 |
 | `pd rollback [目标]` | 回滚到某个存档点 | **是** | 能 | `--to <序号>` `--list` `--dry-run` | 2/3/4/8/10/20 |
 | `pd list` / `ls` | 已装列表 | 否 | 能 | `--outdated` `--json` | — |
-| `pd info <包>` | 包详情 | 否 | 能* | `--versions` `--json` | 20 |
+| `pd info <包>` | 包详情：版本/store/来源/接线/断言 | 否 | 能 | `--json` | 20 |
 | `pd search <词>` | 搜索源 | 否 | 能* | `--source` `--limit` `--installed` | 2/15 |
-| `pd outdated` | 有更新的包 | 否 | 需缓存 | `--json` | 15 |
+| `pd outdated` | 有更新的包（目标版本 + 来源） | 否 | 需缓存 | `--offline` `--json` | — |
 | `pd fetch <包>` | 只下载不安装（预取） | 否（只写自己那个 blob） | 不能 | `@版本` `--from-dir` `--force` | 15/20/23/25 |
 | `pd gc` | 清理无用版本和缓存 | **是** | 能 | `--keep <n>` `--blobs` `--dry-run` `--force` | 2/3/10 |
 
@@ -156,7 +156,7 @@ pd [全局开关] <命令> [参数...]
 | `pd kernel restart <名>` | 重启扩展 | **是** | 能 | — | 20 |
 | `pd kernel stop` | 停止内核 | **是** | 能 | `--force` | 4 |
 | `pd kernel log` | 内核自己的兜底日志 | 否 | 能 | `--tail <n>` | — |
-| `pd recover` | 处理上次崩溃留下的 intent | **是** | 能 | `--adopt` `--drop` `--dry-run` | 3/4/10 |
+| `pd recover` | 立即跑一次启动恢复（策略取 `recovery.intentDefault`） | **是** | 能 | `--json` | 11 |
 
 ### 4.6 运行与外壳
 
@@ -180,9 +180,10 @@ pd [全局开关] <命令> [参数...]
 
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
-| `pd ext list` | 列出已装扩展（版本、来源、是否被覆盖） | 否 | 能 | `--json` | — |
-| `pd ext update <名> <目录\|zip>` | 换一个新版本（失败自动回退） | **是**（写 `extensions\`） | 能 | `--force` | 2/3/10/20 |
-| `pd ext rollback <名>` | 回退到上一版 | **是** | 能 | — | 20 |
+| `pd ext list` | 列出已装扩展（版本、来源、状态、命令数） | 否 | 能 | `--json` | — |
+| `pd ext enable/disable <名>` | 启用/禁用扩展（写 `ext.json` 的 `enabled`，**需重启内核生效**） | **是** | 能 | — | 2/3/20 |
+| `pd ext update <名> <绝对路径>` | 用目录或 zip 替换扩展（停该扩展 → 换文件 → 提示重启内核） | **是**（写 `extensions\`） | 能 | — | 2/3/4/10/20 |
+| ext rollback 子命令 | 回退到上一版（**未实现**） | **是** | 能 | — | 20 |
 
 ### 4.9 界面
 
@@ -248,7 +249,7 @@ pd install <包名 | .pdpkg 路径 | 目录 | URL> [开关]
 - 未支持：`7z`/`msi` 解包、命令类断言、`elevated:true` 的包脚本；
 - 断言目前只跑文件类（`exists`/`missing`/`json`/`fileHash`）。
 
-### 5.2 `pd upgrade` / `pd remove` / `pd list`
+### 5.2 `pd upgrade` / `pd remove` / `pd list` / `pd info` / `pd outdated` / `pd env`
 
 三条命令都基于“记录 + 存档点”工作：**每个包一个审计任务**，批量时某包失败只回滚该包，
 其他包继续，最后汇总（退出码取首个错误的映射）。
@@ -308,6 +309,11 @@ pd list [--outdated] [--json]
   并统计 outdated 数；
 - `--json` 的 metrics：`{packages:[{package,version,latest,latestError,pinned,current,storePath}],outdated}`；
   `latestError` 非空表示解析失败（表里显示 `?`），与“已是最新”区分。
+
+- `pd info <包>`：只读详情——版本、store 路径、来源、固定状态、PATH/env/注册表/启动器接线、断言清单（`--json` 出 kv/table 事件）；
+- `pd outdated`：对每个已装包在启用的源里解析最新版本，输出 `已装 / 最新 / 源`；解析失败的包计入 `skipped`，不影响退出码；
+- `pd env`：打印每个包的 PATH 接线（`<稳定根>\current\<包>\...`）、进程当前 PATH、以及包声明的环境变量——
+  和 `pd shell --profile` 对照，就能看出会话里会多出哪些变量。
 
 ### 5.3 `pd rollback`
 
@@ -482,15 +488,16 @@ pd pkg pack <包> [--out <路径>] [--with-files]
 ### 5.14 `pd recover`
 
 ```
-pd recover [--adopt] [--drop] [--dry-run]
+pd recover [--json]
 ```
 
-处理上次崩溃留下的 intent（架构 11.2）：
+立即跑一次启动恢复（本来内核每次启动都会自动跑，这个命令用于诊断/手动触发，幂等）：
 
-- 默认行为是内核启动时**自动**跑一遍，只在有残留时提示；
-- `--adopt`：目录在、记录没有 → 补记录；
-- `--drop`：目录在、记录没有 → 删目录；
-- 两种都不带时按配置里的默认值（默认 `adopt`）。
+- 结算残留 intent（`state\intent`）：按 `recovery.intentDefault`（默认 `adopt`）补记录或删目录；
+- 清理没有 intent 认领的 `staging\` 目录；
+- 输出 kv + done.metrics：`adopted` / `dropped` / `intentErrors` / `stagingDeleted` / `recordsDeleted`；
+- 要改策略用 `pd config set recovery.intentDefault drop`，**不接受** `--adopt` / `--drop` / `--dry-run`
+  （给了返回 `ERR_UNSUPPORTED` 11，避免两个入口写出不同语义）。
 
 ### 5.15 `pd log --follow`
 
@@ -523,14 +530,16 @@ pd config unset <键>
 
 ```
 pd ext list
-pd ext update <名字> <目录|zip>
-pd ext rollback <名字>
+pd ext enable|disable <名字>
+pd ext update <名字> <绝对路径（目录或 zip）>
 ```
 
-- `update`：校验新扩展的 `ext.json` → 停旧进程 → 旧目录改名 `.prev` → 新目录就位 →
-  拉起并握手；握手失败**自动回退**并报错；
-- 只停这一个扩展，**不停内核**；
-- `list` 会标明来源（内置 / 用户）和"是否覆盖了内置版"；
+- `list`：与 `pd kernel ext list` 同一份数据——名字、版本、来源（内置/用户）、状态、命令数、拒绝原因；
+- `enable` / `disable`：改该扩展 `ext.json` 的 `enabled`，**需要重启内核才生效**（命令会提示 `restartRequired`）；
+- `update`：校验新目录/zip 里的 `ext.json` 名字与目标一致 → 停掉该扩展进程（不重启）→
+  旧目录删除 → 新目录就位 → 返回 `restartRequired`。源路径必须是**绝对路径**（避免 shell 与内核
+  cwd 不一致带来的歧义）；
+- 没有热重载：扩展注册表在启动时扫描一次，换文件后重启内核即可；`ext rollback` 未实现。
 - 细节见 [kernel.md](kernel.md) 第 6 节。
 
 ---

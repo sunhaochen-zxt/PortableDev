@@ -105,6 +105,27 @@
       "usage": "pd source list | add <名> <路径|URL|gh:owner/repo> [--kind dir|http|git|scoop] [--branch <分支>] [--subdir <目录>] [--tarball-url <地址>] [--priority N] [--ttl dur] | remove <名> | enable|disable <名> | refresh [名]"
     },
     {
+      "name": "info",
+      "mutates": false,
+      "parallel": true,
+      "summary": "show one installed package: version, store path, wiring and assertions",
+      "usage": "pd info <包> [--json]"
+    },
+    {
+      "name": "outdated",
+      "mutates": false,
+      "parallel": true,
+      "summary": "list installed packages that have a newer version in the enabled sources",
+      "usage": "pd outdated [--offline] [--json]"
+    },
+    {
+      "name": "env",
+      "mutates": false,
+      "parallel": true,
+      "summary": "print the effective PATH/env wiring of installed packages",
+      "usage": "pd env [--json]"
+    },
+    {
       "name": "selftest",
       "mutates": false,
       "parallel": true,

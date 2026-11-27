@@ -696,6 +696,29 @@ public sealed class ExtensionSupervisor
         }
     }
 
+    /// <summary>Stops one extension process without restarting it (used before replacing its files).</summary>
+    public async Task<bool> StopAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var manifest = _kernel.Registry.Find(name);
+        if (manifest is null)
+        {
+            return false;
+        }
+
+        var runtime = GetOrCreate(name);
+        await runtime.StartGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            StopProcess(runtime, "extension update");
+            runtime.Ready = NewReadySignal();
+            return true;
+        }
+        finally
+        {
+            runtime.StartGate.Release();
+        }
+    }
+
     /// <summary>Stops accepting new work and prevents crash restarts from racing the shutdown.</summary>
     public void BeginShutdown() => _stopping = true;
 

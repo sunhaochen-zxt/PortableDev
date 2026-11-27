@@ -1,5 +1,8 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.IO.Compression;
 using PortableDev.Core.Config;
+using PortableDev.Kernel.Recovery;
 using PortableDev.Core.Logging;
 using PortableDev.Core.Protocol;
 using PortableDev.Core.Util;
@@ -83,6 +86,12 @@ public sealed class BuiltinCommandSet
         Add("config get", [], false, true, "read one setting", "pd config get <键> [--file]", ConfigGetAsync);
         Add("config set", [], true, false, "change one setting", "pd config set <键> <值>", ConfigSetAsync);
         Add("config unset", [], true, false, "reset one setting", "pd config unset <键>", ConfigUnsetAsync);
+        Add("ext", ["exts"], false, true, "installed extensions (alias of ext list)", "pd ext [--json]", KernelExtListAsync);
+        Add("ext list", ["ext ls"], false, true, "installed extensions and their state", "pd ext list [--json]", KernelExtListAsync);
+        Add("ext enable", [], true, false, "enable an extension (needs kernel restart)", "pd ext enable <名字>", ExtEnableAsync);
+        Add("ext disable", [], true, false, "disable an extension (needs kernel restart)", "pd ext disable <名字>", ExtDisableAsync);
+        Add("ext update", [], true, false, "replace an extension from a directory or zip (needs kernel restart)", "pd ext update <名字> <绝对路径>", ExtUpdateAsync);
+        Add("recover", [], true, false, "run the startup recovery now and report what it settled", "pd recover [--json]", RecoverAsync);
     }
 
     private void Add(string name, string[] aliases, bool mutates, bool parallel, string summary, string? usage,
@@ -337,7 +346,210 @@ public sealed class BuiltinCommandSet
         return Ok($"{rows.Length} extensions");
     }
 
-    private async Task<CommandResult> KernelExtListAsync(TaskContext ctx, string[] args)
+    private async Task<CommandResult> ExtEnableAsync(TaskContext ctx, string[] args)
+        => await ExtSetEnabledAsync(ctx, args, true).ConfigureAwait(false);
+
+    private async Task<CommandResult> ExtDisableAsync(TaskContext ctx, string[] args)
+        => await ExtSetEnabledAsync(ctx, args, false).ConfigureAwait(false);
+
+    private string? FindExtensionDirectory(string name)
+    {
+        foreach (var root in new[] { Path.Combine(_kernel.Paths.AppRoot, "extensions"), Path.Combine(_kernel.Paths.Root, "extensions") })
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (var candidate in Directory.GetDirectories(root))
+            {
+                var manifestPath = Path.Combine(candidate, "ext.json");
+                if (!File.Exists(manifestPath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (JsonNode.Parse(File.ReadAllText(manifestPath)) is JsonObject manifest
+                        && string.Equals(JsonUtil.String(manifest, "name"), name, StringComparison.Ordinal))
+                    {
+                        return candidate;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or JsonException)
+                {
+                    // A broken manifest is reported by the registry, not here.
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<CommandResult> ExtSetEnabledAsync(TaskContext ctx, string[] args, bool enabled)
+    {
+        var (positional, _) = Parse(args);
+        var name = positional.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Fail(ErrorCodes.BadArgs, ExitCodes.Args, "ext enable/disable needs an extension name");
+        }
+
+        var directory = FindExtensionDirectory(name);
+        if (directory is null)
+        {
+            return Fail(ErrorCodes.ExtMissing, ExitCodes.NotFound, $"extension '{name}' is not installed");
+        }
+
+        try
+        {
+            var manifestPath = Path.Combine(directory, "ext.json");
+            if (JsonNode.Parse(File.ReadAllText(manifestPath)) is not JsonObject manifest)
+            {
+                return Fail(ErrorCodes.ExtMissing, ExitCodes.Rejected, "ext.json is not an object");
+            }
+
+            var changed = (JsonUtil.Bool(manifest, "enabled") ?? true) != enabled;
+            manifest["enabled"] = enabled;
+            AtomicFile.WriteAllText(manifestPath, manifest.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            var metrics = new JsonObject { ["name"] = name, ["enabled"] = enabled, ["changed"] = changed, ["restartRequired"] = true };
+            await ctx.EmitAsync(EventTypes.Kv, new JsonObject { ["title"] = "extension", ["items"] = metrics.DeepClone() }).ConfigureAwait(false);
+            return Ok((enabled ? "enabled " : "disabled ") + name + " (restart the kernel to apply)", metrics);
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return Fail(ErrorCodes.Io, ExitCodes.Internal, ex.Message);
+        }
+    }
+
+    private async Task<CommandResult> ExtUpdateAsync(TaskContext ctx, string[] args)
+    {
+        var (positional, _) = Parse(args);
+        var name = positional.ElementAtOrDefault(0);
+        var source = positional.ElementAtOrDefault(1);
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(source))
+        {
+            return Fail(ErrorCodes.BadArgs, ExitCodes.Args, "ext update needs <name> <directory|zip>");
+        }
+
+        if (!Path.IsPathRooted(source))
+        {
+            return Fail(ErrorCodes.BadArgs, ExitCodes.Args, "ext update needs an absolute source path");
+        }
+
+        if (!Directory.Exists(source) && !File.Exists(source))
+        {
+            return Fail(ErrorCodes.BadArgs, ExitCodes.Args, "source does not exist: " + source);
+        }
+
+        var target = FindExtensionDirectory(name) ?? Path.Combine(_kernel.Paths.Root, "extensions", name);
+        var staging = Path.Combine(_kernel.Paths.Staging, "ext-update-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(staging);
+            if (Directory.Exists(source))
+            {
+                CopyDirectory(source, staging);
+            }
+            else
+            {
+                System.IO.Compression.ZipFile.ExtractToDirectory(source, staging, overwriteFiles: true);
+            }
+
+            var manifestPath = Path.Combine(staging, "ext.json");
+            if (!File.Exists(manifestPath))
+            {
+                return Fail(ErrorCodes.PackageInvalid, ExitCodes.Data, "source has no ext.json");
+            }
+
+            var manifest = JsonNode.Parse(File.ReadAllText(manifestPath)) as JsonObject;
+            if (manifest is null || !string.Equals(JsonUtil.String(manifest, "name"), name, StringComparison.Ordinal))
+            {
+                return Fail(ErrorCodes.PackageInvalid, ExitCodes.Data, "ext.json name does not match '" + name + "'");
+            }
+
+            // A running extension keeps its working directory open; stop it before replacing files.
+            if (_kernel.Registry.Find(name) is not null)
+            {
+                await _kernel.Supervisor.StopAsync(name).ConfigureAwait(false);
+            }
+
+            for (var attempt = 0; attempt < 50 && Directory.Exists(target); attempt++)
+            {
+                try
+                {
+                    Directory.Delete(target, recursive: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    await Task.Delay(100).ConfigureAwait(false);
+                }
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            Directory.Move(staging, target);
+            var metrics = new JsonObject { ["name"] = name, ["target"] = target, ["restartRequired"] = true };
+            await ctx.EmitAsync(EventTypes.Kv, new JsonObject { ["title"] = "extension", ["items"] = metrics.DeepClone() }).ConfigureAwait(false);
+            return Ok("updated " + name + " (restart the kernel to apply)", metrics);
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return Fail(ErrorCodes.Io, ExitCodes.Internal, ex.Message);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(staging))
+                {
+                    Directory.Delete(staging, recursive: true);
+                }
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (var child in Directory.GetDirectories(source))
+        {
+            CopyDirectory(child, Path.Combine(target, Path.GetFileName(child)));
+        }
+    }
+
+    private async Task<CommandResult> RecoverAsync(TaskContext ctx, string[] args)
+    {
+        var (_, flags) = Parse(args);
+        foreach (var unsupported in new[] { "adopt", "drop", "dry-run" })
+        {
+            if (flags.ContainsKey(unsupported))
+            {
+                return Fail(ErrorCodes.Unsupported, ExitCodes.Rejected,
+                    "pd recover runs the startup policy (recovery.intentDefault); use pd config set to change it");
+            }
+        }
+
+        var report = new RecoveryService(_kernel.Paths, _kernel.Settings, _kernel.Logger).Run();
+        var metrics = new JsonObject
+        {
+            ["adopted"] = report.Adopted,
+            ["dropped"] = report.Dropped,
+            ["intentErrors"] = report.IntentErrors,
+            ["stagingDeleted"] = report.StagingDeleted,
+            ["recordsDeleted"] = report.RecordsDeleted,
+        };
+        await ctx.EmitAsync(EventTypes.Kv, new JsonObject { ["title"] = "recovery", ["items"] = metrics.DeepClone() }).ConfigureAwait(false);
+        return Ok($"recovery: {report.Adopted} adopted, {report.Dropped} dropped, {report.StagingDeleted} staging deleted", metrics);
+    }    private async Task<CommandResult> KernelExtListAsync(TaskContext ctx, string[] args)
     {
         _ = args;
         var rows = _kernel.Registry.Extensions
