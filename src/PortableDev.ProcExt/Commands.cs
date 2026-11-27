@@ -15,11 +15,14 @@ internal static class Commands
     public static async Task HandleInvokeAsync(ExtensionClient client, string taskKey, JsonObject data)
     {
         var command = JsonUtil.String(data, "cmd") ?? string.Empty;
+        // The kernel may route a longer entry ("proc list") so read-only subcommands run in
+        // parallel; the first token selects the handler, argv still carries the sub-command.
+        var verb = command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
         var argv = JsonUtil.Strings(JsonUtil.Array(data, "argv")).ToArray();
 
         try
         {
-            switch (command)
+            switch (verb)
             {
                 case "proc":
                     await HandleProcAsync(client, taskKey, argv).ConfigureAwait(false);

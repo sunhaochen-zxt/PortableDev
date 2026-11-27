@@ -414,6 +414,18 @@ def main():
         done = call(stream, ["source", "status"])
         check("source fallback validates subcommand", done and done.get("exitCode") == 2, done)
 
+        print("subcommand granularity: proc list/info/system are parallel read-only entries")
+        events = []
+        done = call(stream, ["complete", "proc"], events=events)
+        rows = next((item.get("rows") for item in events if item.get("type") == "table"), [])
+        names = [row[0] for row in rows if row]
+        for expected in ("proc list", "proc info", "proc system"):
+            check("complete includes " + expected, expected in names, names[:10])
+        done = call(stream, ["proc", "list"])
+        check("proc list runs", done and done.get("exitCode") == 0, done)
+        done = call(stream, ["proc", "kill", "0"])
+        check("proc kill still validates", done and done.get("exitCode") == 2, done)
+
         print("doctor: external PATH/env drift is detected and repaired")
         fake_path = os.path.join(root, "state", "wire", "fake.json")
         with open(fake_path, "r", encoding="utf-8") as handle:

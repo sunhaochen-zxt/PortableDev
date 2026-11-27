@@ -196,10 +196,10 @@ pd [全局开关] <命令> [参数...]
 
 | 命令 | 作用 | 独占 | 离线 | 主要参数 | 失败码 |
 |---|---|---|---|---|---|
-| `pd proc list` | 受管进程列表 | **是**（整个 proc 命令串行；子命令级并行未实现） | 能 | `--kind` `--json` | — |
-| `pd proc info <pid\|id>` | 一个进程的详情 | **是**（同上） | 能 | `--json` | 2/20 |
+| `pd proc list` | 受管进程列表（只读，可并行） | 否 | 能 | `--kind` `--json` | — |
+| `pd proc info <pid\|id>` | 一个进程的详情（只读，可并行） | 否 | 能 | `--json` | 2/20 |
 | `pd proc kill <pid>` | 结束进程（受管或系统） | **是** | 能 | `--tree` `--elevated` `--force-critical` `--yes` | 2/8/11/20/25 |
-| `pd proc system` | 整机进程枚举 | **是**（同上） | 能 | `--elevated` `--filter` `--json` | 2/8 |
+| `pd proc system` | 整机进程枚举（只读，可并行） | 否 | 能 | `--elevated` `--filter` `--json` | 2/8 |
 
 ---
 

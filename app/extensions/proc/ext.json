@@ -19,6 +19,27 @@
       "parallel": false,
       "summary": "list, inspect and end managed processes",
       "usage": "pd proc list | info <pid> | kill <pid>"
+    },
+    {
+      "name": "proc list",
+      "mutates": false,
+      "parallel": true,
+      "summary": "list managed processes (read-only subcommand of pd proc)",
+      "usage": "pd proc list [--kind <类型>] [--json]"
+    },
+    {
+      "name": "proc info",
+      "mutates": false,
+      "parallel": true,
+      "summary": "inspect one managed process (read-only subcommand of pd proc)",
+      "usage": "pd proc info <pid> [--json]"
+    },
+    {
+      "name": "proc system",
+      "mutates": false,
+      "parallel": true,
+      "summary": "enumerate machine processes (read-only subcommand of pd proc)",
+      "usage": "pd proc system [--elevated] [--filter <关键字>] [--json]"
     }
   ],
   "lifecycle": {

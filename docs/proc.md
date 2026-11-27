@@ -205,7 +205,8 @@ proc.exe --admin <请求文件>      # ShellExecuteEx runas，一次 UAC
 | `pd proc kill` | 结束进程（受管或系统，system 范围需显式提权） | **是** |
 | `pd proc system` | 整机进程枚举（默认 best-effort，提权后完整） | 否 |
 
-命令由 `proc` 扩展注册。**视图不合并**：扩展进程归 `pd kernel ps`（内核的孩子），
+命令由 `proc` 扩展注册；`list` / `info` / `system` 在 `ext.json` 里单独登记为只读并行条目
+（内核按最长前缀路由），只有 `kill` 走 `proc` 的独占队列。**视图不合并**：扩展进程归 `pd kernel ps`（内核的孩子），
 本表只覆盖 `proc` 的孩子和系统进程；统一展示留给壳 / 窗口层。`pd proc kill` 不作用于扩展
 （杀扩展走 `pd kernel restart/stop`），遇到扩展 pid 按系统进程处理（内核会按重启策略收尾）。
 

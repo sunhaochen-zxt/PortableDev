@@ -75,7 +75,7 @@ python -u tools/scoop-e2e.py                                                    
 python -u tools/provides-e2e.py                                                      # 30（虚拟包 + replaces）
 python -u tools/window-e2e.py                                                        # 22（窗口壳：内核链路 + WebView2 桥 + 基线自愈）
 python -u tools/runtime-e2e.py                                                       # 11（随盘运行时：清空 DOTNET_ROOT/PATH 后跑 CLI 与窗口）
-python -u tools/features-e2e.py                                                      # 69（doctor/--deep/--fix/接线漂移/家目录/受限会话、selftest、info/env/outdated/ext/recover、子命令粒度、恢复账本回滚）
+python -u tools/features-e2e.py                                                      # 74（doctor/--deep/--fix/接线漂移/家目录/受限会话、selftest、info/env/outdated/ext/recover、子命令粒度 source/proc、恢复账本回滚）
 python tools/elevation-selftest.py                                                  # 手动：UAC 提权自检
 python tools/check_docs.py docs                                                     # 文档一致性
 ```
