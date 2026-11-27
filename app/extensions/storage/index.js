@@ -1665,16 +1665,58 @@ async function wireLinkRemove(args) {
   return { changed: true, target: target, before: before };
 }
 
+function psQuote(value) {
+  return "'" + String(value).replace(/'/g, "''") + "'";
+}
+
+function readShortcut(file) {
+  const script = "$ws=New-Object -ComObject WScript.Shell; " +
+    "$s=$ws.CreateShortcut(" + psQuote(file) + "); " +
+    "@{target=$s.TargetPath;arguments=$s.Arguments;workingDirectory=$s.WorkingDirectory;iconLocation=$s.IconLocation} | ConvertTo-Json -Compress";
+  const parsed = JSON.parse(powershell(script));
+  if (!parsed || typeof parsed.target !== "string" || parsed.target.length === 0) {
+    return null;
+  }
+  return JSON.stringify({
+    target: parsed.target,
+    arguments: String(parsed.arguments === undefined || parsed.arguments === null ? "" : parsed.arguments),
+    workingDirectory: String(parsed.workingDirectory || ""),
+    iconLocation: String(parsed.iconLocation || ""),
+  });
+}
+
 function readLauncher(file) {
   if (FAKE) {
     const fake = readFake();
     return Object.prototype.hasOwnProperty.call(fake.launchers, launcherId(file)) ? fake.launchers[launcherId(file)] : null;
   }
+  if (!/\.lnk$/i.test(file)) {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch (error) {
+      return null;
+    }
+  }
   try {
-    return fs.readFileSync(file, "utf8");
+    return readShortcut(file);
   } catch (error) {
     return null;
   }
+}
+
+function writeShortcut(file, content) {
+  const spec = JSON.parse(content);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const script = [
+    "$ws=New-Object -ComObject WScript.Shell",
+    "$s=$ws.CreateShortcut(" + psQuote(file) + ")",
+    "$s.TargetPath=" + psQuote(spec.target),
+    "$s.Arguments=" + psQuote(spec.arguments || ""),
+    "$s.WorkingDirectory=" + psQuote(spec.workingDirectory || ""),
+    "$s.IconLocation=" + psQuote(spec.iconLocation || String(spec.target) + ",0"),
+    "$s.Save()",
+  ].join("; ");
+  powershell(script);
 }
 
 function writeLauncher(file, content) {
@@ -1692,8 +1734,12 @@ function writeLauncher(file, content) {
     fs.rmSync(file, { force: true });
     return;
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, content, "utf8");
+  if (!/\.lnk$/i.test(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content, "utf8");
+    return;
+  }
+  writeShortcut(file, content);
 }
 
 function splitPath(value) {
@@ -1875,8 +1921,8 @@ function assertLauncherPath(file, op) {
   if (!inside(base, target) || (direct !== base.toLowerCase() && direct !== launcherDir.toLowerCase())) {
     throw new StorageError("ERR_UNSUPPORTED", op + " only accepts launchers under the stable root or its launchers/ directory");
   }
-  if (!/\.cmd$/i.test(target)) {
-    throw new StorageError("ERR_UNSUPPORTED", op + " only accepts .cmd launchers");
+  if (!/\.(cmd|lnk)$/i.test(target)) {
+    throw new StorageError("ERR_UNSUPPORTED", op + " only accepts .cmd or .lnk launchers");
   }
   // The stable root itself may be a junction onto the stick (C:\Dev -> stick in the
   // default setup), so compare against its resolved form, not the literal setting.
@@ -2076,7 +2122,7 @@ function launcherPath(record, launcher) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(name)) {
     throw new StorageError("ERR_PKG_INVALID", "launcher name is not a safe file name: " + JSON.stringify(name));
   }
-  return path.join(stableRoot(), "launchers", name + ".cmd");
+  return path.join(stableRoot(), "launchers", name + ".lnk");
 }
 
 async function applyRecord(record, task, dryRun) {
@@ -2174,6 +2220,7 @@ async function applyRecord(record, task, dryRun) {
     if (!launcher || !launcher.name) {
       continue;
     }
+    changed += cleanupLegacyLaunchers(record, launcher, dryRun);
     if (launcherCoveredByPath(record, wiring, launcher)) {
       // Drop stubs written by older versions: the executable is already on PATH.
       try {
@@ -2357,6 +2404,8 @@ function readSettingNumber(section, key, fallback) {
   }
 }
 
+// A launcher is a Windows shortcut: GUI programs start without a console window and get the
+// package exe as icon. The spec is stored canonically so apply can compare/restore launchers.
 function launcherContent(record, launcher) {
   const relative = String((launcher && launcher.exe) || "");
   if (path.isAbsolute(relative) || /^[A-Za-z]:/.test(relative) || relative.replace(/\\/g, "/").split("/").includes("..")) {
@@ -2374,22 +2423,52 @@ function launcherContent(record, launcher) {
     throw new StorageError("ERR_PKG_INVALID", "launcher exe escapes the package directory: " + relative);
   }
 
-  // Optional fixed arguments (for example Firefox's -profile/-no-remote); %* still passes extras.
-  const fixed = (launcher.args || [])
+  const args = (launcher.args || [])
     .map((item) => expandText(record, String(item)))
     .filter((item) => item.length > 0)
     .map((item) => {
       if (/[\r\n\u0000]/.test(item)) {
         throw new StorageError("ERR_PKG_INVALID", "launcher argument contains an illegal character");
       }
-      const escaped = item.replace(/%/g, "%%");
-      return /[ \t]/.test(escaped) ? "\"" + escaped + "\"" : escaped;
+      return /[ \t]/.test(item) ? "\"" + item + "\"" : item;
     })
     .join(" ");
 
-  // Percent signs expand inside a batch file even in quotes; double them. %* stays a pass-through.
-  return "@echo off\r\nsetlocal\r\nstart \"\" \"" + exe.replace(/%/g, "%%") + "\"" +
-    (fixed ? " " + fixed : "") + " %*\r\n";
+  return JSON.stringify({
+    target: exe,
+    arguments: args,
+    workingDirectory: path.dirname(exe),
+    iconLocation: exe + ",0",
+  });
+}
+
+// Older versions wrote <root>\<name>.cmd / <root>\launchers\<name>.cmd stubs. Remove them once
+// the shortcut exists so the launchers directory has exactly one entry per GUI program.
+function legacyLauncherFiles(record, launcher) {
+  const name = String((launcher && launcher.name) || "");
+  return [
+    path.join(stableRoot(), "launchers", name + ".cmd"),
+    path.join(stableRoot(), name + ".cmd"),
+  ];
+}
+
+function cleanupLegacyLaunchers(record, launcher, dryRun) {
+  let changed = 0;
+  for (const file of legacyLauncherFiles(record, launcher)) {
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      if (!/^@echo off\r?\nsetlocal\r?\nstart /.test(text)) {
+        continue;
+      }
+      if (!dryRun) {
+        fs.rmSync(file, { force: true });
+      }
+      changed += 1;
+    } catch (error) {
+      // missing or unreadable legacy stub
+    }
+  }
+  return changed;
 }
 
 function readAllRecords() {

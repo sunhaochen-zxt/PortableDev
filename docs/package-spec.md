@@ -249,7 +249,7 @@ firefox-139.0.pdpkg
 | `on` | `install` / `upgrade` / `remove` 的子集，默认 `["install"]` |
 | `cpu` | 可选，脚本 Job Object 的 CPU 硬上限（占单核百分比，`40` 或 `"40%"`，1–100）；缺省不限 |
 | `launch.args` | 可选固定参数（如 Firefox `-profile ... -no-remote`）；启动器会把参数拼在 exe 后面，`%*` 仍透传额外参数 |
-| 启动器桩 | `launch` 的 exe 目录已经在 `path` 里时不生成启动器；否则写到 `<稳定根>\launchers\<名>.cmd`（GUI 程序可用同目录的 `.lnk`）；`pd apply` 会把本盘 PATH 条目排到用户 PATH 最前 |
+| 启动器 | `launch` 的 exe 目录已经在 `path` 里时不生成启动器；否则自动生成 Windows 快捷方式 `<稳定根>\launchers\<名>.lnk`（目标为包内 exe，带 `args`/工作目录/图标，无黑窗）；旧版 `.cmd` 桩会在 apply 时清理 |
 | `elevated` | 可选，`true` 时经提权助手（一次 UAC，SHA-256 绑定请求）执行；**没有请求协议**，只适合简单安装器 |
 | `timeout` | 默认 `10m` |
 | `network` | 默认 `false`；脚本内要联网须显式声明 |

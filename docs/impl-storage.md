@@ -152,7 +152,8 @@ storage → 内核 ctl { id:<任务号>, data:{ action:"grant.reply",
 ## 7.3 PATH 优先级与启动器
 
 - `pd apply` 结束后把 `<稳定根>\current\...` 的 PATH 条目挪到用户 PATH 最前面，防止机器上已安装的旧版本抢在迁移版本之前（例如 `code` 命中旧 VS Code）；
-- 启动器写在 `<稳定根>\launchers\`（不再散落在稳定根根目录），用户程序的图形快捷方式也放这里；
+- 启动器写在 `<稳定根>\launchers\`，是真正的 Windows 快捷方式（`.lnk`，经 WScript.Shell 生成/读取属性），无控制台窗口；旧 `.cmd` 桩会在 apply 时清理；
+- `launch` 的 exe 已被 `path` 覆盖时不生成启动器（CLI 直接走 PATH）；
 
 ## 7.4 真实目录的收编
 

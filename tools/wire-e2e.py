@@ -80,13 +80,14 @@ def build_packages(packages):
                       "type": "REG_SZ", "value": "1"},
                      {"hive": "HKLM", "key": "Software\\PortableDevTest", "name": "MachineMark",
                       "type": "REG_SZ", "value": "2"}],
-        "launch": [{"name": "wired", "exe": "bin\\wired.cmd"}],
+        "launch": [{"name": "wired", "exe": "wired.txt"}],
         "asserts": [{"kind": "exists", "path": "bin\\wired.txt"}],
     }
     make_zip(os.path.join(packages, "wired-1.0.0.pdpkg"), {
         "package.json": json.dumps(wired).encode(),
         "files/bin/wired.txt": b"wired content\n",
         "files/bin/wired.cmd": b"@echo off\necho wired\n",
+        "files/gui/wired.cmd": b"@echo off\necho wired\n",
     })
 
     homed = {
@@ -231,7 +232,7 @@ def main():
         check("HKLM registry value written (fake)",
               any(key.startswith("HKLM\\") and key.endswith("PortableDevTest\\MachineMark") and value.get("value") == "2"
                   for key, value in registry.items()), registry)
-        launcher = os.path.normcase(os.path.join(stable, "wired.cmd"))
+        launcher = os.path.normcase(os.path.join(stable, "launchers", "wired.lnk"))
         check("launcher generated", any(os.path.normcase(key) == launcher for key in state.get("launchers", {})),
               list(state.get("launchers", {}).keys()))
         link = os.path.join(root, "current", "wired")
