@@ -101,8 +101,10 @@ def call(stream, argv, timeout=180):
 
 
 def default_root():
+    """All test artifacts live under <stick>/_dev/runs, never at the stick root."""
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(os.path.dirname(os.path.dirname(here)), ".run-scoop")
+    dev = os.environ.get("PD_DEV_ROOT") or os.path.join(os.path.dirname(os.path.dirname(here)), "_dev")
+    return os.path.join(dev, "runs", "scoop")
 
 
 def deploy(root):

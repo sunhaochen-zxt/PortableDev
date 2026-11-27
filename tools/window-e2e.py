@@ -40,8 +40,10 @@ def check(name, ok, detail=""):
 
 
 def default_root():
+    """All test artifacts live under <stick>/_dev/runs, never at the stick root."""
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(os.path.dirname(os.path.dirname(here)), ".run-window")
+    dev = os.environ.get("PD_DEV_ROOT") or os.path.join(os.path.dirname(os.path.dirname(here)), "_dev")
+    return os.path.join(dev, "runs", "window")
 
 
 def deploy(root):
@@ -206,7 +208,7 @@ def main():
         kernel_log.close()
         kill_leftovers(ROOT)
 
-    outside = os.path.join(os.path.dirname(ROOT), ".win-e2e")
+    outside = os.path.join(ROOT, "outside")
     print("apphost: real deployment outside the repository")
     kill_leftovers(outside)
     shutil.rmtree(outside, ignore_errors=True)
