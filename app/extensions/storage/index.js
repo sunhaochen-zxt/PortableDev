@@ -44,7 +44,8 @@ function inside(root, candidate) {
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-const PACKAGE_ID = /^[a-z][a-z0-9-]{0,63}$/;
+// Package ids may start with a digit (scoop "7zip").
+const PACKAGE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
