@@ -14,8 +14,6 @@
     </div>
     <div class="hero-actions">
       <span class="status-pill" id="kernel-status"><span class="pulse-dot"></span><span>内核在线</span></span>
-      <button class="secondary sm" id="style-btn"><span data-icon="sliders" data-size="14"></span><span id="style-label">风格</span></button>
-      <button class="secondary sm" id="theme-btn"><span data-icon="moon" data-size="14"></span>切换主题</button>
       <button class="secondary sm" id="refresh-btn"><span data-icon="refresh" data-size="14"></span>刷新</button>
     </div>
   </header>
@@ -200,15 +198,6 @@ async function loadOverview() {
     refreshBtn.disabled = false;
   }
 }
-
-function syncStyleLabel() {
-  const labels = { winui3: "WinUI 3", md3: "MD3", glass: "液态玻璃" };
-  const el = document.getElementById("style-label");
-  if (el) el.textContent = "风格：" + (labels[getUiStyle()] || "WinUI 3");
-}
-syncStyleLabel();
-document.getElementById("style-btn").addEventListener("click", () => { cycleUiStyle(); syncStyleLabel(); });
-document.getElementById("theme-btn").addEventListener("click", () => toggleTheme(true));
 document.getElementById("refresh-btn").addEventListener("click", loadOverview);
 document.querySelectorAll("[data-nav]").forEach((btn) => {
   btn.addEventListener("click", () => {

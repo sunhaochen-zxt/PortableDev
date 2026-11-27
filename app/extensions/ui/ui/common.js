@@ -1,20 +1,113 @@
 // Shared helpers for the PortableDev built-in UI pages.
 // All dynamic values are rendered via textContent / DOM APIs (never raw innerHTML).
 const PD_STYLES = [
-  { id: "winui3", name: "WinUI 3 原生一体", desc: "Windows 11 Fluent 2 云母分层 · 立体描边与底栏指示条" },
-  { id: "md3", name: "Material Design 3", desc: "莫奈浅绿取色 · 色调表面与胶囊涟漪" },
-  { id: "glass", name: "液态玻璃 Liquid Glass", desc: "纯净中性水晶 · SDF 边缘折射与镜面高光" },
+  { id: "winui3", name: "WinUI 3 原生一体", desc: "WinUIonWeb 真实主题资源 · 云母分层与立体描边" },
+  { id: "md3", name: "Material Design 3", desc: "官方 @material/web 组件 · 壁纸莫奈动态取色与真实涟漪" },
+  { id: "glass-chrome", name: "悬浮液态玻璃（FlClash）", desc: "内容区保持清爽莫奈实体卡片 · 仅悬浮控件与弹窗启用液态玻璃" },
+  { id: "glass", name: "全景液态玻璃", desc: "WebGL2 物理折射与色散 · 自定义壁纸全屏通透玻璃" },
 ];
+
+function syncHtmlThemeClasses(theme) {
+  const isDark = theme === "dark";
+  document.documentElement.dataset.theme = isDark ? "dark" : "light";
+  document.documentElement.classList.toggle("theme-dark", isDark);
+  document.documentElement.classList.toggle("theme-light", !isDark);
+}
 
 (function applyThemeAndStyle() {
   try {
     const savedTheme = sessionStorage.getItem("pd-ui-theme");
     const theme = savedTheme || (window.pd && window.pd.theme) || document.documentElement.dataset.theme || "light";
-    document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+    syncHtmlThemeClasses(theme === "dark" ? "dark" : "light");
     const savedStyle = localStorage.getItem("pd-ui-style") || "winui3";
-    document.documentElement.dataset.style = ["winui3", "md3", "glass"].includes(savedStyle) ? savedStyle : "winui3";
+    document.documentElement.dataset.style = ["winui3", "md3", "glass-chrome", "glass"].includes(savedStyle) ? savedStyle : "winui3";
   } catch (error) { /* keep markup default */ }
 })();
+
+const _loadedScripts = Object.create(null);
+function loadVendorScript(src) {
+  if (_loadedScripts[src]) return _loadedScripts[src];
+  _loadedScripts[src] = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = (err) => reject(err);
+    document.head.appendChild(s);
+  });
+  return _loadedScripts[src];
+}
+
+// Mount/unmount real @material/web Custom Elements (<md-ripple>, <md-elevation>, <md-focus-ring>)
+let _md3Observer = null;
+function decorateMd3Node(el) {
+  if (!el || el.nodeType !== 1 || el.dataset.md3Mounted === "1") return;
+  el.dataset.md3Mounted = "1";
+  if (el.matches("button, .quick-tile, .style-option, .tab-btn")) {
+    const ripple = document.createElement("md-ripple");
+    ripple.setAttribute("data-pd-mwc", "1");
+    el.appendChild(ripple);
+    const ring = document.createElement("md-focus-ring");
+    ring.setAttribute("data-pd-mwc", "1");
+    el.appendChild(ring);
+  }
+  if (el.matches(".kpi, .pkg-card, .modal-box")) {
+    const elev = document.createElement("md-elevation");
+    elev.setAttribute("data-pd-mwc", "1");
+    el.appendChild(elev);
+  }
+}
+
+function mountMaterialWeb() {
+  loadVendorScript("vendor/material-web.js").then(() => {
+    const _st = document.documentElement.dataset.style;
+    if ((_st !== "md3" && _st !== "glass-chrome") || !document.body) return;
+    const sel = "button, .quick-tile, .style-option, .tab-btn, .kpi, .pkg-card, .modal-box";
+    document.querySelectorAll(sel).forEach(decorateMd3Node);
+    if (!_md3Observer) {
+      _md3Observer = new MutationObserver((muts) => {
+        const _st2 = document.documentElement.dataset.style;
+        if (_st2 !== "md3" && _st2 !== "glass-chrome") return;
+        for (const m of muts) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType !== 1) continue;
+            if (node.matches && node.matches(sel)) decorateMd3Node(node);
+            if (node.querySelectorAll) node.querySelectorAll(sel).forEach(decorateMd3Node);
+          }
+        }
+      });
+      _md3Observer.observe(document.body, { childList: true, subtree: true });
+    }
+  }).catch(() => { /* fallback gracefully */ });
+}
+
+function unmountMaterialWeb() {
+  if (_md3Observer) {
+    _md3Observer.disconnect();
+    _md3Observer = null;
+  }
+  document.querySelectorAll("[data-pd-mwc]").forEach((n) => n.remove());
+  document.querySelectorAll("[data-md3-mounted]").forEach((el) => delete el.dataset.md3Mounted);
+}
+
+function activateStyleRuntime(styleId) {
+  if (styleId === "md3") {
+    if (window.PDLiquidGlass) window.PDLiquidGlass.unmount();
+    mountMaterialWeb();
+  } else if (styleId === "glass" || styleId === "glass-chrome") {
+    unmountMaterialWeb();
+    loadVendorScript("vendor/webgl-liquid-glass.js")
+      .then(() => loadVendorScript("vendor/liquid-glass.js"))
+      .then(() => {
+        const cur = document.documentElement.dataset.style;
+        if ((cur === "glass" || cur === "glass-chrome") && window.PDLiquidGlass) {
+          window.PDLiquidGlass.mount(true);
+        }
+      }).catch(() => { /* ignore */ });
+  } else {
+    unmountMaterialWeb();
+    if (window.PDLiquidGlass) window.PDLiquidGlass.unmount();
+  }
+}
 
 function getUiStyle() {
   return document.documentElement.dataset.style || "winui3";
@@ -34,20 +127,18 @@ function runSmoothSwitch(fn) {
 }
 
 function setUiStyle(styleId) {
-  const valid = ["winui3", "md3", "glass"].includes(styleId) ? styleId : "winui3";
+  const valid = ["winui3", "md3", "glass-chrome", "glass"].includes(styleId) ? styleId : "winui3";
   runSmoothSwitch(() => {
     document.documentElement.dataset.style = valid;
   });
   try { localStorage.setItem("pd-ui-style", valid); } catch (e) { /* ignore */ }
-  if (valid === "glass") {
-    ensureLiquidGlassFilters();
-  }
+  activateStyleRuntime(valid);
   showToast("已切换外观风格：" + getUiStyleName(valid), "ok");
   return valid;
 }
 
 function cycleUiStyle() {
-  const order = ["winui3", "md3", "glass"];
+  const order = ["winui3", "md3", "glass-chrome", "glass"];
   const next = order[(order.indexOf(getUiStyle()) + 1) % order.length];
   return setUiStyle(next);
 }
@@ -104,7 +195,7 @@ function hydrateIcons() {
 function toggleTheme(persist) {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   runSmoothSwitch(() => {
-    document.documentElement.dataset.theme = next;
+    syncHtmlThemeClasses(next);
   });
   try { sessionStorage.setItem("pd-ui-theme", next); } catch (e) { /* ignore */ }
   if (window.pd && typeof window.pd.setTheme === "function") {
@@ -112,6 +203,10 @@ function toggleTheme(persist) {
   }
   if (persist && window.pd && window.pd.run) {
     window.pd.run(["config", "set", "ui.theme", next]).catch(() => { /* optional */ });
+  }
+  if (window.PDWallpaper) window.PDWallpaper.applyCurrent();
+  if ((getUiStyle() === "glass" || getUiStyle() === "glass-chrome") && window.PDLiquidGlass) {
+    setTimeout(() => window.PDLiquidGlass.mount(true), 40);
   }
   showToast("已切换至" + (next === "dark" ? "深色" : "浅色") + "主题", "ok");
   return next;
@@ -296,7 +391,6 @@ function confirmDialog(title, message, confirmLabel, danger) {
   });
 }
 
-// Run a command with live streaming output into a console container element.
 async function streamCommand(argv, consoleEl, onDone) {
   consoleEl.textContent = "";
   const append = (lvl, text) => {
@@ -345,59 +439,30 @@ async function streamCommand(argv, consoleEl, onDone) {
   }
 }
 
-document.addEventListener("DOMContentLoaded", hydrateIcons);
-
-// Material Web 3 hold-and-release tactile ripple on interactive controls.
-document.addEventListener("pointerdown", (e) => {
-  if (document.documentElement.dataset.style !== "md3") return;
-  const el = e.target && e.target.closest && e.target.closest("button, .quick-tile, .style-option");
-  if (!el || el.disabled) return;
-  const rect = el.getBoundingClientRect();
-  const size = Math.max(rect.width, rect.height);
-  const ripple = document.createElement("span");
-  ripple.className = "md3-ripple";
-  ripple.style.width = size + "px";
-  ripple.style.height = size + "px";
-  ripple.style.left = (e.clientX - rect.left - size / 2) + "px";
-  ripple.style.top = (e.clientY - rect.top - size / 2) + "px";
-  el.appendChild(ripple);
-  requestAnimationFrame(() => ripple.classList.add("is-expanding"));
-
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    ripple.classList.add("is-fading");
-    setTimeout(() => ripple.remove(), 260);
-  };
-  el.addEventListener("pointerup", release, { once: true });
-  el.addEventListener("pointerleave", release, { once: true });
-  el.addEventListener("pointercancel", release, { once: true });
-  setTimeout(release, 650);
+document.addEventListener("DOMContentLoaded", () => {
+  hydrateIcons();
+  loadVendorScript("vendor/monet-wallpaper.js").then(() => {
+    if (window.PDWallpaper) window.PDWallpaper.applyCurrent();
+  }).catch(() => { /* ignore */ });
+  activateStyleRuntime(getUiStyle());
 });
 
-// Per-card local pointer glow for WinUI 3 Fluent Reveal & Apple Liquid Glass specular sheen.
-(function bindSurfacePointerGlow() {
-  const selector = ".kpi, .quick-tile, .pkg-card, .style-option";
+// Liquid Glass specular angle follows pointer gently
+(function bindLiquidGlassLight() {
   let raf = 0;
-  let pendingTarget = null;
-  let px = 0;
-  let py = 0;
+  let lastX = 0;
+  let lastY = 0;
   document.addEventListener("pointermove", (e) => {
-    const style = document.documentElement.dataset.style || "winui3";
-    if (style !== "winui3" && style !== "glass") return;
-    const card = e.target && e.target.closest && e.target.closest(selector);
-    if (!card) return;
-    pendingTarget = card;
-    px = e.clientX;
-    py = e.clientY;
+    if (document.documentElement.dataset.style !== "glass") return;
+    lastX = e.clientX;
+    lastY = e.clientY;
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      if (!pendingTarget) return;
-      const r = pendingTarget.getBoundingClientRect();
-      pendingTarget.style.setProperty("--rx", Math.round(px - r.left) + "px");
-      pendingTarget.style.setProperty("--ry", Math.round(py - r.top) + "px");
+      const nx = (lastX / Math.max(1, window.innerWidth)) - 0.5;
+      const ny = (lastY / Math.max(1, window.innerHeight)) - 0.5;
+      const angle = (135 + nx * 42 + ny * 20).toFixed(1) + "deg";
+      document.documentElement.style.setProperty("--glass-angle", angle);
     });
   }, { passive: true });
 })();
@@ -425,159 +490,3 @@ document.addEventListener("keydown", (e) => {
     }
   }
 });
-
-
-// Real Liquid Glass optical refraction engine (adapted from shuding/liquid-glass & rdev/liquid-glass-react):
-// Generates rounded-rectangle SDF displacement maps on an offscreen canvas and applies a subtle,
-// crisp edge refraction + very gentle RGB dispersion via SVG backdrop-filter.
-function ensureLiquidGlassFilters() {
-  if (document.getElementById("pd-liquid-svg") || !document.body) return;
-
-  function smoothStep(a, b, t) {
-    t = Math.max(0, Math.min(1, (t - a) / (b - a)));
-    return t * t * (3 - 2 * t);
-  }
-
-  function roundedRectSDF(x, y, w, h, r) {
-    const qx = Math.abs(x) - w + r;
-    const qy = Math.abs(y) - h + r;
-    return Math.min(Math.max(qx, qy), 0) + Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - r;
-  }
-
-  function buildDisplacementDataUrl(width, height, radius, edgeBand) {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return { url: "", maxScale: 12 };
-    const raw = new Float32Array(width * height * 2);
-    let maxScale = 0;
-    let p = 0;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const ix = x / width - 0.5;
-        const iy = y / height - 0.5;
-        const dist = roundedRectSDF(ix, iy, 0.36, 0.30, radius);
-        const disp = smoothStep(edgeBand, 0, dist - 0.10);
-        const scaled = smoothStep(0, 1, disp);
-        const dx = (ix * scaled + 0.5) * width - x;
-        const dy = (iy * scaled + 0.5) * height - y;
-        const m = Math.max(Math.abs(dx), Math.abs(dy));
-        if (m > maxScale) maxScale = m;
-        raw[p++] = dx;
-        raw[p++] = dy;
-      }
-    }
-    maxScale = Math.max(maxScale * 0.5, 1);
-    const img = ctx.createImageData(width, height);
-    const data = img.data;
-    p = 0;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const dx = raw[p++];
-        const dy = raw[p++];
-        const edge = Math.min(1, Math.min(x, y, width - 1 - x, height - 1 - y) / 2);
-        const r = Math.max(0, Math.min(255, ((dx * edge) / maxScale + 0.5) * 255));
-        const g = Math.max(0, Math.min(255, ((dy * edge) / maxScale + 0.5) * 255));
-        const idx = (y * width + x) * 4;
-        data[idx] = r;
-        data[idx + 1] = g;
-        data[idx + 2] = g;
-        data[idx + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return { url: canvas.toDataURL(), maxScale: maxScale };
-  }
-
-  const ns = "http://www.w3.org/2000/svg";
-  const el = (tag, attrs) => {
-    const node = document.createElementNS(ns, tag);
-    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
-    return node;
-  };
-
-  function makeLiquidFilter(id, mapInfo, scale, aberration) {
-    const f = el("filter", {
-      id: id,
-      x: "-15%",
-      y: "-15%",
-      width: "130%",
-      height: "130%",
-      colorInterpolationFilters: "sRGB",
-    });
-    f.appendChild(el("feImage", {
-      x: "0",
-      y: "0",
-      width: "100%",
-      height: "100%",
-      preserveAspectRatio: "none",
-      href: mapInfo.url,
-      result: "MAP",
-    }));
-
-    const addChannel = (name, chScale, matrix) => {
-      f.appendChild(el("feDisplacementMap", {
-        in: "SourceGraphic",
-        in2: "MAP",
-        scale: chScale.toFixed(2),
-        xChannelSelector: "R",
-        yChannelSelector: "G",
-        result: name + "_D",
-      }));
-      f.appendChild(el("feColorMatrix", {
-        in: name + "_D",
-        type: "matrix",
-        values: matrix,
-        result: name,
-      }));
-    };
-
-    addChannel("R", scale, "1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0");
-    addChannel("G", scale * (1 - aberration), "0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0");
-    addChannel("B", scale * (1 - aberration * 2), "0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0");
-
-    f.appendChild(el("feBlend", { in: "G", in2: "B", mode: "screen", result: "GB" }));
-    f.appendChild(el("feBlend", { in: "R", in2: "GB", mode: "screen", result: "RGB" }));
-    return f;
-  }
-
-  const svg = el("svg", { id: "pd-liquid-svg", width: "0", height: "0", "aria-hidden": "true" });
-  svg.style.cssText = "position:fixed;width:0;height:0;pointer-events:none;";
-  const defs = el("defs");
-
-  const lensMap = buildDisplacementDataUrl(180, 120, 0.34, 0.65);
-  const cardMap = buildDisplacementDataUrl(220, 140, 0.22, 0.50);
-  defs.appendChild(makeLiquidFilter("pd-liquid-lens", lensMap, Math.min(20, lensMap.maxScale * 0.75), 0.04));
-  defs.appendChild(makeLiquidFilter("pd-liquid-card", cardMap, Math.min(12, cardMap.maxScale * 0.50), 0.025));
-
-  svg.appendChild(defs);
-  document.body.appendChild(svg);
-}
-
-(function bindLiquidGlassLight() {
-  let raf = 0;
-  let lastX = 0;
-  let lastY = 0;
-  document.addEventListener("pointermove", (e) => {
-    if (document.documentElement.dataset.style !== "glass") return;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-      const nx = (lastX / Math.max(1, window.innerWidth)) - 0.5;
-      const ny = (lastY / Math.max(1, window.innerHeight)) - 0.5;
-      const angle = (135 + nx * 44 + ny * 22).toFixed(1) + "deg";
-      document.documentElement.style.setProperty("--glass-angle", angle);
-      document.documentElement.style.setProperty("--gx", Math.round((nx + 0.5) * 100) + "%");
-      document.documentElement.style.setProperty("--gy", Math.round((ny + 0.5) * 100) + "%");
-    });
-  }, { passive: true });
-
-  document.addEventListener("DOMContentLoaded", () => {
-    if (document.documentElement.dataset.style === "glass") {
-      ensureLiquidGlassFilters();
-    }
-  });
-})();

@@ -2,41 +2,74 @@
 <html data-theme="light">
 <head>
   <meta charset="utf-8">
-  <title>系统设置 · PortableDev</title>
+  <title>设置 · PortableDev</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="wrap">
   <header class="hero">
     <div class="hero-left">
-      <h1><span class="hero-icon" data-icon="sliders" data-size="18"></span>系统设置</h1>
-      <div class="muted">可视化编辑 config/settings.json（pd config list / set / unset）</div>
+      <h1><span class="hero-icon" data-icon="sliders" data-size="18"></span>设置</h1>
+      <div class="muted">UI 外观定制与 PortableDev 内核/系统参数分离管理</div>
     </div>
     <div class="hero-actions">
-      <button class="secondary sm" id="theme-quick"><span data-icon="moon" data-size="14"></span>切换明/暗主题</button>
-      <button class="secondary sm" id="refresh"><span data-icon="refresh" data-size="14"></span>刷新</button>
+      <div class="tabs" role="tablist" aria-label="设置分类">
+        <button type="button" class="tab-btn active" id="tab-ui" data-tab="ui">UI 设置</button>
+        <button type="button" class="tab-btn" id="tab-system" data-tab="system">系统设置</button>
+      </div>
+      <button class="secondary sm" id="refresh" style="display:none;"><span data-icon="refresh" data-size="14"></span>刷新</button>
     </div>
   </header>
 
-  <section class="card">
-    <div class="card-head">
-      <h2><span data-icon="sliders" data-size="15"></span>界面视觉风格</h2>
-      <span class="badge" id="active-style-badge">—</span>
-    </div>
-    <div class="style-grid" id="style-picker"></div>
-  </section>
-
-  <section class="card">
-    <div class="toolbar">
-      <div class="input-box">
-        <span data-icon="search" data-size="15"></span>
-        <input type="search" id="filter" placeholder="搜索配置键（例如 ui.theme、network.timeout、proc.*）…">
+  <!-- Panel 1: UI 设置 (Theme, Visual Style, Custom Wallpaper, Monet Dynamic Color) -->
+  <div id="pane-ui">
+    <section class="card">
+      <div class="card-head">
+        <h2><span data-icon="moon" data-size="15"></span>明暗主题</h2>
+        <span class="badge muted" id="active-theme-badge">—</span>
       </div>
-      <span class="badge" id="count">—</span>
-    </div>
-  </section>
+      <div class="wallpaper-actions">
+        <button type="button" class="secondary sm" id="theme-light-btn"><span data-icon="sun" data-size="14"></span>浅色模式</button>
+        <button type="button" class="secondary sm" id="theme-dark-btn"><span data-icon="moon" data-size="14"></span>深色模式</button>
+      </div>
+    </section>
 
-  <div id="groups"><section class="card empty">正在读取配置…</section></div>
+    <section class="card">
+      <div class="card-head">
+        <h2><span data-icon="sliders" data-size="15"></span>界面视觉风格</h2>
+        <span class="badge" id="active-style-badge">—</span>
+      </div>
+      <div class="style-grid" id="style-picker"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2><span data-icon="compass" data-size="15"></span>壁纸与 MD3 莫奈动态取色</h2>
+        <div class="monet-swatch-row" id="settings-monet-swatches"></div>
+      </div>
+      <div class="wallpaper-actions">
+        <label class="cropper-check"><input type="checkbox" id="wp-all-styles-chk" checked>启用背景壁纸（全部风格生效）</label>
+        <button type="button" class="sm" id="wp-upload-btn">上传并裁剪壁纸</button>
+        <button type="button" class="secondary sm" id="wp-extract-btn">从当前壁纸莫奈取色</button>
+        <button type="button" class="ghost sm" id="wp-reset-btn">恢复默认壁纸与色盘</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Panel 2: 系统设置 (config/settings.json editor via pd config list / set / unset) -->
+  <div id="pane-system" style="display:none;">
+    <section class="card">
+      <div class="toolbar">
+        <div class="input-box">
+          <span data-icon="search" data-size="15"></span>
+          <input type="search" id="filter" placeholder="搜索系统配置键（例如 kernel.*、network.timeout、proc.*）…">
+        </div>
+        <span class="badge" id="count">—</span>
+      </div>
+    </section>
+
+    <div id="groups"><section class="card empty">正在读取系统配置…</section></div>
+  </div>
 </div>
 
 <script src="common.js"></script>
@@ -55,6 +88,25 @@ const GROUP_TITLES = {
 };
 
 let allSettings = [];
+let systemLoaded = false;
+
+function switchTab(tab) {
+  const isUi = tab !== "system";
+  document.getElementById("tab-ui").classList.toggle("active", isUi);
+  document.getElementById("tab-system").classList.toggle("active", !isUi);
+  document.getElementById("pane-ui").style.display = isUi ? "" : "none";
+  document.getElementById("pane-system").style.display = isUi ? "none" : "";
+  document.getElementById("refresh").style.display = isUi ? "none" : "";
+  if (!isUi && !systemLoaded) {
+    load();
+  }
+  if ((getUiStyle() === "glass" || getUiStyle() === "glass-chrome") && window.PDLiquidGlass) {
+    setTimeout(() => window.PDLiquidGlass.mount(true), 30);
+  }
+}
+
+document.getElementById("tab-ui").addEventListener("click", () => switchTab("ui"));
+document.getElementById("tab-system").addEventListener("click", () => switchTab("system"));
 
 function unquote(raw) {
   const text = String(raw ?? "");
@@ -77,7 +129,7 @@ function renderGroups() {
   if (filtered.length === 0) {
     const empty = document.createElement("section");
     empty.className = "card empty";
-    empty.textContent = "没有匹配的配置项";
+    empty.textContent = "没有匹配的系统配置项";
     container.appendChild(empty);
     return;
   }
@@ -135,8 +187,9 @@ function renderGroups() {
           const restart = res.done && res.done.metrics && res.done.metrics.restartRequired;
           if (item.key === "ui.theme") {
             const next = input.value.trim().toLowerCase() === "dark" ? "dark" : "light";
-            document.documentElement.dataset.theme = next;
+            syncHtmlThemeClasses(next);
             try { sessionStorage.setItem("pd-ui-theme", next); } catch (e) { /* ignore */ }
+            syncThemeButtons();
           }
           showToast(item.key + " 已保存" + (restart ? "（重启内核后生效）" : ""), "ok");
           load();
@@ -181,6 +234,7 @@ async function load() {
     const timed = await pdTimed(["config", "list"]);
     const tbl = extractTable(timed.result);
     allSettings = tbl.rows.map((r) => ({ key: String(r[0] ?? ""), value: unquote(r[1]) }));
+    systemLoaded = true;
     renderGroups();
     showTiming("config list " + timed.ms + "ms");
   } catch (error) {
@@ -193,6 +247,22 @@ async function load() {
   } finally {
     btn.disabled = false;
   }
+}
+
+function syncThemeButtons() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.getElementById("active-theme-badge").textContent = dark ? "深色" : "浅色";
+  document.getElementById("theme-light-btn").className = dark ? "secondary sm" : "sm";
+  document.getElementById("theme-dark-btn").className = dark ? "sm" : "secondary sm";
+}
+
+function applyExplicitTheme(target) {
+  const cur = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  if (cur !== target) {
+    toggleTheme(true);
+  }
+  syncThemeButtons();
+  refreshMonetSwatches();
 }
 
 function renderStylePicker() {
@@ -233,15 +303,53 @@ function renderStylePicker() {
     picker.appendChild(btn);
   }
 }
-renderStylePicker();
 
-document.getElementById("theme-quick").addEventListener("click", () => {
-  toggleTheme(true);
-  setTimeout(load, 200);
+function refreshMonetSwatches() {
+  const row = document.getElementById("settings-monet-swatches");
+  if (!row || !window.PDWallpaper) return;
+  const seed = window.PDWallpaper.getMd3Seed();
+  const tok = window.PDWallpaper.buildMonetTokens(seed, document.documentElement.dataset.theme === "dark");
+  row.textContent = "";
+  const lbl = document.createElement("span");
+  lbl.className = "muted";
+  lbl.textContent = "莫奈色盘 " + seed;
+  row.appendChild(lbl);
+  for (const col of tok.swatches) {
+    const dot = document.createElement("span");
+    dot.className = "monet-dot";
+    dot.style.background = col;
+    dot.title = col;
+    row.appendChild(dot);
+  }
+}
+
+const wpAllChk = document.getElementById("wp-all-styles-chk");
+wpAllChk.addEventListener("change", () => {
+  loadVendorScript("vendor/monet-wallpaper.js").then(() => window.PDWallpaper.setWallpaperOnAllStyles(wpAllChk.checked));
 });
+function syncWpControls() {
+  refreshMonetSwatches();
+  if (window.PDWallpaper) wpAllChk.checked = window.PDWallpaper.isWallpaperOnAllStyles();
+}
+
+document.getElementById("theme-light-btn").addEventListener("click", () => applyExplicitTheme("light"));
+document.getElementById("theme-dark-btn").addEventListener("click", () => applyExplicitTheme("dark"));
+document.getElementById("wp-upload-btn").addEventListener("click", () => {
+  loadVendorScript("vendor/monet-wallpaper.js").then(() => window.PDWallpaper.openCropper());
+});
+document.getElementById("wp-extract-btn").addEventListener("click", () => {
+  loadVendorScript("vendor/monet-wallpaper.js").then(() => window.PDWallpaper.extractFromCurrentWallpaper(false));
+});
+document.getElementById("wp-reset-btn").addEventListener("click", () => {
+  loadVendorScript("vendor/monet-wallpaper.js").then(() => window.PDWallpaper.resetWallpaper());
+});
+window.addEventListener("pd-wallpaper-change", syncWpControls);
 document.getElementById("filter").addEventListener("input", renderGroups);
 document.getElementById("refresh").addEventListener("click", load);
-load();
+
+syncThemeButtons();
+renderStylePicker();
+loadVendorScript("vendor/monet-wallpaper.js").then(syncWpControls).catch(() => {});
 </script>
 </body>
 </html>

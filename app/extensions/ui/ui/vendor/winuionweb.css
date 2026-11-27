@@ -1,0 +1,2962 @@
+/* Vendored from https://github.com/Furry-Xiyi/WinUIonWeb (MIT) */
+/* Native WinUI controls draw their own bounded selection visuals. */
+html { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+
+/* Common_themeresources.xaml system focus aliases resolve in each theme. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --SystemControlFocusVisualPrimaryBrush: var(--FocusStrokeColorOuterBrush, var(--text-primary));
+  --SystemControlFocusVisualSecondaryBrush: var(--FocusStrokeColorInnerBrush, var(--app-bg));
+}
+/* Expander_themeresources.xaml aliases resolve in each requested theme. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --ExpanderChevronForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ExpanderHeaderBackground: var(--CardBackgroundFillColorDefaultBrush, var(--card-bg));
+  --ExpanderHeaderForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ExpanderHeaderForegroundPointerOver: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ExpanderHeaderForegroundPressed: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ExpanderHeaderBorderBrush: var(--CardStrokeColorDefaultBrush, var(--card-stroke));
+  --ExpanderHeaderBorderPointerOverBrush: var(--CardStrokeColorDefaultBrush, var(--card-stroke));
+  --ExpanderHeaderBorderPressedBrush: var(--CardStrokeColorDefaultBrush, var(--card-stroke));
+  --ExpanderHeaderDisabledForeground: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --ExpanderHeaderDisabledBorderBrush: var(--CardStrokeColorDefaultBrush, var(--card-stroke));
+  --ExpanderChevronBackground: transparent;
+  --ExpanderChevronPointerOverBackground: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --ExpanderChevronPressedBackground: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --ExpanderChevronPointerOverForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ExpanderChevronPressedForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ExpanderChevronBorderBrush: transparent;
+  --ExpanderChevronBorderPointerOverBrush: transparent;
+  --ExpanderChevronBorderPressedBrush: transparent;
+  --ExpanderContentBackground: var(--CardBackgroundFillColorSecondaryBrush, var(--card-bg-secondary));
+  --ExpanderContentBorderBrush: var(--CardStrokeColorDefaultBrush, var(--card-stroke));
+}
+/* SelectorBar_themeresources.xaml: aliases resolve inside each Gallery theme. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --SelectorBarBackground: transparent;
+  --SelectorBarItemPillFill: var(--AccentFillColorDefaultBrush, var(--accent-base));
+  --SelectorBarItemDisabledPillFill: var(--AccentFillColorDisabledBrush, var(--accent-fill-disabled));
+  --SelectorBarItemBorderBrush: transparent;
+  --SelectorBarItemBorderBrushPointerOver: transparent;
+  --SelectorBarItemBorderBrushSelected: transparent;
+  --SelectorBarItemBorderBrushPressed: transparent;
+  --SelectorBarItemBorderBrushDisabled: transparent;
+  --SelectorBarItemForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --SelectorBarItemForegroundPointerOver: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --SelectorBarItemForegroundSelected: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --SelectorBarItemForegroundPressed: var(--TextFillColorTertiaryBrush, var(--text-tertiary));
+  --SelectorBarItemForegroundDisabled: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --SelectorBarItemBackground: transparent;
+  --SelectorBarItemBackgroundPointerOver: transparent;
+  --SelectorBarItemBackgroundSelected: transparent;
+  --SelectorBarItemBackgroundPressed: transparent;
+  --SelectorBarItemBackgroundDisabled: transparent;
+  --SelectorBarItemPillHeight: 3px;
+  --SelectorBarItemPillWidth: 4px;
+  --SelectorBarItemIconScale: .8;
+  --SelectorBarItemSpacing: 8px;
+  --SelectorBarSelectedInnerThickness: 1px;
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --SelectorBarItemPillFill: Highlight;
+    --SelectorBarItemForeground: CanvasText;
+    --SelectorBarItemForegroundSelected: CanvasText;
+    --SelectorBarItemForegroundPointerOver: GrayText;
+    --SelectorBarItemForegroundPressed: GrayText;
+    --SelectorBarItemForegroundDisabled: GrayText;
+  }
+}
+
+/* ProgressBar / ProgressRing reference theme dictionaries. Resolve aliases
+   again in every local theme scope so a Gallery theme switch stays live. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --ProgressBarForeground: var(--AccentFillColorDefaultBrush);
+  --ProgressBarBackground: var(--ControlStrongStrokeColorDefaultBrush);
+  --ProgressBarBorderBrush: var(--ControlStrokeColorDefaultBrush);
+  --ProgressBarBorderThemeThickness: 0px;
+  --ProgressBarPausedForegroundColor: var(--SystemFillColorCautionBrush);
+  --ProgressBarErrorForegroundColor: var(--SystemFillColorCriticalBrush);
+  --ProgressBarMinHeight: 3px;
+  --ProgressBarTrackHeight: 1px;
+  --ProgressBarCornerRadius: 1.5px;
+  --ProgressBarTrackCornerRadius: .5px;
+  --ProgressRingForegroundThemeBrush: var(--AccentFillColorDefaultBrush);
+  --ProgressRingBackgroundThemeBrush: var(--ControlFillColorTransparentBrush);
+  --ProgressRingStrokeThickness: 4;
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --ProgressBarForeground: Highlight;
+    --ProgressBarBackground: Canvas;
+    --ProgressBarBorderBrush: CanvasText;
+    --ProgressBarBorderThemeThickness: 1px;
+    --ProgressBarPausedForegroundColor: CanvasText;
+    --ProgressBarErrorForegroundColor: LinkText;
+    --ProgressRingForegroundThemeBrush: Highlight;
+    --ProgressRingBackgroundThemeBrush: Canvas;
+  }
+}
+
+/* InfoBadge/InfoBar_themeresources.xaml. Resolve aliases in each theme scope. */
+:root, html.theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --FocusStrokeColorOuterBrush: #000000e4;
+  --FocusStrokeColorInnerBrush: #ffffffb3;
+  --AccentTextFillColorPrimaryBrush: var(--SystemAccentColorDark2, var(--accent-text-fill-color-primary));
+  --AccentTextFillColorSecondaryBrush: var(--SystemAccentColorDark3, #003e92);
+  --AccentTextFillColorTertiaryBrush: var(--SystemAccentColorDark1, var(--AccentFillColorDefaultBrush));
+  --AccentTextFillColorDisabledBrush: #0000005c;
+}
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --FocusStrokeColorOuterBrush: #ffffff;
+  --FocusStrokeColorInnerBrush: #000000b3;
+  --AccentTextFillColorPrimaryBrush: var(--SystemAccentColorLight3, var(--accent-text-fill-color-primary));
+  --AccentTextFillColorSecondaryBrush: var(--SystemAccentColorLight3, var(--accent-text-fill-color-primary));
+  --AccentTextFillColorTertiaryBrush: var(--SystemAccentColorLight2, var(--AccentFillColorDefaultBrush));
+  --AccentTextFillColorDisabledBrush: #ffffff5d;
+}
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light):not(.theme-dark) {
+    --FocusStrokeColorOuterBrush: #ffffff;
+    --FocusStrokeColorInnerBrush: #000000b3;
+    --AccentTextFillColorPrimaryBrush: var(--SystemAccentColorLight3, var(--accent-text-fill-color-primary));
+    --AccentTextFillColorSecondaryBrush: var(--SystemAccentColorLight3, var(--accent-text-fill-color-primary));
+    --AccentTextFillColorTertiaryBrush: var(--SystemAccentColorLight2, var(--AccentFillColorDefaultBrush));
+    --AccentTextFillColorDisabledBrush: #ffffff5d;
+  }
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --FocusStrokeColorOuterBrush: CanvasText;
+    --FocusStrokeColorInnerBrush: Canvas;
+    --AccentTextFillColorPrimaryBrush: CanvasText;
+    --AccentTextFillColorSecondaryBrush: CanvasText;
+    --AccentTextFillColorTertiaryBrush: CanvasText;
+    --AccentTextFillColorDisabledBrush: GrayText;
+  }
+}
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --HyperlinkButtonForeground: var(--AccentTextFillColorPrimaryBrush);
+  --HyperlinkButtonForegroundPointerOver: var(--AccentTextFillColorSecondaryBrush);
+  --HyperlinkButtonForegroundPressed: var(--AccentTextFillColorTertiaryBrush);
+  --HyperlinkButtonForegroundDisabled: var(--AccentTextFillColorDisabledBrush);
+  --HyperlinkButtonBackground: transparent;
+  --HyperlinkButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --HyperlinkButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --HyperlinkButtonBackgroundDisabled: transparent;
+  --HyperlinkButtonBorderBrush: transparent;
+  --HyperlinkButtonBorderBrushPointerOver: transparent;
+  --HyperlinkButtonBorderBrushPressed: transparent;
+  --HyperlinkButtonBorderBrushDisabled: transparent;
+  --InfoBadgeForeground: var(--TextOnAccentFillColorPrimaryBrush);
+  --InfoBadgeBackground: var(--AccentFillColorDefaultBrush);
+  --InfoBadgeMinHeight: 4px;
+  --InfoBadgeMinWidth: 4px;
+  --InfoBadgeMaxHeight: 16px;
+  --InfoBadgeValueFontSize: 11px;
+  --InfoBadgeIconWidth: 12px;
+  --InfoBadgePadding: 0px;
+  --IconInfoBadgeFontIconMargin: 0px 4px 2px;
+  --ValueInfoBadgeTextMargin: 0px 4px 2px;
+  --IconInfoBadgeIconMargin: 4px;
+  --InfoBarErrorSeverityBackgroundBrush: var(--SystemFillColorCriticalBackgroundBrush);
+  --InfoBarWarningSeverityBackgroundBrush: var(--SystemFillColorCautionBackgroundBrush);
+  --InfoBarSuccessSeverityBackgroundBrush: var(--SystemFillColorSuccessBackgroundBrush);
+  --InfoBarInformationalSeverityBackgroundBrush: var(--SystemFillColorAttentionBackgroundBrush);
+  --InfoBarErrorSeverityIconBackground: var(--SystemFillColorCriticalBrush);
+  --InfoBarWarningSeverityIconBackground: var(--SystemFillColorCautionBrush);
+  --InfoBarSuccessSeverityIconBackground: var(--SystemFillColorSuccessBrush);
+  --InfoBarInformationalSeverityIconBackground: var(--SystemFillColorAttentionBrush);
+  --InfoBarErrorSeverityIconForeground: var(--TextFillColorInverseBrush);
+  --InfoBarWarningSeverityIconForeground: var(--TextFillColorInverseBrush);
+  --InfoBarSuccessSeverityIconForeground: var(--TextFillColorInverseBrush);
+  --InfoBarInformationalSeverityIconForeground: var(--TextFillColorInverseBrush);
+  --InfoBarTitleForeground: var(--TextFillColorPrimaryBrush);
+  --InfoBarMessageForeground: var(--TextFillColorPrimaryBrush);
+  --InfoBarHyperlinkButtonForeground: var(--AccentTextFillColorPrimaryBrush, var(--accent-text-fill-color-primary));
+  --InfoBarBorderBrush: var(--CardStrokeColorDefaultBrush);
+  --InfoBarBorderThickness: 1px;
+  --InfoBarMinHeight: 48px;
+  --InfoBarCloseButtonSize: 38px;
+  --InfoBarCloseButtonGlyphSize: 16px;
+}
+:root, html.theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --InfoBadgeIconHeight: 9px;
+}
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --InfoBadgeIconHeight: 8px;
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --InfoBadgeForeground: HighlightText;
+    --InfoBadgeBackground: Highlight;
+    --InfoBadgeIconHeight: 9px;
+    --InfoBarErrorSeverityBackgroundBrush: Canvas;
+    --InfoBarWarningSeverityBackgroundBrush: Canvas;
+    --InfoBarSuccessSeverityBackgroundBrush: Canvas;
+    --InfoBarInformationalSeverityBackgroundBrush: Canvas;
+    --InfoBarErrorSeverityIconBackground: Highlight;
+    --InfoBarWarningSeverityIconBackground: Highlight;
+    --InfoBarSuccessSeverityIconBackground: Highlight;
+    --InfoBarInformationalSeverityIconBackground: Highlight;
+    --InfoBarErrorSeverityIconForeground: HighlightText;
+    --InfoBarWarningSeverityIconForeground: HighlightText;
+    --InfoBarSuccessSeverityIconForeground: HighlightText;
+    --InfoBarInformationalSeverityIconForeground: HighlightText;
+    --InfoBarTitleForeground: CanvasText;
+    --InfoBarMessageForeground: CanvasText;
+    --InfoBarHyperlinkButtonForeground: LinkText;
+    --HyperlinkButtonForeground: LinkText;
+    --HyperlinkButtonForegroundPointerOver: CanvasText;
+    --HyperlinkButtonForegroundPressed: CanvasText;
+    --HyperlinkButtonForegroundDisabled: GrayText;
+    --HyperlinkButtonBackgroundPointerOver: transparent;
+    --HyperlinkButtonBackgroundPressed: transparent;
+    --InfoBarBorderBrush: CanvasText;
+    --InfoBarBorderThickness: 2px;
+  }
+}
+
+/* FlipView_themeresources.xaml: shared template values, independent of page icons. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --FlipViewBackground: var(--SolidBackgroundFillColorBaseBrush);
+  --FlipViewItemBackground: var(--SubtleFillColorTransparentBrush);
+  --FlipViewButtonFontSize: 8px;
+  --FlipViewButtonScalePressed: .875;
+  --FlipViewButtonBorderThemeThickness: 0px;
+  --FlipViewNextPreviousButtonBackground: var(--AcrylicInAppFillColorDefaultBrush);
+  --FlipViewNextPreviousButtonBackgroundPointerOver: var(--AcrylicInAppFillColorDefaultBrush);
+  --FlipViewNextPreviousButtonBackgroundPressed: var(--AcrylicInAppFillColorDefaultBrush);
+  --FlipViewNextPreviousButtonBorderBrush: var(--ControlStrokeColorDefaultBrush);
+  --FlipViewNextPreviousButtonBorderBrushPointerOver: var(--ControlStrokeColorDefaultBrush);
+  --FlipViewNextPreviousButtonBorderBrushPressed: var(--ControlStrokeColorDefaultBrush);
+  --FlipViewNextPreviousArrowForeground: var(--ControlStrongFillColorDefaultBrush);
+  --FlipViewNextPreviousArrowForegroundPointerOver: var(--TextFillColorSecondaryBrush);
+  --FlipViewNextPreviousArrowForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ScrollBarCornerRadius: 3px;
+  --ScrollBarButtonArrowIconFontSize: 8px;
+  --ScrollBarButtonArrowScalePressed: .875;
+  --ScrollBarSize: 12px;
+  --ScrollBarTrackBorderThemeThickness: 0px;
+  --ScrollBarThumbStrokeThickness: 6px;
+  --ScrollBarVerticalThumbMinHeight: 30px;
+  --ScrollBarVerticalThumbMinWidth: 8px;
+  --ScrollBarHorizontalThumbMinWidth: 30px;
+  --ScrollBarHorizontalThumbMinHeight: 8px;
+  --ScrollBarThumbOffset: 2px;
+  --ScrollBarExpandDuration: 167ms;
+  --ScrollBarContractDuration: 167ms;
+  --ScrollBarOpacityChangeDuration: 83ms;
+  --ScrollBarColorChangeDuration: 83ms;
+  --ScrollBarExpandBeginTime: 400ms;
+  --ScrollBarContractBeginTime: 500ms;
+  --ScrollViewerScrollBarMargin: 1px;
+  --ScrollViewScrollBarsMargin: 1px;
+  --ScrollBarForeground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBorderBrushPointerOver: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBorderBrushDisabled: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBackgroundDisabled: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonArrowForegroundDisabled: var(--ControlStrongFillColorDisabledBrush);
+  --ScrollBarThumbFill: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillDisabled: var(--ControlStrongFillColorDisabledBrush);
+  --ScrollBarTrackFillPointerOver: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarTrackFillDisabled: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarTrackStrokePointerOver: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarTrackStrokeDisabled: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarPanningThumbBackground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarPanningThumbBackgroundDisabled: var(--ControlStrongFillColorDisabledBrush);
+}
+
+/* PersonPicture.xaml and PersonPicture_themeresources.xaml. */
+@font-face {
+  font-family: 'Segoe Fluent Icons';
+  src: local('Segoe Fluent Icons');
+  font-display: block;
+}
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --PersonPictureForegroundThemeBrush: var(--TextFillColorPrimaryBrush);
+  --PersonPictureEllipseBadgeForegroundThemeBrush: var(--TextOnAccentFillColorPrimaryBrush);
+  --PersonPictureEllipseBadgeFillThemeBrush: var(--AccentFillColorDefaultBrush);
+  --PersonPictureEllipseBadgeStrokeThemeBrush: var(--ControlFillColorTransparentBrush, transparent);
+  --PersonPictureEllipseFillStrokeBrush: var(--CardStrokeColorDefaultBrush);
+  --PersonPictureEllipseBadgeStrokeOpacity: 1;
+  --PersonPictureEllipseBadgeImageSourceStrokeOpacity: 1;
+  --PersonPictureEllipseStrokeThickness: 1px;
+  --PersonPictureEllipseBadgeStrokeThickness: 2px;
+  --PersonPictureBadgeGridMargin: -4px -4px 0 0;
+  --ContentControlThemeFontFamily: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --SymbolThemeFontFamily: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif;
+}
+:root, html.theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --PersonPictureEllipseFillThemeBrush: var(--ControlAltFillColorQuarternary, rgba(0, 0, 0, .0941176471));
+}
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --PersonPictureEllipseFillThemeBrush: var(--ControlAltFillColorQuarternary, rgba(255, 255, 255, .0705882353));
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --PersonPictureForegroundThemeBrush: CanvasText;
+    --PersonPictureEllipseBadgeForegroundThemeBrush: ButtonText;
+    --PersonPictureEllipseBadgeFillThemeBrush: ButtonFace;
+    --PersonPictureEllipseBadgeStrokeThemeBrush: ButtonText;
+    --PersonPictureEllipseFillThemeBrush: HighlightText;
+  }
+}
+
+/* ContentDialog CommonStyles resources resolve in each local theme scope. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --ContentDialogBackground: var(--SolidBackgroundFillColorBaseBrush);
+  --ContentDialogForeground: var(--TextFillColorPrimaryBrush);
+  --ContentDialogSmokeFill: var(--SmokeFillColorDefaultBrush);
+  --ContentDialogTopOverlay: var(--LayerFillColorAltBrush);
+  --ContentDialogBorderBrush: var(--SurfaceStrokeColorDefaultBrush);
+  --ContentDialogSeparatorBorderBrush: var(--CardStrokeColorDefaultBrush);
+}
+
+/* DatePicker / TimePicker CommonStyles resource dictionaries. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  /* Both accent brush families resolve to SystemAccentColorDark1 in Light
+     and SystemAccentColorLight2 in Default; their text is white/black. */
+  --AccentAAFillColorDefaultBrush: var(--AccentFillColorDefaultBrush);
+  --TextOnAccentAAFillColorPrimary: var(--TextOnAccentFillColorPrimaryBrush);
+  --DatePickerSpacerFill: var(--ControlStrokeColorDefaultBrush);
+  --DatePickerSpacerFillDisabled: var(--ControlStrokeColorDefaultBrush);
+  --DatePickerHeaderForeground: var(--TextFillColorPrimaryBrush);
+  --DatePickerHeaderForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --DatePickerButtonBorderBrush: var(--ControlElevationBorderBrush);
+  --DatePickerButtonBorderBrushPointerOver: var(--ControlElevationBorderBrush);
+  --DatePickerButtonBorderBrushPressed: var(--ControlStrokeColorDefaultBrush);
+  --DatePickerButtonBorderBrushDisabled: var(--ControlStrokeColorDefaultBrush);
+  --DatePickerButtonBackground: var(--ControlFillColorDefaultBrush);
+  --DatePickerButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --DatePickerButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --DatePickerButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --DatePickerButtonBackgroundFocused: var(--ControlFillColorDefaultBrush);
+  --DatePickerButtonForeground: var(--TextFillColorPrimaryBrush);
+  --DatePickerButtonForegroundDefault: var(--TextFillColorSecondaryBrush);
+  --DatePickerButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --DatePickerButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --DatePickerButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --DatePickerButtonForegroundFocused: var(--TextFillColorPrimaryBrush);
+  --DatePickerFlyoutPresenterBackground: var(--AcrylicBackgroundFillColorDefaultBrush);
+  --DatePickerFlyoutPresenterBorderBrush: var(--SurfaceStrokeColorFlyoutBrush);
+  --DatePickerFlyoutPresenterSpacerFill: var(--DividerStrokeColorDefaultBrush);
+  --DatePickerFlyoutPresenterHighlightFill: var(--AccentAAFillColorDefaultBrush);
+  --DatePickerFlyoutPresenterHighlightForegroundColor: var(--TextOnAccentAAFillColorPrimary);
+  --DatePickerLightDismissOverlayBackground: var(--SmokeFillColorDefaultBrush);
+  --TimePickerSpacerFill: var(--ControlStrokeColorDefaultBrush);
+  --TimePickerSpacerFillDisabled: var(--ControlStrokeColorDefaultBrush);
+  --TimePickerHeaderForeground: var(--TextFillColorPrimaryBrush);
+  --TimePickerHeaderForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --TimePickerButtonBorderBrush: var(--ControlElevationBorderBrush);
+  --TimePickerButtonBorderBrushPointerOver: var(--ControlElevationBorderBrush);
+  --TimePickerButtonBorderBrushPressed: var(--ControlStrokeColorDefaultBrush);
+  --TimePickerButtonBorderBrushDisabled: var(--ControlStrokeColorDefaultBrush);
+  --TimePickerButtonBackground: var(--ControlFillColorDefaultBrush);
+  --TimePickerButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --TimePickerButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --TimePickerButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --TimePickerButtonBackgroundFocused: var(--ControlFillColorDefaultBrush);
+  --TimePickerButtonForeground: var(--TextFillColorPrimaryBrush);
+  --TimePickerButtonForegroundDefault: var(--TextFillColorSecondaryBrush);
+  --TimePickerButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --TimePickerButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --TimePickerButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --TimePickerButtonForegroundFocused: var(--TextFillColorPrimaryBrush);
+  --TimePickerFlyoutPresenterBackground: var(--AcrylicBackgroundFillColorDefaultBrush);
+  --TimePickerFlyoutPresenterBorderBrush: var(--SurfaceStrokeColorFlyoutBrush);
+  --TimePickerFlyoutPresenterSpacerFill: var(--DividerStrokeColorDefaultBrush);
+  --TimePickerFlyoutPresenterHighlightFill: var(--AccentAAFillColorDefaultBrush);
+  --TimePickerFlyoutPresenterHighlightForegroundColor: var(--TextOnAccentAAFillColorPrimary);
+  --TimePickerLightDismissOverlayBackground: var(--SmokeFillColorDefaultBrush);
+  --DateTimePickerFlyoutButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --DateTimePickerFlyoutButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --DateTimePickerFlyoutButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+  --DateTimeFlyoutButtonBorderThickness: 0px;
+  --DateTimePickerFlyoutButtonBorderBrush: var(--ControlStrokeColorDefaultBrush);
+  --DateTimePickerFlyoutButtonBorderBrushPointerOver: var(--ControlStrokeColorDefaultBrush);
+  --DateTimePickerFlyoutButtonBorderBrushPressed: var(--ControlStrokeColorDefaultBrush);
+  --DateTimePickerFlyoutButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --DateTimePickerFlyoutButtonForegroundPressed: var(--TextFillColorPrimaryBrush);
+  --LoopingSelectorUpDownButtonForeground: var(--TextFillColorSecondaryBrush);
+  --LoopingSelectorUpDownButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --LoopingSelectorUpDownButtonForegroundPressed: var(--TextFillColorPrimaryBrush);
+  --LoopingSelectorUpDownButtonBackground: var(--AcrylicBackgroundFillColorDefaultBrush);
+  --LoopingSelectorUpDownButtonBackgroundPointerOver: var(--SubtleFillColorTransparentBrush);
+  --LoopingSelectorUpDownButtonBackgroundPressed: var(--SubtleFillColorTransparentBrush);
+  --LoopingSelectorItemForeground: var(--TextFillColorPrimaryBrush);
+  --LoopingSelectorItemForegroundSelected: var(--TextFillColorPrimaryBrush);
+  --LoopingSelectorItemForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --LoopingSelectorItemForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --LoopingSelectorItemBackgroundSelected: var(--SubtleFillColorSecondaryBrush);
+  --LoopingSelectorItemBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --LoopingSelectorItemBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+}
+@media (forced-colors: active) {
+  :root, .win-theme-scope, .example-theme-wrapper {
+    --DateTimeFlyoutButtonBorderThickness: 1px;
+    --DateTimePickerFlyoutButtonBorderBrush: ButtonText;
+    --DateTimePickerFlyoutButtonBorderBrushPointerOver: Highlight;
+    --DateTimePickerFlyoutButtonBorderBrushPressed: Highlight;
+    --DatePickerButtonBackground: ButtonFace;
+    --DatePickerButtonForeground: ButtonText;
+    --DatePickerButtonBorderBrush: ButtonText;
+    --DatePickerButtonBackgroundPointerOver: ButtonFace;
+    --DatePickerButtonForegroundPointerOver: ButtonText;
+    --DatePickerButtonBorderBrushPointerOver: ButtonText;
+    --DatePickerButtonBackgroundPressed: ButtonFace;
+    --DatePickerButtonForegroundPressed: ButtonText;
+    --DatePickerButtonBorderBrushPressed: ButtonText;
+    --DatePickerButtonBackgroundDisabled: ButtonFace;
+    --DatePickerButtonForegroundDisabled: GrayText;
+    --DatePickerButtonBorderBrushDisabled: GrayText;
+    --DatePickerButtonForegroundDefault: ButtonText;
+    --DatePickerHeaderForeground: ButtonText;
+    --DatePickerHeaderForegroundDisabled: GrayText;
+    --DatePickerFlyoutPresenterBackground: Canvas;
+    --DatePickerFlyoutPresenterBorderBrush: ButtonText;
+    --DatePickerFlyoutPresenterSpacerFill: ButtonText;
+    --DatePickerFlyoutPresenterHighlightFill: Highlight;
+    --DatePickerFlyoutPresenterHighlightForegroundColor: HighlightText;
+    --TimePickerButtonBackground: ButtonFace;
+    --TimePickerButtonForeground: ButtonText;
+    --TimePickerButtonBorderBrush: ButtonText;
+    --TimePickerButtonBackgroundPointerOver: ButtonFace;
+    --TimePickerButtonForegroundPointerOver: ButtonText;
+    --TimePickerButtonBorderBrushPointerOver: ButtonText;
+    --TimePickerButtonBackgroundPressed: ButtonFace;
+    --TimePickerButtonForegroundPressed: ButtonText;
+    --TimePickerButtonBorderBrushPressed: ButtonText;
+    --TimePickerButtonBackgroundDisabled: ButtonFace;
+    --TimePickerButtonForegroundDisabled: GrayText;
+    --TimePickerButtonBorderBrushDisabled: GrayText;
+    --TimePickerButtonForegroundDefault: ButtonText;
+    --TimePickerHeaderForeground: ButtonText;
+    --TimePickerHeaderForegroundDisabled: GrayText;
+    --TimePickerFlyoutPresenterBackground: Canvas;
+    --TimePickerFlyoutPresenterBorderBrush: ButtonText;
+    --TimePickerFlyoutPresenterSpacerFill: ButtonText;
+    --TimePickerFlyoutPresenterHighlightFill: Highlight;
+    --TimePickerFlyoutPresenterHighlightForegroundColor: HighlightText;
+  }
+}
+
+@property --app-bg {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #F3F3F3;
+}
+
+@property --layer-default {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(255,255,255,0.50);
+}
+
+@property --flyout-bg {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(252, 252, 252, 0.92);
+}
+
+@property --AcrylicInAppFillColorDefaultBrush {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(252, 252, 252, 0.92);
+}
+
+@property --ToolTipBackgroundBrush {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(252, 252, 252, 0.92);
+}
+
+@property --card-bg {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(255,255,255,0.70);
+}
+
+@property --card-stroke {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.06);
+}
+
+@property --card-bg-secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(246,246,246,0.50);
+}
+
+@property --stroke-surface-flyout {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.06);
+}
+
+@property --stroke-divider {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.06);
+}
+
+@property --ctrl-border-rest {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.06);
+}
+
+@property --ctrl-border {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.06);
+}
+
+@property --ctrl-border-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.16);
+}
+
+@property --accent-border {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(255,255,255,0.08);
+}
+
+@property --accent-border-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.40);
+}
+
+@property --text-primary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.89);
+}
+
+@property --text-secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.62);
+}
+
+@property --text-tertiary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.45);
+}
+
+@property --text-disabled {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.36);
+}
+
+@property --subtle-secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.04);
+}
+
+@property --subtle-tertiary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.02);
+}
+
+@property --subtle-pressed {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.06);
+}
+
+@property --ctrl-fill-default {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(255,255,255,0.70);
+}
+
+@property --ctrl-fill-secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(249,249,249,0.50);
+}
+
+@property --ctrl-fill-tertiary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(249,249,249,0.30);
+}
+
+@property --ctrl-fill-disabled {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(249,249,249,0.30);
+}
+
+@property --ctrl-fill-input-active {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FFFFFF;
+}
+
+@property --ctrl-strong-fill {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.45);
+}
+
+@property --ctrl-strong-fill-disabled {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.32);
+}
+
+@property --ctrl-strong-stroke {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.45);
+}
+
+@property --ctrl-strong-stroke-disabled {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.22);
+}
+
+@property --ctrl-solid-fill {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FFFFFF;
+}
+
+@property --ctrl-elevation-top {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(255,255,255,0.08);
+}
+
+@property --ctrl-elevation-bottom {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.16);
+}
+
+@property --accent-base {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #0067C0;
+}
+
+@property --accent-hover {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,103,192,0.90);
+}
+
+@property --accent-pressed {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,103,192,0.80);
+}
+
+@property --accent-fill-disabled {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.22);
+}
+
+@property --accent-aa-fill {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #004E8C;
+}
+
+@property --accent-aa-text {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FFFFFF;
+}
+
+@property --accent-text {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FFFFFF;
+}
+
+@property --accent-text-secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(255,255,255,0.70);
+}
+
+@property --accent-text-fill-color-primary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #0D4897;
+}
+
+@property --accent-text-fill-color-primary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #0D4897;
+}
+
+@property --toggle-border {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.45);
+}
+
+@property --toggle-thumb {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.61);
+}
+
+@property --toggle-thumb-hover {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.89);
+}
+
+@property --toggle-on-thumb {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FFFFFF;
+}
+
+@property --radio-border {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(0,0,0,0.45);
+}
+:root {
+  color-scheme: light dark;
+  --faster-duration: 0.083s;
+  --fast-duration: 0.167s;
+  --normal-duration: 0.200s;
+  --fast-out-slow-in: cubic-bezier(0, 0, 0, 1);
+  --app-bg: #F3F3F3;
+  --layer-default: rgba(255, 255, 255, 0.50);
+  --dialog-background: #FCFCFC;
+  --dialog-content-bg: rgba(255, 255, 255, 0.95);
+  --dialog-overlay: var(--SmokeFillColorDefaultBrush, rgba(0, 0, 0, 0.30));
+  --dialog-divider: rgba(0, 0, 0, 0.06);
+  --dialog-button-bg: #F3F3F3;
+  --SmokeFillColorDefaultBrush: rgba(0, 0, 0, 0.302);
+  --LayerFillColorAltBrush: #FFFFFF;
+  --ContentDialogCommandSpaceBackground: #F3F3F3;
+  --OverlayCornerRadius: 8px;
+  --FlyoutThemeMinWidth: 96px;
+  --FlyoutThemeMaxWidth: 456px;
+  --FlyoutThemeMinHeight: 40px;
+  --FlyoutThemeMaxHeight: 758px;
+  /* XAML Thickness is left,top,right,bottom: 16,15,16,17. */
+  --FlyoutContentPadding: 15px 16px 17px 16px;
+  --ContentDialogBackground: var(--SolidBackgroundFillColorBaseBrush, #F3F3F3);
+  --ContentDialogForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --ContentDialogBorderBrush: var(--SurfaceStrokeColorDefaultBrush, var(--flyout-border));
+  --ContentDialogSeparatorBorderBrush: var(--CardStrokeColorDefaultBrush, var(--card-stroke));
+  --ContentDialogBorderWidth: 1px;
+  --ContentDialogMinWidth: 320px;
+  --ContentDialogMaxWidth: 548px;
+  --ContentDialogMinHeight: 184px;
+  --ContentDialogMaxHeight: 756px;
+  --ContentDialogTopOverlay: var(--LayerFillColorAltBrush);
+  --SurfaceStrokeColorDefaultBrush: rgba(117, 117, 117, 0.4);
+  --SurfaceStrokeColorFlyoutBrush: rgba(0, 0, 0, 0.0588235);
+  --CardStrokeColorDefaultBrush: #0000000f;
+  --ContentDialogPadding: 24px;
+  --ContentDialogSmokeFill: var(--SmokeFillColorDefaultBrush);
+  --ContentDialogButtonSpacing: 8px;
+  --ContentDialogTitleMargin: 0 0 12px 0;
+  --ContentDialogSeparatorThickness: 0 0 1px 0;
+  --ControlNormalAnimationDuration: 250ms;
+  --ControlFastAnimationDuration: 167ms;
+  --ControlFasterAnimationDuration: 83ms;
+  --ControlFastOutSlowInKeySpline: cubic-bezier(0, 0, 0, 1);
+  --TeachingTipBackgroundBrush: var(--SolidBackgroundFillColorTertiaryBrush, #F9F9F9);
+  --TeachingTipBorderBrush: var(--SurfaceStrokeColorDefaultBrush, var(--ControlStrokeColorDefaultBrush, var(--flyout-border)));
+  --TeachingTipTransientBackground: var(--AcrylicInAppFillColorDefaultBrush, var(--flyout-bg));
+  --TeachingTipForegroundBrush: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TeachingTipTitleForegroundBrush: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TeachingTipSubtitleForegroundBrush: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TeachingTipMinHeight: 40px;
+  --TeachingTipMaxHeight: 520px;
+  --TeachingTipMinWidth: 320px;
+  --TeachingTipMaxWidth: 336px;
+  --TeachingTipContentMargin: 12px;
+  --TeachingTipButtonPanelMargin: 12px 0 0;
+  --TeachingTipRightButtonMargin: 12px 0 0 4px;
+  --TeachingTipLeftButtonMargin: 12px 4px 0 0;
+  --TeachingTipMainContentPresentMargin: 12px 0 0;
+  --TeachingTipMainContentAbsentMargin: 0;
+  --TeachingTipTitleStackPanelMarginWithHeaderCloseButton: 0 28px 0 0;
+  --TeachingTipTitleStackPanelMarginWithFooterCloseButton: 0;
+  --TeachingTipIconPresenterMarginWithIcon: 0 12px 0 0;
+  --TeachingTipIconPresenterMarginWithoutIcon: 0;
+  --TeachingTipTailShortSideLength: 8px;
+  --TeachingTipTailMargin: 10px;
+  --TeachingTipTopHighlightHeight: 1px;
+  --TeachingTipBorderThickness: 1px;
+  --TeachingTipTopHighlightBrush: rgba(255, 255, 255, 0.6);
+  --TeachingTipAlternateCloseButtonSize: 40px;
+  --TeachingTipAlternateCloseButtonGlyphSize: 16px;
+  --TeachingTipAlternateCloseButtonBackground: transparent;
+  --TeachingTipAlternateCloseButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --TeachingTipAlternateCloseButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --TeachingTipAlternateCloseButtonBackgroundDisabled: var(--SubtleFillColorTransparentBrush, transparent);
+  --TeachingTipAlternateCloseButtonForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TeachingTipAlternateCloseButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TeachingTipAlternateCloseButtonForegroundDisabled: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --TeachingTipAlternateCloseButtonForegroundPressed: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --PopupLightDismissOverlayBackground: var(--SmokeFillColorDefaultBrush);
+  --TeachingTipAlternateCloseButtonBorderBrush: transparent;
+  --TeachingTipAlternateCloseButtonBorderBrushPointerOver: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --TeachingTipAlternateCloseButtonBorderBrushPressed: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --TeachingTipAlternateCloseButtonBorderBrushDisabled: var(--SubtleFillColorTransparentBrush, transparent);
+  --TeachingTipAlternateCloseButtonBorderThickness: 1px;
+  --SolidBackgroundFillColorTertiaryBrush: #F9F9F9;
+  --SurfaceStrokeColorDefaultBrush: rgba(117, 117, 117, 0.4);
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+  --ToolTipBackgroundBrush: var(--AcrylicInAppFillColorDefaultBrush);
+  --ToolTipForegroundBrush: var(--TextFillColorPrimaryBrush);
+  --ToolTipBorderBrush: var(--SurfaceStrokeColorFlyoutBrush, var(--surface-stroke-color-flyout));
+  --card-bg: rgba(255, 255, 255, 0.70);
+  --card-stroke: rgba(0, 0, 0, 0.06);
+  --card-bg-secondary: rgba(246, 246, 246, 0.50);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.06);
+  --stroke-divider: rgba(0, 0, 0, 0.06);
+  --ctrl-border-rest: rgba(0, 0, 0, 0.06);
+  --ctrl-border: rgba(0, 0, 0, 0.058824);
+  --ctrl-border-accent: rgba(0, 0, 0, 0.160784);
+  --accent-border: rgba(255, 255, 255, 0.078431);
+  --accent-border-accent: rgba(0, 0, 0, 0.40);
+  --ControlStrokeColorOnAccentDefaultBrush: var(--accent-border);
+  --ControlStrokeColorOnAccentSecondaryBrush: var(--accent-border-accent);
+  --ButtonBorderBrushDefaultTop: var(--ctrl-border);
+  --ButtonBorderBrushDefaultBottom: var(--ctrl-border-accent);
+  --AccentButtonBorderBrushDefault: var(--accent-border);
+  --AccentButtonBorderBrushDefaultBottom: var(--accent-border-accent);
+  --text-primary: rgba(0, 0, 0, 0.89);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-disabled: rgba(0, 0, 0, 0.36);
+  --subtle-transparent: transparent;
+  --subtle-secondary: rgba(0, 0, 0, 0.0373);
+  --subtle-tertiary: rgba(0, 0, 0, 0.0241);
+  --subtle-pressed: rgba(0, 0, 0, 0.06);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.70);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.50);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-input-active: #FFFFFF;
+  --control-fill-color-input-active: var(--ctrl-fill-input-active);
+  --control-fill-input-active: var(--ctrl-fill-input-active);
+  --ctrl-strong-fill: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-fill-disabled: rgba(0, 0, 0, 0.32);
+  --ctrl-strong-stroke: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-stroke-disabled: rgba(0, 0, 0, 0.22);
+  --ctrl-solid-fill: #FFFFFF;
+  --ctrl-elevation-top: rgba(255, 255, 255, 0.08);
+  --ctrl-elevation-bottom: rgba(0, 0, 0, 0.16);
+  --accent-base: #0067C0;
+  --accent-hover: rgba(0, 103, 192, 0.90);
+  --accent-pressed: rgba(0, 103, 192, 0.80);
+  --accent-fill-disabled: rgba(0, 0, 0, 0.22);
+  --accent-aa-fill: #004E8C;
+  --accent-aa-text: #FFFFFF;
+  --accent: var(--accent-base);
+  --accent-text: #FFFFFF;
+  --accent-text-secondary: rgba(255, 255, 255, 0.70);
+  --accent-text-fill-color-primary: #0D4897;
+  --TextFillColorPrimaryBrush: rgba(0, 0, 0, 0.89);
+  --TextFillColorSecondaryBrush: rgba(0, 0, 0, 0.62);
+  --TextFillColorDisabledBrush: rgba(0, 0, 0, 0.36);
+  --SystemControlBackgroundBaseMediumBrush: rgba(255, 255, 255, .6);
+  --SystemControlForegroundAltHighBrush: #FFFFFF;
+  --SystemControlPageTextBaseMediumBrush: rgba(0, 0, 0, .6);
+  --SystemControlForegroundBaseMediumBrush: rgba(0, 0, 0, 0.60);
+  --SystemControlHighlightAltBaseMediumHighBrush: rgba(0, 0, 0, 0.80);
+  --SystemControlHighlightAltBaseHighBrush: #000000;
+  --SystemControlDisabledBaseMediumLowBrush: rgba(0, 0, 0, 0.40);
+  /* Legacy WinUI chrome brushes. generic.xaml keeps the raw color (SystemChrome*
+     Color / System*Color) separate from the SystemControl*Brush that consumes it,
+     so both names must resolve for a {ThemeResource} look-up to work. */
+  --SystemChromeLowColor: #F2F2F2;
+  --SystemChromeMediumColor: #E6E6E6;
+  --SystemChromeWhiteColor: #FFFFFF;
+  --SystemBaseLowColor: rgba(0, 0, 0, 0.20);
+  --SystemBaseHighColor: #000000;
+  --SystemAccentColor: var(--winui-system-accent-color-light, var(--winui-system-accent-color, var(--accent-base)));
+  --SystemControlBackgroundBaseLowBrush: var(--SystemBaseLowColor);
+  --SystemControlBackgroundChromeMediumBrush: var(--SystemChromeMediumColor);
+  --SystemControlBackgroundAccentBrush: var(--SystemAccentColor);
+  --SystemControlForegroundBaseHighBrush: var(--SystemBaseHighColor);
+  --SystemControlForegroundChromeWhiteBrush: var(--SystemChromeWhiteColor);
+  --ButtonForeground: var(--SystemControlForegroundBaseHighBrush);
+  --TextFillColorInverseBrush: #FFFFFF;
+  --TextOnAccentFillColorPrimaryBrush: #FFFFFF;
+  --TextOnAccentFillColorSecondaryBrush: rgba(255, 255, 255, 0.70);
+  --TextOnAccentFillColorDisabledBrush: #FFFFFF;
+  --ControlFillColorTransparentBrush: transparent;
+  --ControlStrongFillColorDefaultBrush: rgba(0, 0, 0, 0.45);
+  --ControlStrongFillColorDisabledBrush: rgba(0, 0, 0, 0.32);
+  --SubtleFillColorTransparentBrush: transparent;
+  --SubtleFillColorSecondaryBrush: rgba(0, 0, 0, 0.04);
+  --SubtleFillColorTertiaryBrush: var(--subtle-tertiary);
+  --ScrollBarBackground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBackgroundPointerOver: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --ScrollBarButtonBackgroundPressed: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarButtonArrowForeground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarButtonArrowForegroundPointerOver: var(--TextFillColorSecondaryBrush);
+  --ScrollBarButtonArrowForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ScrollBarThumbBackground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillPointerOver: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillPressed: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbBorderBrush: var(--ControlFillColorTransparentBrush);
+  --ScrollBarTrackFill: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarTrackStroke: var(--AcrylicInAppFillColorDefaultBrush);
+  --AccentFillColorDefaultBrush: #0067C0;
+  --AccentFillColorSecondaryBrush: rgba(0, 103, 192, 0.90);
+  --AccentFillColorTertiaryBrush: rgba(0, 103, 192, 0.80);
+  --AccentFillColorDisabledBrush: rgba(0, 0, 0, 0.22);
+  /* ItemContainer/ItemsView, plus the CheckBox resources ItemContainer's
+     template re-uses. Values are the light theme of
+     Common_themeresources_any.xaml and CheckBox_themeresources.xaml. */
+  --ControlSolidFillColorDefaultBrush: #FFFFFF;
+  --ControlOnImageFillColorDefaultBrush: #ffffffc9;
+  --ControlStrongStrokeColorDefaultBrush: rgba(0, 0, 0, 0.45);
+  --ControlStrongStrokeColorDisabledBrush: rgba(0, 0, 0, 0.22);
+  --CheckBoxCheckBackgroundFillUnchecked: #C9FFFFFF;
+  --CheckBoxBorderThickness: 1px;
+  --ControlCornerRadius: 4px;
+  --CardStrokeColorDefaultBrush: #0000000f;
+  --NavigationViewContentGridBorderBrush: var(--CardStrokeColorDefaultBrush);
+  --NavigationViewContentBackground: var(--LayerFillColorDefaultBrush, var(--layer-default));
+  --SystemFillColorAttentionBrush: #0067C0;
+  --SystemFillColorSuccessBrush: #0F7B0F;
+  --SystemFillColorCautionBrush: #9D5D00;
+  --SystemFillColorCriticalBrush: #C42B1C;
+  --SystemFillColorSolidNeutralBrush: #8A8A8A;
+  --SystemFillColorAttentionBackgroundBrush: rgba(246, 246, 246, 0.50);
+  --SystemFillColorSuccessBackgroundBrush: #DFF6DD;
+  --SystemFillColorCautionBackgroundBrush: #FFF4CE;
+  --SystemFillColorCriticalBackgroundBrush: #FDE7E9;
+  --SystemFillColorSolidNeutralBackgroundBrush: #F3F3F3;
+  --SolidBackgroundFillColorBaseBrush: #F3F3F3;
+  --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.70);
+  --CardBackgroundFillColorSecondaryBrush: rgba(246, 246, 246, 0.50);
+  --DividerStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+  --NavigationViewItemSeparatorForeground: var(--DividerStrokeColorDefaultBrush);
+  --ControlStrokeColorDefaultBrush: var(--ctrl-border);
+  --ControlStrokeColorSecondaryBrush: var(--ctrl-border-accent);
+  --TextControlElevationBorderBrush: linear-gradient(180deg, var(--ControlStrokeColorSecondaryBrush) 0px, var(--ControlStrokeColorDefaultBrush) 2px, var(--ControlStrokeColorDefaultBrush) 100%);
+  --TextControlBorderBrush: var(--ControlStrokeColorSecondaryBrush);
+  --AccentControlElevationBorderBottomBrush: rgba(0, 0, 0, 0.40);
+  --toggle-border: rgba(0, 0, 0, 0.45);
+  --toggle-thumb: rgba(0, 0, 0, 0.61);
+  --toggle-thumb-hover: rgba(0, 0, 0, 0.89);
+  --toggle-on-thumb: #FFFFFF;
+  --radio-border: rgba(0, 0, 0, 0.45);
+  --layer-fill-color-default: var(--layer-default);
+  --layer-on-acrylic-fill-color-default: var(--layer-default);
+  --surface-stroke-color-flyout: var(--stroke-surface-flyout);
+  --subtle-fill-color-secondary: var(--subtle-secondary);
+  --subtle-fill-color-tertiary: var(--subtle-tertiary);
+  --divider-stroke: var(--stroke-divider);
+  --divider-stroke-default: var(--stroke-divider);
+  --divider-stroke-color-default: var(--stroke-divider);
+  --flyout-background: var(--flyout-bg);
+  --host-flyout-bg: var(--flyout-bg);
+  --host-nav-pane-bg: color-mix(in srgb, var(--app-bg) 64%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #202020;
+    --layer-default: rgba(58, 58, 58, 0.30);
+    --dialog-background: #2C2C2C;
+    --dialog-content-bg: rgba(43, 43, 43, 0);
+    --dialog-overlay: var(--SmokeFillColorDefaultBrush, rgba(0, 0, 0, 0.30));
+    --dialog-divider: rgba(0, 0, 0, 0.20);
+    --dialog-button-bg: #202020;
+    --SmokeFillColorDefaultBrush: rgba(0, 0, 0, 0.302);
+    --LayerFillColorAltBrush: rgba(255, 255, 255, 0.051);
+    --ContentDialogCommandSpaceBackground: #202020;
+    --ContentDialogBackground: var(--SolidBackgroundFillColorBaseBrush, #202020);
+    --ContentDialogForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+    --ContentDialogTopOverlay: var(--LayerFillColorAltBrush);
+    --SurfaceStrokeColorDefaultBrush: rgba(117, 117, 117, 0.4);
+    --SurfaceStrokeColorFlyoutBrush: rgba(0, 0, 0, 0.20);
+    --CardStrokeColorDefaultBrush: #00000019;
+    --TeachingTipBackgroundBrush: #282828;
+    --TeachingTipTopHighlightBrush: rgba(255, 255, 255, 0.0509804);
+    --SolidBackgroundFillColorTertiaryBrush: #282828;
+    --flyout-bg: rgba(44, 44, 44, 0.86);
+    --flyout-border: rgba(255, 255, 255, 0.10);
+    --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+    --ToolTipBackgroundBrush: var(--AcrylicInAppFillColorDefaultBrush);
+    --ToolTipForegroundBrush: var(--TextFillColorPrimaryBrush);
+    --ToolTipBorderBrush: var(--SurfaceStrokeColorFlyoutBrush, var(--surface-stroke-color-flyout));
+    --card-bg: rgba(255, 255, 255, 0.0512);
+    --card-stroke: rgba(0, 0, 0, 0.10);
+    --card-bg-secondary: rgba(255, 255, 255, 0.0326);
+    --stroke-surface-flyout: rgba(0, 0, 0, 0.20);
+    --stroke-divider: rgba(255, 255, 255, 0.08);
+    --ctrl-border-rest: rgba(0, 0, 0, 0.07);
+    --ctrl-border: rgba(255, 255, 255, 0.070588);
+    --ctrl-border-accent: rgba(255, 255, 255, 0.094118);
+    --accent-border: rgba(0, 0, 0, 0.137255);
+    --accent-border-accent: rgba(255, 255, 255, 0.078431);
+    --ControlStrokeColorOnAccentDefaultBrush: var(--accent-border-accent);
+    --ControlStrokeColorOnAccentSecondaryBrush: var(--accent-border);
+    --ButtonBorderBrushDefaultTop: var(--ctrl-border-accent);
+    --ButtonBorderBrushDefaultBottom: var(--ctrl-border);
+    --AccentButtonBorderBrushDefault: var(--accent-border-accent);
+    --AccentButtonBorderBrushDefaultBottom: var(--accent-border);
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.77);
+    --text-tertiary: rgba(255, 255, 255, 0.53);
+    --text-disabled: rgba(255, 255, 255, 0.36);
+    --subtle-transparent: transparent;
+    --subtle-secondary: rgba(255, 255, 255, 0.0605);
+    --subtle-tertiary: rgba(255, 255, 255, 0.0419);
+    --subtle-pressed: rgba(255, 255, 255, 0.03);
+    --ctrl-fill-default: rgba(255, 255, 255, 0.0605);
+    --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+    --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0326);
+    --ctrl-fill-disabled: rgba(255, 255, 255, 0.0419);
+    --ctrl-fill-input-active: rgba(30, 30, 30, 0.70);
+    --control-fill-color-input-active: var(--ctrl-fill-input-active);
+    --control-fill-input-active: var(--ctrl-fill-input-active);
+    --ctrl-strong-fill: rgba(255, 255, 255, 0.54);
+    --ctrl-strong-fill-disabled: rgba(255, 255, 255, 0.25);
+    --ctrl-strong-stroke-disabled: rgba(255, 255, 255, 0.16);
+    --ctrl-strong-stroke: rgba(255, 255, 255, 0.54);
+    --ctrl-solid-fill: #454545;
+    --ctrl-elevation-top: rgba(255, 255, 255, 0.0941);
+    --ctrl-elevation-bottom: rgba(255, 255, 255, 0.0706);
+    --accent-base: #4CC2FF;
+    --accent-hover: rgba(96, 205, 255, 0.90);
+    --accent-pressed: rgba(96, 205, 255, 0.80);
+    --accent-fill-disabled: rgba(255, 255, 255, 0.16);
+    --accent-aa-fill: #79D2FF;
+    --accent-aa-text: #000000;
+    --accent-text: #000000;
+    --accent-text-secondary: rgba(0, 0, 0, 0.50);
+    --accent-text-fill-color-primary: #99EBFF;
+    --TextFillColorPrimaryBrush: #FFFFFF;
+    --TextFillColorSecondaryBrush: rgba(255, 255, 255, 0.77);
+    --TextFillColorDisabledBrush: rgba(255, 255, 255, 0.36);
+    --SystemControlBackgroundBaseMediumBrush: rgba(0, 0, 0, .6);
+    --SystemControlForegroundAltHighBrush: #000000;
+    --SystemControlPageTextBaseMediumBrush: rgba(255, 255, 255, .6);
+    --SystemControlForegroundBaseMediumBrush: rgba(255, 255, 255, 0.60);
+    --SystemControlHighlightAltBaseMediumHighBrush: rgba(255, 255, 255, 0.80);
+    --SystemControlHighlightAltBaseHighBrush: #FFFFFF;
+    --SystemControlDisabledBaseMediumLowBrush: rgba(255, 255, 255, 0.40);
+    --SystemChromeLowColor: #171717;
+    --SystemChromeMediumColor: #1F1F1F;
+    --SystemChromeWhiteColor: #FFFFFF;
+    --SystemBaseLowColor: rgba(255, 255, 255, 0.20);
+    --SystemBaseHighColor: #FFFFFF;
+    --SystemAccentColor: var(--winui-system-accent-color, var(--accent-base));
+    --SystemControlBackgroundBaseLowBrush: var(--SystemBaseLowColor);
+    --SystemControlBackgroundChromeMediumBrush: var(--SystemChromeMediumColor);
+    --SystemControlBackgroundAccentBrush: var(--SystemAccentColor);
+    --SystemControlForegroundBaseHighBrush: var(--SystemBaseHighColor);
+    --SystemControlForegroundChromeWhiteBrush: var(--SystemChromeWhiteColor);
+    --ButtonForeground: var(--SystemControlForegroundBaseHighBrush);
+    --TextFillColorInverseBrush: rgba(0, 0, 0, 0.89);
+    --TextOnAccentFillColorPrimaryBrush: #000000;
+    --TextOnAccentFillColorSecondaryBrush: rgba(0, 0, 0, 0.50);
+    --TextOnAccentFillColorDisabledBrush: rgba(255, 255, 255, 0.53);
+    --ControlFillColorTransparentBrush: transparent;
+    --ControlStrongFillColorDefaultBrush: rgba(255, 255, 255, 0.54);
+    --ControlStrongFillColorDisabledBrush: rgba(255, 255, 255, 0.25);
+    --SubtleFillColorTransparentBrush: transparent;
+    --SubtleFillColorSecondaryBrush: rgba(255, 255, 255, 0.06);
+    --ScrollBarBackground: var(--SubtleFillColorTransparentBrush);
+    --ScrollBarBackgroundPointerOver: var(--SubtleFillColorTransparentBrush);
+    --ScrollBarButtonBackground: var(--SubtleFillColorTransparentBrush);
+    --ScrollBarButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+    --ScrollBarButtonBackgroundPressed: var(--ControlStrongFillColorDefaultBrush);
+    --ScrollBarButtonArrowForeground: var(--ControlStrongFillColorDefaultBrush);
+    --ScrollBarButtonArrowForegroundPointerOver: var(--TextFillColorSecondaryBrush);
+    --ScrollBarButtonArrowForegroundPressed: var(--TextFillColorSecondaryBrush);
+    --ScrollBarThumbBackground: var(--ControlStrongFillColorDefaultBrush);
+    --ScrollBarThumbFillPointerOver: var(--ControlStrongFillColorDefaultBrush);
+    --ScrollBarThumbFillPressed: var(--ControlStrongFillColorDefaultBrush);
+    --ScrollBarThumbBorderBrush: var(--ControlFillColorTransparentBrush);
+    --ScrollBarTrackFill: var(--AcrylicInAppFillColorDefaultBrush);
+    --ScrollBarTrackStroke: var(--AcrylicInAppFillColorDefaultBrush);
+    --AccentFillColorDefaultBrush: #4CC2FF;
+    --AccentFillColorSecondaryBrush: rgba(76, 194, 255, 0.90);
+    --AccentFillColorTertiaryBrush: rgba(76, 194, 255, 0.80);
+    --AccentFillColorDisabledBrush: rgba(255, 255, 255, 0.16);
+    /* ItemContainer/ItemsView and the re-used CheckBox resources, dark theme. */
+    --ControlSolidFillColorDefaultBrush: #454545;
+    --ControlOnImageFillColorDefaultBrush: #1c1c1cb3;
+    --ControlStrongStrokeColorDefaultBrush: rgba(255, 255, 255, 0.545);
+    --ControlStrongStrokeColorDisabledBrush: rgba(255, 255, 255, 0.157);
+    --CheckBoxCheckBackgroundFillUnchecked: #B31C1C1C;
+    --CheckBoxBorderThickness: 1px;
+    --ControlCornerRadius: 4px;
+    --CardStrokeColorDefaultBrush: #00000019;
+    --NavigationViewContentGridBorderBrush: var(--CardStrokeColorDefaultBrush);
+    --NavigationViewContentBackground: var(--LayerFillColorDefaultBrush, var(--layer-default));
+    --SystemFillColorAttentionBrush: #4CC2FF;
+    --SystemFillColorSuccessBrush: #6CCB5F;
+    --SystemFillColorCautionBrush: #FCE100;
+    --SystemFillColorCriticalBrush: #FF99A4;
+    --SystemFillColorSolidNeutralBrush: #9D9D9D;
+    --SystemFillColorAttentionBackgroundBrush: rgba(255, 255, 255, 0.0314);
+    --SystemFillColorSuccessBackgroundBrush: #393D1B;
+    --SystemFillColorCautionBackgroundBrush: #433519;
+    --SystemFillColorCriticalBackgroundBrush: #442726;
+    --SystemFillColorSolidNeutralBackgroundBrush: #2E2E2E;
+    --SolidBackgroundFillColorBaseBrush: #202020;
+    --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.0512);
+    --CardBackgroundFillColorSecondaryBrush: rgba(255, 255, 255, 0.0326);
+    --DividerStrokeColorDefaultBrush: rgba(255, 255, 255, 0.08);
+    --NavigationViewItemSeparatorForeground: var(--DividerStrokeColorDefaultBrush);
+    --ControlStrokeColorDefaultBrush: var(--ctrl-border);
+    --ControlStrokeColorSecondaryBrush: var(--ctrl-border-accent);
+    --TextControlElevationBorderBrush: linear-gradient(180deg, var(--ControlStrokeColorSecondaryBrush) 0px, var(--ControlStrokeColorDefaultBrush) 2px, var(--ControlStrokeColorDefaultBrush) 100%);
+    --TextControlBorderBrush: var(--ControlStrokeColorSecondaryBrush);
+    --AccentControlElevationBorderBottomBrush: rgba(255, 255, 255, 0.0784);
+    --toggle-border: rgba(255, 255, 255, 0.54);
+    --toggle-thumb: rgba(255, 255, 255, 0.79);
+    --toggle-thumb-hover: #FFFFFF;
+    --toggle-on-thumb: #000000;
+    --radio-border: rgba(255, 255, 255, 0.54);
+    --layer-fill-color-default: var(--layer-default);
+    --layer-on-acrylic-fill-color-default: var(--layer-default);
+    --surface-stroke-color-flyout: var(--stroke-surface-flyout);
+    --subtle-fill-color-secondary: var(--subtle-secondary);
+    --subtle-fill-color-tertiary: var(--subtle-tertiary);
+    --divider-stroke: var(--stroke-divider);
+    --divider-stroke-default: var(--stroke-divider);
+    --divider-stroke-color-default: var(--stroke-divider);
+    --flyout-background: var(--flyout-bg);
+    --host-flyout-bg: var(--flyout-bg);
+    --host-nav-pane-bg: color-mix(in srgb, var(--app-bg) 56%, transparent);
+  }
+}
+
+.gallery-item-page,
+.gallery-home-page {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+}
+
+.gallery-item-page {
+  display: flex;
+  flex-direction: column;
+  padding: 24px 36px 36px;
+}
+
+.gallery-item-page > .page-heading {
+  margin: 0;
+}
+
+.gallery-page-scroll,
+.gallery-home-scroll {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.gallery-page-scroll .scroll-content,
+.gallery-home-scroll .scroll-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.gallery-page-content {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+/* PageHeader owns the page title and actions. Keep each page's description. */
+.page-view.has-page-header .page-heading.page-header,
+.page-view.has-page-header .page-heading > .page-header,
+.page-view.has-page-header .page-heading > h1.page-header,
+.page-view.has-page-header .page-heading .page-title,
+.page-view.has-page-header .page-heading .page-header-actions,
+.page-view.has-page-header .page-heading .header-actions,
+.page-view.has-page-header .page-heading .page-actions,
+.page-view.has-page-header .gallery-page-content > .win-text-block.page-header,
+.page-view.has-page-header .gallery-page-content > h1.page-header {
+  display: none !important;
+}
+
+.page-view.has-page-header .gallery-item-page {
+  padding-top: 0 !important;
+}
+
+@media (max-width: 480px) {
+  .page-view:has(> .date-time-picker-gallery-page) .win-page-header-command-row {
+    grid-template-rows: auto auto !important;
+    row-gap: 8px;
+  }
+
+  .page-view:has(> .date-time-picker-gallery-page) .win-page-header-right-actions {
+    position: static;
+    grid-row: 2 !important;
+    grid-column: 1 !important;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 640px) {
+  .gallery-item-page {
+    padding: 12px 16px 16px;
+  }
+}
+
+.icon {
+  font-weight: normal;
+}
+
+html.theme-light,
+.example-theme-wrapper.theme-light,
+.win-theme-scope.theme-light {
+  --LayerFillColorAltBrush: #FFFFFF;
+  --app-bg: #F3F3F3;
+  --layer-default: rgba(255, 255, 255, 0.50);
+  --dialog-background: #FCFCFC;
+  --dialog-content-bg: rgba(255, 255, 255, 0.95);
+  --dialog-overlay: rgba(0, 0, 0, 0.30);
+  --dialog-divider: rgba(0, 0, 0, 0.06);
+  --dialog-button-bg: #F3F3F3;
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+  --ToolTipBackgroundBrush: var(--AcrylicInAppFillColorDefaultBrush);
+  --ToolTipForegroundBrush: var(--TextFillColorPrimaryBrush);
+  --ToolTipBorderBrush: var(--SurfaceStrokeColorFlyoutBrush, var(--surface-stroke-color-flyout));
+  --card-bg: rgba(255, 255, 255, 0.70);
+  --card-stroke: rgba(0, 0, 0, 0.06);
+  --card-bg-secondary: rgba(246, 246, 246, 0.50);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.06);
+  --stroke-divider: rgba(0, 0, 0, 0.06);
+  --ctrl-border-rest: rgba(0, 0, 0, 0.06);
+  --ctrl-border: rgba(0, 0, 0, 0.058824);
+  --ctrl-border-accent: rgba(0, 0, 0, 0.160784);
+  --accent-border: rgba(255, 255, 255, 0.078431);
+  --accent-border-accent: rgba(0, 0, 0, 0.40);
+  --ControlStrokeColorOnAccentDefaultBrush: var(--accent-border);
+  --ControlStrokeColorOnAccentSecondaryBrush: var(--accent-border-accent);
+  --ButtonBorderBrushDefaultTop: var(--ctrl-border);
+  --ButtonBorderBrushDefaultBottom: var(--ctrl-border-accent);
+  --AccentButtonBorderBrushDefault: var(--accent-border);
+  --AccentButtonBorderBrushDefaultBottom: var(--accent-border-accent);
+  --text-primary: rgba(0, 0, 0, 0.89);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-disabled: rgba(0, 0, 0, 0.36);
+  --subtle-transparent: transparent;
+  --subtle-secondary: rgba(0, 0, 0, 0.0373);
+  --subtle-tertiary: rgba(0, 0, 0, 0.0241);
+  --subtle-pressed: rgba(0, 0, 0, 0.06);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.70);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.50);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.30);
+  --ctrl-fill-input-active: #FFFFFF;
+  --control-fill-color-input-active: var(--ctrl-fill-input-active);
+  --control-fill-input-active: var(--ctrl-fill-input-active);
+  --ctrl-strong-fill: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-fill-disabled: rgba(0, 0, 0, 0.32);
+  --ctrl-strong-stroke: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-stroke-disabled: rgba(0, 0, 0, 0.22);
+  --ctrl-solid-fill: #FFFFFF;
+  --ctrl-elevation-top: rgba(255, 255, 255, 0.08);
+  --ctrl-elevation-bottom: rgba(0, 0, 0, 0.16);
+  --accent-base: #0067C0;
+  --accent-hover: rgba(0, 103, 192, 0.90);
+  --accent-pressed: rgba(0, 103, 192, 0.80);
+  --accent-fill-disabled: rgba(0, 0, 0, 0.22);
+  --accent-aa-fill: #004E8C;
+  --accent-aa-text: #FFFFFF;
+  --accent-text: #FFFFFF;
+  --accent-text-secondary: rgba(255, 255, 255, 0.70);
+  --accent-text-fill-color-primary: #0D4897;
+  --TextFillColorPrimaryBrush: rgba(0, 0, 0, 0.89);
+  --TextFillColorSecondaryBrush: rgba(0, 0, 0, 0.62);
+  --TextFillColorDisabledBrush: rgba(0, 0, 0, 0.36);
+  --SystemControlBackgroundBaseMediumBrush: rgba(255, 255, 255, .6);
+  --SystemControlForegroundAltHighBrush: #FFFFFF;
+  --SystemControlPageTextBaseMediumBrush: rgba(0, 0, 0, .6);
+  --SystemControlForegroundBaseMediumBrush: rgba(0, 0, 0, 0.60);
+  --SystemControlHighlightAltBaseMediumHighBrush: rgba(0, 0, 0, 0.80);
+  --SystemControlHighlightAltBaseHighBrush: #000000;
+  --SystemControlDisabledBaseMediumLowBrush: rgba(0, 0, 0, 0.40);
+  --TextFillColorInverseBrush: #FFFFFF;
+  --TextOnAccentFillColorPrimaryBrush: #FFFFFF;
+  --TextOnAccentFillColorSecondaryBrush: rgba(255, 255, 255, 0.70);
+  --TextOnAccentFillColorDisabledBrush: #FFFFFF;
+  --ControlFillColorTransparentBrush: transparent;
+  --ControlStrongFillColorDefaultBrush: rgba(0, 0, 0, 0.45);
+  --ControlStrongFillColorDisabledBrush: rgba(0, 0, 0, 0.32);
+  --SubtleFillColorTransparentBrush: transparent;
+  --SubtleFillColorSecondaryBrush: rgba(0, 0, 0, 0.04);
+  --ScrollBarBackground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBackgroundPointerOver: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --ScrollBarButtonBackgroundPressed: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarButtonArrowForeground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarButtonArrowForegroundPointerOver: var(--TextFillColorSecondaryBrush);
+  --ScrollBarButtonArrowForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ScrollBarThumbBackground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillPointerOver: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillPressed: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbBorderBrush: var(--ControlFillColorTransparentBrush);
+  --ScrollBarTrackFill: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarTrackStroke: var(--AcrylicInAppFillColorDefaultBrush);
+  --AccentFillColorDefaultBrush: #0067C0;
+  --AccentFillColorSecondaryBrush: rgba(0, 103, 192, 0.90);
+  --AccentFillColorTertiaryBrush: rgba(0, 103, 192, 0.80);
+  --AccentFillColorDisabledBrush: rgba(0, 0, 0, 0.22);
+  /* ItemContainer/ItemsView, plus the CheckBox resources ItemContainer's
+     template re-uses. Values are the light theme of
+     Common_themeresources_any.xaml and CheckBox_themeresources.xaml. */
+  --ControlSolidFillColorDefaultBrush: #FFFFFF;
+  --ControlOnImageFillColorDefaultBrush: #ffffffc9;
+  --ControlStrongStrokeColorDefaultBrush: rgba(0, 0, 0, 0.45);
+  --ControlStrongStrokeColorDisabledBrush: rgba(0, 0, 0, 0.22);
+  --CheckBoxCheckBackgroundFillUnchecked: #C9FFFFFF;
+  --CheckBoxBorderThickness: 1px;
+  --ControlCornerRadius: 4px;
+  --CardStrokeColorDefaultBrush: #0000000f;
+  --NavigationViewContentGridBorderBrush: var(--CardStrokeColorDefaultBrush);
+  --NavigationViewContentBackground: var(--LayerFillColorDefaultBrush, var(--layer-default));
+  --SystemFillColorAttentionBrush: #0067C0;
+  --SystemFillColorSuccessBrush: #0F7B0F;
+  --SystemFillColorCautionBrush: #9D5D00;
+  --SystemFillColorCriticalBrush: #C42B1C;
+  --SystemFillColorSolidNeutralBrush: #8A8A8A;
+  --SystemFillColorAttentionBackgroundBrush: rgba(246, 246, 246, 0.50);
+  --SystemFillColorSuccessBackgroundBrush: #DFF6DD;
+  --SystemFillColorCautionBackgroundBrush: #FFF4CE;
+  --SystemFillColorCriticalBackgroundBrush: #FDE7E9;
+  --SystemFillColorSolidNeutralBackgroundBrush: #F3F3F3;
+  --SolidBackgroundFillColorBaseBrush: #F3F3F3;
+  --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.70);
+  --CardBackgroundFillColorSecondaryBrush: rgba(246, 246, 246, 0.50);
+  --DividerStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+  --NavigationViewItemSeparatorForeground: var(--DividerStrokeColorDefaultBrush);
+  --ControlStrokeColorDefaultBrush: var(--ctrl-border);
+  --ControlStrokeColorSecondaryBrush: var(--ctrl-border-accent);
+  --TextControlElevationBorderBrush: linear-gradient(180deg, var(--ControlStrokeColorSecondaryBrush) 0px, var(--ControlStrokeColorDefaultBrush) 2px, var(--ControlStrokeColorDefaultBrush) 100%);
+  --TextControlBorderBrush: var(--ControlStrokeColorSecondaryBrush);
+  --AccentControlElevationBorderBottomBrush: rgba(0, 0, 0, 0.40);
+  --toggle-border: rgba(0, 0, 0, 0.45);
+  --toggle-thumb: rgba(0, 0, 0, 0.61);
+  --toggle-thumb-hover: rgba(0, 0, 0, 0.89);
+  --toggle-on-thumb: #FFFFFF;
+  --radio-border: rgba(0, 0, 0, 0.45);
+  --layer-fill-color-default: var(--layer-default);
+  --layer-on-acrylic-fill-color-default: var(--layer-default);
+  --surface-stroke-color-flyout: var(--stroke-surface-flyout);
+  --subtle-fill-color-secondary: var(--subtle-secondary);
+  --subtle-fill-color-tertiary: var(--subtle-tertiary);
+  --divider-stroke: var(--stroke-divider);
+  --divider-stroke-default: var(--stroke-divider);
+  --divider-stroke-color-default: var(--stroke-divider);
+  --flyout-background: var(--flyout-bg);
+  --host-flyout-bg: var(--flyout-bg);
+  --host-nav-pane-bg: color-mix(in srgb, var(--app-bg) 64%, transparent);
+}
+
+.win-content-dialog-overlay.theme-light {
+  --dialog-background: #FCFCFC;
+  --dialog-content-bg: rgba(255, 255, 255, 0.95);
+  --dialog-overlay: rgba(0, 0, 0, 0.30);
+  --dialog-divider: rgba(0, 0, 0, 0.06);
+  --dialog-button-bg: #F3F3F3;
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+  --ToolTipBackgroundBrush: var(--AcrylicInAppFillColorDefaultBrush);
+}
+
+html.theme-dark,
+.example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-dark {
+  --LayerFillColorAltBrush: rgba(255, 255, 255, 0.05098);
+  --app-bg: #202020;
+  --layer-default: rgba(58, 58, 58, 0.30);
+  --dialog-background: #2C2C2C;
+  --flyout-bg: rgba(44, 44, 44, 0.86);
+  --flyout-border: rgba(255, 255, 255, 0.10);
+  --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+  --ToolTipBackgroundBrush: var(--AcrylicInAppFillColorDefaultBrush);
+  --ToolTipForegroundBrush: var(--TextFillColorPrimaryBrush);
+  --ToolTipBorderBrush: var(--SurfaceStrokeColorFlyoutBrush, var(--surface-stroke-color-flyout));
+  --dialog-content-bg: rgba(43, 43, 43, 0);
+  --dialog-overlay: rgba(0, 0, 0, 0.30);
+  --dialog-divider: rgba(0, 0, 0, 0.20);
+  --dialog-button-bg: #202020;
+  --TeachingTipBackgroundBrush: #282828;
+  --TeachingTipTopHighlightBrush: rgba(255, 255, 255, 0.0509804);
+  --card-bg: rgba(255, 255, 255, 0.0512);
+  --card-stroke: rgba(0, 0, 0, 0.10);
+  --card-bg-secondary: rgba(255, 255, 255, 0.0326);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.20);
+  --stroke-divider: rgba(255, 255, 255, 0.08);
+  --ctrl-border-rest: rgba(0, 0, 0, 0.07);
+  --ctrl-border: rgba(255, 255, 255, 0.070588);
+  --ctrl-border-accent: rgba(255, 255, 255, 0.094118);
+  --accent-border: rgba(0, 0, 0, 0.137255);
+  --accent-border-accent: rgba(255, 255, 255, 0.078431);
+  --ControlStrokeColorOnAccentDefaultBrush: var(--accent-border-accent);
+  --ControlStrokeColorOnAccentSecondaryBrush: var(--accent-border);
+  --ButtonBorderBrushDefaultTop: var(--ctrl-border-accent);
+  --ButtonBorderBrushDefaultBottom: var(--ctrl-border);
+  --AccentButtonBorderBrushDefault: var(--accent-border-accent);
+  --AccentButtonBorderBrushDefaultBottom: var(--accent-border);
+  --text-primary: #FFFFFF;
+  --text-secondary: rgba(255, 255, 255, 0.77);
+  --text-tertiary: rgba(255, 255, 255, 0.53);
+  --text-disabled: rgba(255, 255, 255, 0.36);
+  --subtle-transparent: transparent;
+  --subtle-secondary: rgba(255, 255, 255, 0.0605);
+  --subtle-tertiary: rgba(255, 255, 255, 0.0419);
+  --subtle-pressed: rgba(255, 255, 255, 0.03);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.0605);
+  --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+  --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0326);
+  --ctrl-fill-disabled: rgba(255, 255, 255, 0.0419);
+  --ctrl-fill-input-active: rgba(30, 30, 30, 0.70);
+  --control-fill-color-input-active: var(--ctrl-fill-input-active);
+  --control-fill-input-active: var(--ctrl-fill-input-active);
+  --ctrl-strong-fill: rgba(255, 255, 255, 0.54);
+  --ctrl-strong-fill-disabled: rgba(255, 255, 255, 0.25);
+  --ctrl-strong-stroke: rgba(255, 255, 255, 0.54);
+  --ctrl-strong-stroke-disabled: rgba(255, 255, 255, 0.16);
+  --ctrl-solid-fill: #454545;
+  --ctrl-elevation-top: rgba(255, 255, 255, 0.0941);
+  --ctrl-elevation-bottom: rgba(255, 255, 255, 0.0706);
+  --accent-base: #4CC2FF;
+  --accent-hover: rgba(96, 205, 255, 0.90);
+  --accent-pressed: rgba(96, 205, 255, 0.80);
+  --accent-fill-disabled: rgba(255, 255, 255, 0.16);
+  --accent-aa-fill: #79D2FF;
+  --accent-aa-text: #000000;
+  --accent-text: #000000;
+  --accent-text-secondary: rgba(0, 0, 0, 0.50);
+  --accent-text-fill-color-primary: #99EBFF;
+  --TextFillColorPrimaryBrush: #FFFFFF;
+  --ControlOnImageFillColorDefaultBrush: #1c1c1cb3;
+  --TextFillColorSecondaryBrush: rgba(255, 255, 255, 0.77);
+  --TextFillColorDisabledBrush: rgba(255, 255, 255, 0.36);
+  --SystemControlBackgroundBaseMediumBrush: rgba(0, 0, 0, .6);
+  --SystemControlForegroundAltHighBrush: #000000;
+  --SystemControlPageTextBaseMediumBrush: rgba(255, 255, 255, .6);
+  --SystemControlForegroundBaseMediumBrush: rgba(255, 255, 255, 0.60);
+  --SystemControlHighlightAltBaseMediumHighBrush: rgba(255, 255, 255, 0.80);
+  --SystemControlHighlightAltBaseHighBrush: #FFFFFF;
+  --SystemControlDisabledBaseMediumLowBrush: rgba(255, 255, 255, 0.40);
+  --SystemChromeLowColor: #171717;
+  --SystemChromeMediumColor: #1F1F1F;
+  --SystemChromeWhiteColor: #FFFFFF;
+  --SystemBaseLowColor: rgba(255, 255, 255, 0.20);
+  --SystemBaseHighColor: #FFFFFF;
+  --SystemAccentColor: var(--winui-system-accent-color-dark, var(--winui-system-accent-color, var(--accent-base)));
+  --SystemControlBackgroundBaseLowBrush: var(--SystemBaseLowColor);
+  --SystemControlBackgroundChromeMediumBrush: var(--SystemChromeMediumColor);
+  --SystemControlBackgroundAccentBrush: var(--SystemAccentColor);
+  --SystemControlForegroundBaseHighBrush: var(--SystemBaseHighColor);
+  --SystemControlForegroundChromeWhiteBrush: var(--SystemChromeWhiteColor);
+  --ButtonForeground: var(--SystemControlForegroundBaseHighBrush);
+  --TextFillColorInverseBrush: rgba(0, 0, 0, 0.89);
+  --TextOnAccentFillColorPrimaryBrush: #000000;
+  --TextOnAccentFillColorSecondaryBrush: rgba(0, 0, 0, 0.50);
+  --TextOnAccentFillColorDisabledBrush: rgba(255, 255, 255, 0.53);
+  --ControlFillColorTransparentBrush: transparent;
+  --ControlStrongFillColorDefaultBrush: rgba(255, 255, 255, 0.54);
+  --ControlStrongFillColorDisabledBrush: rgba(255, 255, 255, 0.25);
+  --SubtleFillColorTransparentBrush: transparent;
+  --SubtleFillColorSecondaryBrush: rgba(255, 255, 255, 0.06);
+  --ScrollBarBackground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarBackgroundPointerOver: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --ScrollBarButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --ScrollBarButtonBackgroundPressed: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarButtonArrowForeground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarButtonArrowForegroundPointerOver: var(--TextFillColorSecondaryBrush);
+  --ScrollBarButtonArrowForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ScrollBarThumbBackground: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillPointerOver: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbFillPressed: var(--ControlStrongFillColorDefaultBrush);
+  --ScrollBarThumbBorderBrush: var(--ControlFillColorTransparentBrush);
+  --ScrollBarTrackFill: var(--AcrylicInAppFillColorDefaultBrush);
+  --ScrollBarTrackStroke: var(--AcrylicInAppFillColorDefaultBrush);
+  --AccentFillColorDefaultBrush: #4CC2FF;
+  --AccentFillColorSecondaryBrush: rgba(76, 194, 255, 0.90);
+  --AccentFillColorTertiaryBrush: rgba(76, 194, 255, 0.80);
+  --AccentFillColorDisabledBrush: rgba(255, 255, 255, 0.16);
+  --CardStrokeColorDefaultBrush: #00000019;
+  --NavigationViewContentGridBorderBrush: var(--CardStrokeColorDefaultBrush);
+  --NavigationViewContentBackground: var(--LayerFillColorDefaultBrush, var(--layer-default));
+  --SystemFillColorAttentionBrush: #4CC2FF;
+  --SystemFillColorSuccessBrush: #6CCB5F;
+  --SystemFillColorCautionBrush: #FCE100;
+  --SystemFillColorCriticalBrush: #FF99A4;
+  --SystemFillColorSolidNeutralBrush: #9D9D9D;
+  --SystemFillColorAttentionBackgroundBrush: rgba(255, 255, 255, 0.0314);
+  --SystemFillColorSuccessBackgroundBrush: #393D1B;
+  --SystemFillColorCautionBackgroundBrush: #433519;
+  --SystemFillColorCriticalBackgroundBrush: #442726;
+  --SystemFillColorSolidNeutralBackgroundBrush: #2E2E2E;
+  --SolidBackgroundFillColorBaseBrush: #202020;
+  --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.0512);
+  --CardBackgroundFillColorSecondaryBrush: rgba(255, 255, 255, 0.0326);
+  --DividerStrokeColorDefaultBrush: rgba(255, 255, 255, 0.08);
+  --NavigationViewItemSeparatorForeground: var(--DividerStrokeColorDefaultBrush);
+  --ControlStrokeColorDefaultBrush: var(--ctrl-border);
+  --ControlStrokeColorSecondaryBrush: var(--ctrl-border-accent);
+  --TextControlElevationBorderBrush: linear-gradient(180deg, var(--ControlStrokeColorSecondaryBrush) 0px, var(--ControlStrokeColorDefaultBrush) 2px, var(--ControlStrokeColorDefaultBrush) 100%);
+  --TextControlBorderBrush: var(--ControlStrokeColorSecondaryBrush);
+  --AccentControlElevationBorderBottomBrush: rgba(255, 255, 255, 0.0784);
+  --toggle-border: rgba(255, 255, 255, 0.54);
+  --toggle-thumb: rgba(255, 255, 255, 0.79);
+  --toggle-thumb-hover: #FFFFFF;
+  --toggle-on-thumb: #000000;
+  --radio-border: rgba(255, 255, 255, 0.54);
+  --layer-fill-color-default: var(--layer-default);
+  --layer-on-acrylic-fill-color-default: var(--layer-default);
+  --surface-stroke-color-flyout: var(--stroke-surface-flyout);
+  --subtle-fill-color-secondary: var(--subtle-secondary);
+  --subtle-fill-color-tertiary: var(--subtle-tertiary);
+  --divider-stroke: var(--stroke-divider);
+  --divider-stroke-default: var(--stroke-divider);
+  --divider-stroke-color-default: var(--stroke-divider);
+  --flyout-background: var(--flyout-bg);
+  --host-flyout-bg: var(--flyout-bg);
+  --host-nav-pane-bg: color-mix(in srgb, var(--app-bg) 56%, transparent);
+}
+
+.win-content-dialog-overlay.theme-dark {
+  --dialog-background: #2C2C2C;
+  --dialog-content-bg: rgba(43, 43, 43, 0);
+  --dialog-overlay: rgba(0, 0, 0, 0.30);
+  --dialog-divider: rgba(0, 0, 0, 0.20);
+  --dialog-button-bg: #202020;
+  --flyout-bg: rgba(44, 44, 44, 0.86);
+  --flyout-border: rgba(255, 255, 255, 0.10);
+  --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+  --ToolTipBackgroundBrush: var(--AcrylicInAppFillColorDefaultBrush);
+}
+
+.win-tooltip {
+  z-index: var(--win-tooltip-z-index, var(--win-tip-z-index, 2147483647));
+}
+
+.win-teaching-tip {
+  z-index: var(--win-teaching-tip-z-index, var(--win-tip-z-index, 2147483646));
+}
+
+html .basic-input-example-theme:has(.example-display[data-theme='light']) .example-container {
+  --card-bg: #FEFEFE;
+  --CardBackgroundFillColorDefaultBrush: #FEFEFE;
+}
+
+.example-theme-wrapper.theme-light,
+.win-theme-scope.theme-light,
+html .basic-input-example-theme:has(.example-display[data-theme='light']) .example-container {
+  --accent-text-fill-color-primary: #0D4897;
+}
+
+.example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-dark,
+html .basic-input-example-theme:has(.example-display[data-theme='dark']) .example-container {
+  --accent-text-fill-color-primary: #99EBFF;
+}
+
+.page-header-actions > .header-action,
+.header-actions > .header-action,
+.page-actions > .header-action {
+  height: 32px;
+  min-height: 32px;
+}
+
+/* CalendarView / CalendarDatePicker, CommonStyles theme resource dictionaries. */
+:root,
+html.theme-light,
+html.theme-dark,
+.example-theme-wrapper.theme-light,
+.example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light,
+.win-theme-scope.theme-dark {
+  --CalendarViewSelectedHoverBorderBrush: var(--AccentFillColorSecondaryBrush);
+  --CalendarViewSelectedPressedBorderBrush: var(--SubtleFillColorTertiaryBrush);
+  --CalendarViewSelectedBorderBrush: var(--AccentFillColorDefaultBrush);
+  --CalendarViewHoverBorderBrush: var(--SubtleFillColorSecondaryBrush);
+  --CalendarViewPressedBorderBrush: var(--SubtleFillColorTertiaryBrush);
+  --CalendarViewTodayForeground: var(--TextOnAccentFillColorPrimaryBrush, white);
+  --CalendarViewBlackoutForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarViewSelectedForeground: var(--accent-text-fill-color-primary, var(--AccentFillColorDefaultBrush));
+  --CalendarViewPressedForeground: var(--TextFillColorSecondaryBrush);
+  --CalendarViewOutOfScopeForeground: var(--TextFillColorSecondaryBrush);
+  --CalendarViewCalendarItemForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarViewOutOfScopeBackground: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewCalendarItemBackground: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarViewBackground: var(--ControlFillColorInputActiveBrush, var(--ctrl-fill-input-active));
+  --CalendarViewBorderBrush: var(--ControlStrokeColorDefaultBrush);
+  --CalendarViewWeekDayForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --CalendarViewNavigationButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewNavigationButtonForegroundPointerOver: var(--ControlStrongFillColorDefaultBrush);
+  --CalendarViewNavigationButtonForegroundPressed: var(--ControlStrongFillColorDefaultBrush);
+  --CalendarViewNavigationButtonForegroundDisabled: var(--ControlStrongFillColorDisabledBrush);
+  --CalendarViewNavigationButtonBorderBrushPointerOver: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewNavigationButtonBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewFocusVisualPrimaryBrush: var(--FocusStrokeColorOuterBrush, var(--text-primary));
+  --CalendarViewFocusVisualSecondaryBrush: var(--FocusStrokeColorInnerBrush, var(--app-bg));
+  --CalendarViewBlackoutStrikethroughBrush: var(--ControlStrongStrokeColorDefaultBrush);
+  --CalendarViewSelectedDisabledBorderBrush: var(--AccentFillColorDisabledBrush);
+  --CalendarViewTodaySelectedInnerBorderBrush: var(--TextOnAccentFillColorPrimaryBrush, white);
+  --CalendarViewDisabledForeground: var(--TextFillColorDisabledBrush);
+  --CalendarViewSelectedHoverForeground: var(--accent-text-fill-color-primary, var(--AccentFillColorDefaultBrush));
+  --CalendarViewSelectedPressedForeground: var(--AccentTextFillColorTertiaryBrush, var(--accent-text-fill-color-primary));
+  --CalendarViewSelectedDisabledForeground: var(--AccentTextFillColorDisabledBrush, var(--TextFillColorDisabledBrush));
+  --CalendarViewOutOfScopeHoverForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarViewOutOfScopePressedForeground: var(--TextFillColorTertiaryBrush, var(--text-tertiary));
+  --CalendarViewCalendarItemHoverBackground: var(--SubtleFillColorSecondaryBrush);
+  --CalendarViewCalendarItemPressedBackground: var(--SubtleFillColorTertiaryBrush);
+  --CalendarViewCalendarItemDisabledBackground: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewCalendarItemBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewTodayBackground: var(--AccentFillColorDefaultBrush);
+  --CalendarViewTodayBlackoutBackground: var(--AccentFillColorTertiaryBrush);
+  --CalendarViewTodayBlackoutForeground: var(--TextOnAccentFillColorPrimaryBrush, white);
+  --CalendarViewTodayHoverBackground: var(--AccentFillColorSecondaryBrush);
+  --CalendarViewTodayPressedBackground: var(--AccentFillColorTertiaryBrush);
+  --CalendarViewTodayDisabledBackground: var(--AccentFillColorDisabledBrush);
+  --CalendarViewBlackoutBackground: var(--SubtleFillColorTransparentBrush);
+  --CalendarViewNavigationButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --CalendarViewNavigationButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+  --CalendarViewNavigationButtonForeground: var(--ControlStrongFillColorDefaultBrush);
+  --CalendarViewHeaderNavigationButtonForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarViewHeaderNavigationButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --CalendarViewHeaderNavigationButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --CalendarViewHeaderNavigationButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --CalendarDatePickerForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarDatePickerForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --CalendarDatePickerCalendarGlyphForeground: var(--TextFillColorSecondaryBrush);
+  --CalendarDatePickerCalendarGlyphForegroundPointerOver: var(--TextFillColorSecondaryBrush);
+  --CalendarDatePickerCalendarGlyphForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --CalendarDatePickerCalendarGlyphForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --CalendarDatePickerTextForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarDatePickerTextForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --CalendarDatePickerTextForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --CalendarDatePickerTextForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --CalendarDatePickerTextForegroundSelected: var(--TextFillColorPrimaryBrush);
+  --CalendarDatePickerHeaderForeground: var(--TextFillColorPrimaryBrush);
+  --CalendarDatePickerHeaderForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --CalendarDatePickerBackground: var(--ControlFillColorDefaultBrush);
+  --CalendarDatePickerBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --CalendarDatePickerBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --CalendarDatePickerBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --CalendarDatePickerBackgroundFocused: var(--ControlFillColorDefaultBrush);
+  --CalendarDatePickerBorderBrush: var(--ControlElevationBorderBrush);
+  --CalendarDatePickerBorderBrushPointerOver: var(--ControlElevationBorderBrush);
+  --CalendarDatePickerBorderBrushPressed: var(--ControlStrokeColorDefaultBrush);
+  --CalendarDatePickerBorderBrushDisabled: var(--ControlStrokeColorDefaultBrush);
+  --CalendarDatePickerLightDismissOverlayBackground: var(--SmokeFillColorDefaultBrush, rgba(0,0,0,.2));
+}
+
+:root, html.theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --CalendarViewFocusBorderBrush: var(--TextFillColorPrimaryBrush);
+}
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --CalendarViewFocusBorderBrush: var(--AccentFillColorSecondaryBrush);
+}
+
+/* TreeView_themeresources.xaml: Default and Light share these semantic
+   resources; the active light/dark scope supplies their concrete colors. */
+:root,
+html.theme-light,
+html.theme-dark,
+.example-theme-wrapper.theme-light,
+.example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light,
+.win-theme-scope.theme-dark {
+  --TreeViewItemBackground: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --TreeViewItemBackgroundPressed: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --TreeViewItemBackgroundDisabled: var(--SubtleFillColorDisabledBrush, transparent);
+  --TreeViewItemBackgroundSelected: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --TreeViewItemBackgroundSelectedPointerOver: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --TreeViewItemBackgroundSelectedPressed: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --TreeViewItemBackgroundSelectedDisabled: var(--SubtleFillColorDisabledBrush, transparent);
+  --TreeViewItemForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TreeViewItemForegroundPointerOver: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TreeViewItemForegroundPressed: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --TreeViewItemForegroundDisabled: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --TreeViewItemForegroundSelected: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TreeViewItemForegroundSelectedPointerOver: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --TreeViewItemForegroundSelectedPressed: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --TreeViewItemForegroundSelectedDisabled: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --TreeViewItemBorderBrush: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushPointerOver: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushPressed: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushDisabled: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushSelected: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushSelectedPointerOver: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushSelectedPressed: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemBorderBrushSelectedDisabled: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemMultiSelectBorderBrushSelected: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemCheckBoxBackgroundSelected: var(--SubtleFillColorTransparentBrush, transparent);
+  --TreeViewItemCheckBoxBorderSelected: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --TreeViewItemCheckGlyphSelected: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --TreeViewItemSelectionIndicatorForeground: var(--AccentFillColorDefaultBrush, var(--accent-base));
+  --TreeViewItemSelectionIndicatorForegroundPointerOver: var(--AccentFillColorDefaultBrush, var(--accent-base));
+  --TreeViewItemSelectionIndicatorForegroundPressed: var(--AccentFillColorDefaultBrush, var(--accent-base));
+  --TreeViewItemSelectionIndicatorForegroundDisabled: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --TreeViewItemBorderThemeThickness: 0;
+  /* XAML Thickness 4,2 and 0,3,0,5 converted to CSS top/right/bottom/left. */
+  --TreeViewItemPresenterMargin: 2px 4px;
+  --TreeViewItemPresenterPadding: 3px 0 5px 0;
+  --TreeViewItemMultiSelectSelectedItemBorderMargin: 0;
+  --TreeViewItemMinHeight: 28px;
+  --TreeViewItemMultiSelectCheckBoxMinHeight: 28px;
+  --TreeViewItemContentHeight: 20px;
+}
+
+@media (forced-colors: active) {
+  :root,
+  html.theme-light,
+  html.theme-dark,
+  .example-theme-wrapper.theme-light,
+  .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light,
+  .win-theme-scope.theme-dark {
+    --TreeViewItemBackground: Canvas;
+    --TreeViewItemBackgroundPointerOver: Canvas;
+    --TreeViewItemBackgroundPressed: Canvas;
+    --TreeViewItemBackgroundDisabled: Canvas;
+    --TreeViewItemBackgroundSelected: Canvas;
+    --TreeViewItemBackgroundSelectedPointerOver: ButtonFace;
+    --TreeViewItemBackgroundSelectedPressed: ButtonFace;
+    --TreeViewItemBackgroundSelectedDisabled: Canvas;
+    --TreeViewItemForeground: ButtonText;
+    --TreeViewItemForegroundPointerOver: Highlight;
+    --TreeViewItemForegroundPressed: Highlight;
+    --TreeViewItemForegroundDisabled: GrayText;
+    --TreeViewItemForegroundSelected: Highlight;
+    --TreeViewItemForegroundSelectedPointerOver: ButtonText;
+    --TreeViewItemForegroundSelectedPressed: ButtonText;
+    --TreeViewItemForegroundSelectedDisabled: GrayText;
+    --TreeViewItemBorderBrush: Canvas;
+    --TreeViewItemBorderBrushPointerOver: Highlight;
+    --TreeViewItemBorderBrushPressed: Canvas;
+    --TreeViewItemBorderBrushDisabled: Canvas;
+    --TreeViewItemBorderBrushSelected: Highlight;
+    --TreeViewItemBorderBrushSelectedPointerOver: ButtonText;
+    --TreeViewItemBorderBrushSelectedPressed: ButtonFace;
+    --TreeViewItemBorderBrushSelectedDisabled: GrayText;
+    --TreeViewItemMultiSelectBorderBrushSelected: ButtonText;
+    --TreeViewItemCheckBoxBackgroundSelected: Canvas;
+    --TreeViewItemCheckBoxBorderSelected: ButtonText;
+    --TreeViewItemCheckGlyphSelected: CanvasText;
+    --TreeViewItemSelectionIndicatorForeground: Highlight;
+    --TreeViewItemSelectionIndicatorForegroundPointerOver: ButtonText;
+    --TreeViewItemSelectionIndicatorForegroundPressed: ButtonText;
+    --TreeViewItemSelectionIndicatorForegroundDisabled: GrayText;
+    --TreeViewItemBorderThemeThickness: 1px;
+    --TreeViewItemPresenterMargin: 2px 4px;
+    --TreeViewItemPresenterPadding: 3px 0 5px 0;
+    --TreeViewItemMultiSelectSelectedItemBorderMargin: 1px;
+    --TreeViewItemMinHeight: 28px;
+    --TreeViewItemMultiSelectCheckBoxMinHeight: 28px;
+    --TreeViewItemContentHeight: 20px;
+  }
+}
+
+/* SplitView_themeresources.xaml and generic.xaml use opaque chrome brushes. */
+:root, html.theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --SystemControlBackgroundChromeMediumLowBrush: #F2F2F2;
+  --SystemControlPageBackgroundChromeLowBrush: #F2F2F2;
+  --SystemControlPageBackgroundMediumAltMediumBrush: rgba(255,255,255,.6);
+}
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --SystemControlBackgroundChromeMediumLowBrush: #2B2B2B;
+  --SystemControlPageBackgroundChromeLowBrush: #171717;
+  --SystemControlPageBackgroundMediumAltMediumBrush: rgba(0,0,0,.6);
+}
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  --SplitViewOpenPaneThemeLength: 320;
+  --SplitViewCompactPaneThemeLength: 48;
+  --SplitViewLeftBorderThemeThickness: 0px 1px 0px 0px;
+  --SplitViewRightBorderThemeThickness: 0px 0px 0px 1px;
+  --SplitViewLightDismissOverlayBackground: var(--SystemControlPageBackgroundMediumAltMediumBrush);
+  --SplitViewPaneAnimationOpenDuration: 200ms;
+  --SplitViewPaneAnimationOpenPreDuration: 199.99ms;
+  --SplitViewPaneAnimationCloseDuration: 100ms;
+  --SplitViewPaneRootCornerRadius: 0px;
+  --SystemControlForegroundTransparentBrush: transparent;
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --SystemControlBackgroundChromeMediumLowBrush: ButtonFace;
+    --SystemControlPageBackgroundChromeLowBrush: Canvas;
+    --SystemControlPageBackgroundMediumAltMediumBrush: Canvas;
+  }
+}
+
+/* RefreshContainer/RefreshVisualizer theme dictionaries in WinUI-Reference. */
+:root,
+html.theme-light,
+.example-theme-wrapper.theme-light,
+.win-theme-scope.theme-light {
+  --RefreshContainerForegroundBrush: #000000;
+  --RefreshContainerBackgroundBrush: transparent;
+  --RefreshVisualizerForeground: #000000;
+  --RefreshVisualizerBackground: transparent;
+}
+
+html.theme-dark,
+.example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-dark {
+  --RefreshContainerForegroundBrush: #FFFFFF;
+  --RefreshContainerBackgroundBrush: transparent;
+  --RefreshVisualizerForeground: #FFFFFF;
+  --RefreshVisualizerBackground: transparent;
+}
+
+@media (forced-colors: active) {
+  :root,
+  html.theme-light,
+  html.theme-dark,
+  .example-theme-wrapper.theme-light,
+  .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light,
+  .win-theme-scope.theme-dark {
+    --RefreshContainerForegroundBrush: HighlightText;
+    --RefreshVisualizerForeground: HighlightText;
+  }
+}
+
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+    --ContentDialogBackground: Canvas;
+    --ContentDialogForeground: CanvasText;
+    --ContentDialogSmokeFill: color-mix(in srgb, Canvas 80%, transparent);
+    --ContentDialogTopOverlay: transparent;
+    --ContentDialogBorderBrush: CanvasText;
+    --ContentDialogSeparatorBorderBrush: CanvasText;
+    --ContentDialogBorderWidth: 2px;
+  }
+}
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope, .win-theme-scope.theme-light, .win-theme-scope.theme-dark {
+  /* NavigationView_themeresources.xaml: resolve brushes in the nearest theme. */
+  --LayerFillColorDefaultBrush: var(--LayerFillColorDefault, var(--layer-default));
+  --SolidBackgroundFillColorTransparent: transparent;
+  --NavigationViewDefaultPaneBackground: var(--AcrylicInAppFillColorDefaultBrush, var(--flyout-bg));
+  --NavigationViewExpandedPaneBackground: var(--SolidBackgroundFillColorTransparent);
+  --NavigationViewTopPaneBackground: var(--SolidBackgroundFillColorTransparent);
+  --NavigationViewItemBackground: transparent;
+  --NavigationViewItemBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --NavigationViewItemBackgroundPressed: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --NavigationViewItemBackgroundSelected: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --NavigationViewItemBackgroundSelectedPointerOver: var(--SubtleFillColorTertiaryBrush, var(--subtle-tertiary));
+  --NavigationViewItemBackgroundSelectedPressed: var(--SubtleFillColorSecondaryBrush, var(--subtle-secondary));
+  --NavigationViewItemForeground: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --NavigationViewItemForegroundPointerOver: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --NavigationViewItemForegroundPressed: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --NavigationViewItemForegroundDisabled: var(--TextFillColorDisabledBrush, var(--text-disabled));
+  --NavigationViewItemForegroundSelected: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --NavigationViewItemForegroundSelectedPointerOver: var(--TextFillColorPrimaryBrush, var(--text-primary));
+  --NavigationViewItemForegroundSelectedPressed: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --NavigationViewItemHeaderForeground: var(--TextFillColorSecondaryBrush, var(--text-secondary));
+  --NavigationViewItemSeparatorForeground: var(--DividerStrokeColorDefaultBrush, var(--stroke-divider));
+  --NavigationViewSelectionIndicatorForeground: var(--AccentFillColorDefaultBrush, var(--accent-default));
+  --TopNavigationViewItemBackgroundSelected: transparent;
+  --TopNavigationViewItemBackgroundSelectedPointerOver: transparent;
+  --TopNavigationViewItemBackgroundSelectedPressed: transparent;
+}
+
+/* Common_themeresources_any.xaml keeps the original eight-bit alpha. */
+:root {
+  --LayerFillColorDefault: #ffffff80;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light) {
+    --LayerFillColorDefault: #3a3a3a4c;
+  }
+}
+html.theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --LayerFillColorDefault: #ffffff80;
+  --SolidBackgroundFillColorTertiaryBrush: #f9f9f9;
+}
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --LayerFillColorDefault: #3a3a3a4c;
+  --SolidBackgroundFillColorTertiaryBrush: #282828;
+}
+
+/*
+ * Prefer the operating-system AccentColor system color when the browser host
+ * exposes it. Native WebView hosts can override these values through
+ * connectSystemAccentColorHost.
+ */
+:root {
+  --winui-system-accent-color: #0067C0;
+  --winui-system-accent-color-dark: #4CC2FF;
+}
+@supports (color: AccentColor) {
+  :root {
+    --winui-system-accent-color: AccentColor;
+  }
+}
+@supports (color: AccentColorText) {
+  :root { --winui-system-accent-text-light: AccentColorText; }
+}
+:root, html.theme-light,
+.example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --accent-base: var(--winui-system-accent-color-light, var(--winui-system-accent-color, #0067C0));
+    --accent-hover: var(--winui-system-accent-hover-light, rgba(0, 103, 192, 0.90));
+    --accent-pressed: var(--winui-system-accent-pressed-light, rgba(0, 103, 192, 0.80));
+  --accent-aa-text: var(--winui-system-accent-text-light, #FFFFFF);
+  --accent-text: var(--winui-system-accent-text-light, #FFFFFF);
+  --SystemAccentColor: var(--winui-system-accent-color-light, var(--winui-system-accent-color, var(--accent-base)));
+  --SystemColorHighlightColor: var(--accent-base);
+  --SystemColorHighlightTextColor: var(--accent-aa-text);
+  --SystemControlBackgroundAccentBrush: var(--SystemAccentColor);
+  --SystemFillColorAttentionBrush: var(--accent-base);
+  --AccentFillColorDefaultBrush: var(--accent-base);
+  --AccentFillColorSecondaryBrush: var(--accent-hover);
+  --AccentFillColorTertiaryBrush: var(--accent-pressed);
+  --TextOnAccentFillColorPrimaryBrush: var(--winui-system-accent-text-light, #FFFFFF);
+  --TextOnAccentFillColorSecondaryBrush: var(--winui-system-accent-text-secondary-light, rgba(255, 255, 255, 0.70));
+  --TextOnAccentFillColorDisabledBrush: var(--winui-system-accent-text-light, #FFFFFF);
+}
+
+html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --accent-base: var(--winui-system-accent-color-dark, var(--winui-system-accent-color, #4CC2FF));
+    --accent-hover: var(--winui-system-accent-hover-dark, rgba(96, 205, 255, 0.90));
+    --accent-pressed: var(--winui-system-accent-pressed-dark, rgba(96, 205, 255, 0.80));
+  --accent-aa-text: var(--winui-system-accent-text-dark, #000000);
+  --accent-text: var(--winui-system-accent-text-dark, #000000);
+  --SystemAccentColor: var(--winui-system-accent-color-dark, var(--winui-system-accent-color, var(--accent-base)));
+  --SystemColorHighlightColor: var(--accent-base);
+  --SystemColorHighlightTextColor: var(--accent-aa-text);
+  --SystemControlBackgroundAccentBrush: var(--SystemAccentColor);
+  --SystemFillColorAttentionBrush: var(--accent-base);
+  --AccentFillColorDefaultBrush: var(--accent-base);
+  --AccentFillColorSecondaryBrush: var(--accent-hover);
+  --AccentFillColorTertiaryBrush: var(--accent-pressed);
+  --TextOnAccentFillColorPrimaryBrush: var(--winui-system-accent-text-dark, #000000);
+  --TextOnAccentFillColorSecondaryBrush: var(--winui-system-accent-text-secondary-dark, rgba(0, 0, 0, 0.50));
+  --TextOnAccentFillColorDisabledBrush: var(--winui-system-accent-text-dark, #000000);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light):not(.theme-dark) {
+    --accent-base: var(--winui-system-accent-color-dark, var(--winui-system-accent-color, #4CC2FF));
+    --accent-hover: var(--winui-system-accent-hover-dark, rgba(96, 205, 255, 0.90));
+    --accent-pressed: var(--winui-system-accent-pressed-dark, rgba(96, 205, 255, 0.80));
+    --accent-aa-text: var(--winui-system-accent-text-dark, #000000);
+    --accent-text: var(--winui-system-accent-text-dark, #000000);
+    --SystemAccentColor: var(--winui-system-accent-color-dark, var(--winui-system-accent-color, var(--accent-base)));
+    --SystemColorHighlightColor: var(--accent-base);
+    --SystemColorHighlightTextColor: var(--accent-aa-text);
+    --SystemControlBackgroundAccentBrush: var(--SystemAccentColor);
+    --SystemFillColorAttentionBrush: var(--accent-base);
+    --AccentFillColorDefaultBrush: var(--accent-base);
+    --AccentFillColorSecondaryBrush: var(--accent-hover);
+    --AccentFillColorTertiaryBrush: var(--accent-pressed);
+    --TextOnAccentFillColorPrimaryBrush: var(--winui-system-accent-text-dark, #000000);
+    --TextOnAccentFillColorSecondaryBrush: var(--winui-system-accent-text-secondary-dark, rgba(0, 0, 0, 0.50));
+    --TextOnAccentFillColorDisabledBrush: var(--winui-system-accent-text-dark, #000000);
+  }
+}
+
+@supports (color: color-mix(in srgb, black, white)) {
+  :root, html.theme-light,
+  .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --accent-hover: var(--winui-system-accent-hover-light, rgba(0, 103, 192, 0.90));
+  --accent-pressed: var(--winui-system-accent-pressed-light, rgba(0, 103, 192, 0.80));
+    --accent-aa-fill: #004E8C;
+    --SystemAccentColorLight1: var(--winui-system-accent-light-1, color-mix(in srgb, var(--SystemAccentColor) 80%, white));
+    --SystemAccentColorLight2: var(--winui-system-accent-light-2, color-mix(in srgb, var(--SystemAccentColor) 60%, white));
+    --SystemAccentColorLight3: var(--winui-system-accent-light-3, color-mix(in srgb, var(--SystemAccentColor) 40%, white));
+    --SystemAccentColorDark1: var(--winui-system-accent-dark-1, color-mix(in srgb, var(--SystemAccentColor) 86%, black));
+    --SystemAccentColorDark2: var(--winui-system-accent-dark-2, color-mix(in srgb, var(--SystemAccentColor) 68%, black));
+    --SystemAccentColorDark3: var(--winui-system-accent-dark-3, color-mix(in srgb, var(--SystemAccentColor) 50%, black));
+    --AccentFillColorSecondaryBrush: var(--accent-hover);
+    --AccentFillColorTertiaryBrush: var(--accent-pressed);
+  }
+  html.theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --accent-hover: var(--winui-system-accent-hover-dark, rgba(96, 205, 255, 0.90));
+  --accent-pressed: var(--winui-system-accent-pressed-dark, rgba(96, 205, 255, 0.80));
+    --accent-aa-fill: var(--SystemAccentColorLight2, #79D2FF);
+    --SystemAccentColorLight1: var(--winui-system-accent-light-1, color-mix(in srgb, var(--SystemAccentColor) 82%, white));
+    --SystemAccentColorLight2: var(--winui-system-accent-light-2, color-mix(in srgb, var(--SystemAccentColor) 64%, white));
+    --SystemAccentColorLight3: var(--winui-system-accent-light-3, color-mix(in srgb, var(--SystemAccentColor) 46%, white));
+    --SystemAccentColorDark1: var(--winui-system-accent-dark-1, color-mix(in srgb, var(--SystemAccentColor) 86%, black));
+    --SystemAccentColorDark2: var(--winui-system-accent-dark-2, color-mix(in srgb, var(--SystemAccentColor) 68%, black));
+    --SystemAccentColorDark3: var(--winui-system-accent-dark-3, color-mix(in srgb, var(--SystemAccentColor) 50%, black));
+    --AccentFillColorSecondaryBrush: var(--accent-hover);
+    --AccentFillColorTertiaryBrush: var(--accent-pressed);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.theme-light):not(.theme-dark) {
+      --accent-hover: var(--winui-system-accent-hover-dark, rgba(96, 205, 255, 0.90));
+      --accent-pressed: var(--winui-system-accent-pressed-dark, rgba(96, 205, 255, 0.80));
+      --accent-aa-fill: var(--SystemAccentColorLight2, #79D2FF);
+      --SystemAccentColorLight1: var(--winui-system-accent-light-1, color-mix(in srgb, var(--SystemAccentColor) 82%, white));
+      --SystemAccentColorLight2: var(--winui-system-accent-light-2, color-mix(in srgb, var(--SystemAccentColor) 64%, white));
+      --SystemAccentColorLight3: var(--winui-system-accent-light-3, color-mix(in srgb, var(--SystemAccentColor) 46%, white));
+      --SystemAccentColorDark1: var(--winui-system-accent-dark-1, color-mix(in srgb, var(--SystemAccentColor) 86%, black));
+      --SystemAccentColorDark2: var(--winui-system-accent-dark-2, color-mix(in srgb, var(--SystemAccentColor) 68%, black));
+      --SystemAccentColorDark3: var(--winui-system-accent-dark-3, color-mix(in srgb, var(--SystemAccentColor) 50%, black));
+      --AccentFillColorSecondaryBrush: var(--accent-hover);
+      --AccentFillColorTertiaryBrush: var(--accent-pressed);
+    }
+  }
+}
+
+/* Generated from the official WinUI button theme resource dictionaries. */
+:root, .theme-light, .theme-dark, .theme-highcontrast, .theme-high-contrast {
+  --ButtonBorderThemeThickness: 1px;
+  --ButtonPadding: 5px 11px 6px 11px;
+  --HyperlinkButtonBorderThemeThickness: 1px;
+  --RepeatButtonBorderThemeThickness: 1px;
+  --ToggleButtonBorderThemeThickness: 1px;
+  --ToggleButtonCheckedStateBackgroundSizing: OuterBorderEdge;
+  --SplitButtonBorderThemeThickness: 1px;
+  --SplitButtonPrimaryButtonSize: 35px;
+  --SplitButtonSecondaryButtonSize: 35px;
+  --SplitButtonPadding: 6px 11px 7px 11px;
+}
+
+:root, html.theme-light, .theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light {
+  --ControlFillColorTransparentBrush: rgba(255, 255, 255, 0);
+  --SubtleFillColorTransparentBrush: rgba(255, 255, 255, 0);
+  --SubtleFillColorSecondaryBrush: rgba(0, 0, 0, 0.035294);
+  --SubtleFillColorTertiaryBrush: rgba(0, 0, 0, 0.023529);
+  --TextFillColorPrimaryBrush: rgba(0, 0, 0, 0.894118);
+  --TextFillColorSecondaryBrush: rgba(0, 0, 0, 0.619608);
+  --TextFillColorDisabledBrush: rgba(0, 0, 0, 0.360784);
+  --ControlFillColorDefaultBrush: rgba(255, 255, 255, 0.701961);
+  --ControlFillColorSecondaryBrush: rgba(249, 249, 249, 0.501961);
+  --ControlFillColorTertiaryBrush: rgba(249, 249, 249, 0.301961);
+  --ControlFillColorDisabledBrush: rgba(249, 249, 249, 0.301961);
+  --SubtleFillColorDisabledBrush: rgba(255, 255, 255, 0);
+  --TextFillColorTertiaryBrush: rgba(0, 0, 0, 0.447059);
+  --ButtonControlElevationBorderBrush: linear-gradient(0deg, rgba(0, 0, 0, 0.160784) 0.99px, rgba(0, 0, 0, 0.058824) 3px);
+  --ButtonControlElevationBorderBrushSide: rgba(0, 0, 0, 0.058824);
+  --ButtonControlElevationBorderBrushTop: rgba(0, 0, 0, 0.058824);
+  --ButtonControlElevationBorderBrushBottom: rgba(0, 0, 0, 0.160784);
+  --ButtonAccentControlElevationBorderBrush: linear-gradient(0deg, rgba(0, 0, 0, 0.4) 0.99px, rgba(255, 255, 255, 0.078431) 3px);
+  --ButtonAccentControlElevationBorderBrushSide: rgba(255, 255, 255, 0.078431);
+  --ButtonAccentControlElevationBorderBrushTop: rgba(255, 255, 255, 0.078431);
+  --ButtonAccentControlElevationBorderBrushBottom: rgba(0, 0, 0, 0.4);
+  --ButtonControlStrokeColorDefaultBrush: rgba(0, 0, 0, 0.058824);
+  --AccentButtonBackground: var(--AccentFillColorDefaultBrush);
+  --AccentButtonBackgroundPointerOver: var(--AccentFillColorSecondaryBrush);
+  --AccentButtonBackgroundPressed: var(--AccentFillColorTertiaryBrush);
+  --AccentButtonBackgroundDisabled: var(--AccentFillColorDisabledBrush);
+  --AccentButtonForeground: var(--TextOnAccentFillColorPrimaryBrush);
+  --AccentButtonForegroundPointerOver: var(--TextOnAccentFillColorPrimaryBrush);
+  --AccentButtonForegroundPressed: var(--TextOnAccentFillColorSecondaryBrush);
+  --AccentButtonForegroundDisabled: var(--TextOnAccentFillColorDisabled, var(--TextOnAccentFillColorDisabledBrush));
+  --AccentButtonBorderBrush: var(--ButtonAccentControlElevationBorderBrush);
+  --AccentButtonBorderBrushPointerOver: var(--ButtonAccentControlElevationBorderBrush);
+  --AccentButtonBorderBrushPressed: var(--ControlFillColorTransparentBrush);
+  --AccentButtonBorderBrushDisabled: var(--ControlFillColorTransparentBrush);
+  --SubtleButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --SubtleButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --SubtleButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+  --SubtleButtonBackgroundDisabled: var(--SubtleFillColorTransparentBrush);
+  --SubtleButtonForeground: var(--TextFillColorPrimaryBrush);
+  --SubtleButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --SubtleButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --SubtleButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --SubtleButtonBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --SubtleButtonBorderBrushPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --SubtleButtonBorderBrushPressed: var(--SubtleFillColorTertiaryBrush);
+  --SubtleButtonBorderBrushDisabled: var(--SubtleFillColorTransparentBrush);
+  --ButtonBackground: var(--ControlFillColorDefaultBrush);
+  --ButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --ButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --ButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --ButtonForeground: var(--TextFillColorPrimaryBrush);
+  --ButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --ButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --ButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --ButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --ButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --ButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --HyperlinkButtonForeground: var(--AccentTextFillColorPrimaryBrush);
+  --HyperlinkButtonForegroundPointerOver: var(--AccentTextFillColorSecondaryBrush);
+  --HyperlinkButtonForegroundPressed: var(--AccentTextFillColorTertiaryBrush);
+  --HyperlinkButtonForegroundDisabled: var(--AccentTextFillColorDisabledBrush);
+  --HyperlinkButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --HyperlinkButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+  --HyperlinkButtonBackgroundDisabled: var(--SubtleFillColorDisabledBrush, transparent);
+  --HyperlinkButtonBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBorderBrushPointerOver: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBorderBrushPressed: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBorderBrushDisabled: var(--SubtleFillColorTransparentBrush);
+  --RepeatButtonBackground: var(--ControlFillColorDefaultBrush);
+  --RepeatButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --RepeatButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --RepeatButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --RepeatButtonForeground: var(--TextFillColorPrimaryBrush);
+  --RepeatButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --RepeatButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --RepeatButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --RepeatButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --RepeatButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --RepeatButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --RepeatButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBackground: var(--ControlFillColorDefaultBrush);
+  --ToggleButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --ToggleButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --ToggleButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --ToggleButtonBackgroundChecked: var(--AccentFillColorDefaultBrush);
+  --ToggleButtonBackgroundCheckedPointerOver: var(--AccentFillColorSecondaryBrush);
+  --ToggleButtonBackgroundCheckedPressed: var(--AccentFillColorTertiaryBrush);
+  --ToggleButtonBackgroundCheckedDisabled: var(--AccentFillColorDisabledBrush);
+  --ToggleButtonBackgroundIndeterminate: var(--ControlFillColorDefaultBrush);
+  --ToggleButtonBackgroundIndeterminatePointerOver: var(--ControlFillColorSecondaryBrush);
+  --ToggleButtonBackgroundIndeterminatePressed: var(--ControlFillColorTertiaryBrush);
+  --ToggleButtonBackgroundIndeterminateDisabled: var(--ControlFillColorDisabledBrush);
+  --ToggleButtonForeground: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ToggleButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --ToggleButtonForegroundChecked: var(--TextOnAccentFillColorPrimaryBrush);
+  --ToggleButtonForegroundCheckedPointerOver: var(--TextOnAccentFillColorPrimaryBrush);
+  --ToggleButtonForegroundCheckedPressed: var(--TextOnAccentFillColorSecondaryBrush);
+  --ToggleButtonForegroundCheckedDisabled: var(--TextOnAccentFillColorDisabled, var(--TextOnAccentFillColorDisabledBrush));
+  --ToggleButtonForegroundIndeterminate: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundIndeterminatePointerOver: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundIndeterminatePressed: var(--TextFillColorSecondaryBrush);
+  --ToggleButtonForegroundIndeterminateDisabled: var(--TextFillColorDisabledBrush);
+  --ToggleButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBorderBrushChecked: var(--ButtonAccentControlElevationBorderBrush);
+  --ToggleButtonBorderBrushCheckedPointerOver: var(--ButtonAccentControlElevationBorderBrush);
+  --ToggleButtonBorderBrushCheckedPressed: var(--ControlFillColorTransparentBrush);
+  --ToggleButtonBorderBrushCheckedDisabled: var(--ControlFillColorTransparentBrush);
+  --ToggleButtonBorderBrushIndeterminate: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushIndeterminatePointerOver: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushIndeterminatePressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBorderBrushIndeterminateDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBackground: var(--ControlFillColorDefaultBrush);
+  --SplitButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --SplitButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --SplitButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --SplitButtonBackgroundChecked: var(--AccentFillColorDefaultBrush);
+  --SplitButtonBackgroundCheckedPointerOver: var(--AccentFillColorSecondaryBrush);
+  --SplitButtonBackgroundCheckedPressed: var(--AccentFillColorTertiaryBrush);
+  --SplitButtonBackgroundCheckedDisabled: var(--AccentFillColorDisabledBrush);
+  --SplitButtonForeground: var(--TextFillColorPrimaryBrush);
+  --SplitButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --SplitButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --SplitButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --SplitButtonForegroundChecked: var(--TextOnAccentFillColorPrimaryBrush);
+  --SplitButtonForegroundCheckedPointerOver: var(--TextOnAccentFillColorPrimaryBrush);
+  --SplitButtonForegroundCheckedPressed: var(--TextOnAccentFillColorSecondaryBrush);
+  --SplitButtonForegroundCheckedDisabled: var(--TextFillColorDisabledBrush);
+  --SplitButtonForegroundSecondary: var(--TextFillColorSecondaryBrush);
+  --SplitButtonForegroundSecondaryPressed: var(--TextFillColorTertiaryBrush);
+  --SplitButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --SplitButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --SplitButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBorderBrushDivider: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBorderBrushChecked: var(--ButtonAccentControlElevationBorderBrush);
+  --SplitButtonBorderBrushCheckedPointerOver: var(--ButtonAccentControlElevationBorderBrush);
+  --SplitButtonBorderBrushCheckedPressed: var(--ControlFillColorTransparentBrush);
+  --SplitButtonBorderBrushCheckedDisabled: var(--ControlFillColorTransparentBrush);
+  --SplitButtonBorderBrushCheckedDivider: var(--ControlStrokeColorOnAccentTertiaryBrush);
+  --SplitButtonInAppBarUnfocusedPointerOver: var(--SubtleFillColorTertiaryBrush);
+  --ButtonBackgroundThemeBrush: rgba(182, 182, 182, 0.701961);
+  --ButtonBorderThemeBrush: rgba(0, 0, 0, 0.2);
+  --ButtonDisabledBackgroundThemeBrush: rgba(202, 202, 202, 0.4);
+  --ButtonDisabledBorderThemeBrush: rgba(0, 0, 0, 0.101961);
+  --ButtonDisabledForegroundThemeBrush: rgba(0, 0, 0, 0.4);
+  --ButtonForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ButtonPointerOverBackgroundThemeBrush: rgba(205, 205, 205, 0.819608);
+  --ButtonPointerOverForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ButtonPressedBackgroundThemeBrush: rgba(0, 0, 0, 1);
+  --ButtonPressedForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --RepeatButtonBorderThemeBrush: rgba(0, 0, 0, 0.2);
+  --RepeatButtonDisabledBackgroundThemeBrush: rgba(202, 202, 202, 0.4);
+  --RepeatButtonDisabledBorderThemeBrush: rgba(0, 0, 0, 0.101961);
+  --RepeatButtonDisabledForegroundThemeBrush: rgba(0, 0, 0, 0.4);
+  --RepeatButtonForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --RepeatButtonPointerOverBackgroundThemeBrush: rgba(205, 205, 205, 0.819608);
+  --RepeatButtonPointerOverForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --RepeatButtonPressedBackgroundThemeBrush: rgba(0, 0, 0, 1);
+  --RepeatButtonPressedForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonBackgroundThemeBrush: transparent;
+  --ToggleButtonBorderThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonCheckedBackgroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonCheckedBorderThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonCheckedDisabledBackgroundThemeBrush: rgba(0, 0, 0, 0.4);
+  --ToggleButtonCheckedDisabledForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonCheckedForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonCheckedPointerOverBackgroundThemeBrush: rgba(0, 0, 0, 0.6);
+  --ToggleButtonCheckedPointerOverBorderThemeBrush: rgba(0, 0, 0, 0.6);
+  --ToggleButtonCheckedPressedBackgroundThemeBrush: transparent;
+  --ToggleButtonCheckedPressedBorderThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonCheckedPressedForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonDisabledBorderThemeBrush: rgba(0, 0, 0, 0.4);
+  --ToggleButtonDisabledForegroundThemeBrush: rgba(0, 0, 0, 0.4);
+  --ToggleButtonForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonPointerOverBackgroundThemeBrush: rgba(0, 0, 0, 0.129412);
+  --ToggleButtonPressedBackgroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonPressedForegroundThemeBrush: rgba(255, 255, 255, 1);
+}
+
+html.theme-dark, .theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+  --ControlFillColorTransparentBrush: rgba(255, 255, 255, 0);
+  --SubtleFillColorTransparentBrush: rgba(255, 255, 255, 0);
+  --SubtleFillColorSecondaryBrush: rgba(255, 255, 255, 0.058824);
+  --SubtleFillColorTertiaryBrush: rgba(255, 255, 255, 0.039216);
+  --TextFillColorPrimaryBrush: #FFFFFF;
+  --TextFillColorSecondaryBrush: rgba(255, 255, 255, 0.772549);
+  --TextFillColorDisabledBrush: rgba(255, 255, 255, 0.364706);
+  --ControlFillColorDefaultBrush: rgba(255, 255, 255, 0.058824);
+  --ControlFillColorSecondaryBrush: rgba(255, 255, 255, 0.082353);
+  --ControlFillColorTertiaryBrush: rgba(255, 255, 255, 0.031373);
+  --ControlFillColorDisabledBrush: rgba(255, 255, 255, 0.043137);
+  --SubtleFillColorDisabledBrush: rgba(255, 255, 255, 0);
+  --TextFillColorTertiaryBrush: rgba(255, 255, 255, 0.529412);
+  --ControlElevationBorderBrush: linear-gradient(180deg, rgba(255, 255, 255, 0.094118) 0.99px, rgba(255, 255, 255, 0.070588) 3px);
+  --ButtonControlElevationBorderBrushSide: rgba(255, 255, 255, 0.070588);
+  --ButtonControlElevationBorderBrushTop: rgba(255, 255, 255, 0.094118);
+  --ButtonControlElevationBorderBrushBottom: rgba(255, 255, 255, 0.070588);
+  --AccentControlElevationBorderBrush: linear-gradient(0deg, rgba(0, 0, 0, 0.137255) 0.99px, rgba(255, 255, 255, 0.078431) 3px);
+  --ButtonAccentControlElevationBorderBrushSide: rgba(255, 255, 255, 0.078431);
+  --ButtonAccentControlElevationBorderBrushTop: rgba(255, 255, 255, 0.078431);
+  --ButtonAccentControlElevationBorderBrushBottom: rgba(0, 0, 0, 0.137255);
+  --ButtonControlStrokeColorDefaultBrush: var(--ControlStrokeColorDefaultBrush);
+  --ButtonControlElevationBorderBrush: var(--ControlElevationBorderBrush);
+  --ButtonAccentControlElevationBorderBrush: var(--AccentControlElevationBorderBrush);
+  --AccentButtonBackground: var(--AccentFillColorDefaultBrush);
+  --AccentButtonBackgroundPointerOver: var(--AccentFillColorSecondaryBrush);
+  --AccentButtonBackgroundPressed: var(--AccentFillColorTertiaryBrush);
+  --AccentButtonBackgroundDisabled: var(--AccentFillColorDisabledBrush);
+  --AccentButtonForeground: var(--TextOnAccentFillColorPrimaryBrush);
+  --AccentButtonForegroundPointerOver: var(--TextOnAccentFillColorPrimaryBrush);
+  --AccentButtonForegroundPressed: var(--TextOnAccentFillColorSecondaryBrush);
+  --AccentButtonForegroundDisabled: var(--TextOnAccentFillColorDisabled, var(--TextOnAccentFillColorDisabledBrush));
+  --AccentButtonBorderBrush: var(--ButtonAccentControlElevationBorderBrush);
+  --AccentButtonBorderBrushPointerOver: var(--ButtonAccentControlElevationBorderBrush);
+  --AccentButtonBorderBrushPressed: var(--ControlFillColorTransparentBrush);
+  --AccentButtonBorderBrushDisabled: var(--ControlFillColorTransparentBrush);
+  --SubtleButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --SubtleButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --SubtleButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+  --SubtleButtonBackgroundDisabled: var(--SubtleFillColorTransparentBrush);
+  --SubtleButtonForeground: var(--TextFillColorPrimaryBrush);
+  --SubtleButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --SubtleButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --SubtleButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --SubtleButtonBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --SubtleButtonBorderBrushPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --SubtleButtonBorderBrushPressed: var(--SubtleFillColorTertiaryBrush);
+  --SubtleButtonBorderBrushDisabled: var(--SubtleFillColorTransparentBrush);
+  --ButtonBackground: var(--ControlFillColorDefaultBrush);
+  --ButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --ButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --ButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --ButtonForeground: var(--TextFillColorPrimaryBrush);
+  --ButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --ButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --ButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --ButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --ButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --ButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --HyperlinkButtonForeground: var(--AccentTextFillColorPrimaryBrush);
+  --HyperlinkButtonForegroundPointerOver: var(--AccentTextFillColorSecondaryBrush);
+  --HyperlinkButtonForegroundPressed: var(--AccentTextFillColorTertiaryBrush);
+  --HyperlinkButtonForegroundDisabled: var(--AccentTextFillColorDisabledBrush);
+  --HyperlinkButtonBackground: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBackgroundPointerOver: var(--SubtleFillColorSecondaryBrush);
+  --HyperlinkButtonBackgroundPressed: var(--SubtleFillColorTertiaryBrush);
+  --HyperlinkButtonBackgroundDisabled: var(--SubtleFillColorDisabledBrush, transparent);
+  --HyperlinkButtonBorderBrush: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBorderBrushPointerOver: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBorderBrushPressed: var(--SubtleFillColorTransparentBrush);
+  --HyperlinkButtonBorderBrushDisabled: var(--SubtleFillColorTransparentBrush);
+  --RepeatButtonBackground: var(--ControlFillColorDefaultBrush);
+  --RepeatButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --RepeatButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --RepeatButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --RepeatButtonForeground: var(--TextFillColorPrimaryBrush);
+  --RepeatButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --RepeatButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --RepeatButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --RepeatButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --RepeatButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --RepeatButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --RepeatButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBackground: var(--ControlFillColorDefaultBrush);
+  --ToggleButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --ToggleButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --ToggleButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --ToggleButtonBackgroundChecked: var(--AccentFillColorDefaultBrush);
+  --ToggleButtonBackgroundCheckedPointerOver: var(--AccentFillColorSecondaryBrush);
+  --ToggleButtonBackgroundCheckedPressed: var(--AccentFillColorTertiaryBrush);
+  --ToggleButtonBackgroundCheckedDisabled: var(--AccentFillColorDisabledBrush);
+  --ToggleButtonBackgroundIndeterminate: var(--ControlFillColorDefaultBrush);
+  --ToggleButtonBackgroundIndeterminatePointerOver: var(--ControlFillColorSecondaryBrush);
+  --ToggleButtonBackgroundIndeterminatePressed: var(--ControlFillColorTertiaryBrush);
+  --ToggleButtonBackgroundIndeterminateDisabled: var(--ControlFillColorDisabledBrush);
+  --ToggleButtonForeground: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --ToggleButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --ToggleButtonForegroundChecked: var(--TextOnAccentFillColorPrimaryBrush);
+  --ToggleButtonForegroundCheckedPointerOver: var(--TextOnAccentFillColorPrimaryBrush);
+  --ToggleButtonForegroundCheckedPressed: var(--TextOnAccentFillColorSecondaryBrush);
+  --ToggleButtonForegroundCheckedDisabled: var(--TextOnAccentFillColorDisabled, var(--TextOnAccentFillColorDisabledBrush));
+  --ToggleButtonForegroundIndeterminate: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundIndeterminatePointerOver: var(--TextFillColorPrimaryBrush);
+  --ToggleButtonForegroundIndeterminatePressed: var(--TextFillColorSecondaryBrush);
+  --ToggleButtonForegroundIndeterminateDisabled: var(--TextFillColorDisabledBrush);
+  --ToggleButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBorderBrushChecked: var(--ButtonAccentControlElevationBorderBrush);
+  --ToggleButtonBorderBrushCheckedPointerOver: var(--ButtonAccentControlElevationBorderBrush);
+  --ToggleButtonBorderBrushCheckedPressed: var(--ControlFillColorTransparentBrush);
+  --ToggleButtonBorderBrushCheckedDisabled: var(--ControlFillColorTransparentBrush);
+  --ToggleButtonBorderBrushIndeterminate: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushIndeterminatePointerOver: var(--ButtonControlElevationBorderBrush);
+  --ToggleButtonBorderBrushIndeterminatePressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --ToggleButtonBorderBrushIndeterminateDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBackground: var(--ControlFillColorDefaultBrush);
+  --SplitButtonBackgroundPointerOver: var(--ControlFillColorSecondaryBrush);
+  --SplitButtonBackgroundPressed: var(--ControlFillColorTertiaryBrush);
+  --SplitButtonBackgroundDisabled: var(--ControlFillColorDisabledBrush);
+  --SplitButtonBackgroundChecked: var(--AccentFillColorDefaultBrush);
+  --SplitButtonBackgroundCheckedPointerOver: var(--AccentFillColorSecondaryBrush);
+  --SplitButtonBackgroundCheckedPressed: var(--AccentFillColorTertiaryBrush);
+  --SplitButtonBackgroundCheckedDisabled: var(--AccentFillColorDisabledBrush);
+  --SplitButtonForeground: var(--TextFillColorPrimaryBrush);
+  --SplitButtonForegroundPointerOver: var(--TextFillColorPrimaryBrush);
+  --SplitButtonForegroundPressed: var(--TextFillColorSecondaryBrush);
+  --SplitButtonForegroundDisabled: var(--TextFillColorDisabledBrush);
+  --SplitButtonForegroundChecked: var(--TextOnAccentFillColorPrimaryBrush);
+  --SplitButtonForegroundCheckedPointerOver: var(--TextOnAccentFillColorPrimaryBrush);
+  --SplitButtonForegroundCheckedPressed: var(--TextOnAccentFillColorSecondaryBrush);
+  --SplitButtonForegroundCheckedDisabled: var(--TextFillColorDisabledBrush);
+  --SplitButtonForegroundSecondary: var(--TextFillColorSecondaryBrush);
+  --SplitButtonForegroundSecondaryPressed: var(--TextFillColorTertiaryBrush);
+  --SplitButtonBorderBrush: var(--ButtonControlElevationBorderBrush);
+  --SplitButtonBorderBrushPointerOver: var(--ButtonControlElevationBorderBrush);
+  --SplitButtonBorderBrushPressed: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBorderBrushDisabled: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBorderBrushDivider: var(--ButtonControlStrokeColorDefaultBrush);
+  --SplitButtonBorderBrushChecked: var(--ButtonAccentControlElevationBorderBrush);
+  --SplitButtonBorderBrushCheckedPointerOver: var(--ButtonAccentControlElevationBorderBrush);
+  --SplitButtonBorderBrushCheckedPressed: var(--ControlFillColorTransparentBrush);
+  --SplitButtonBorderBrushCheckedDisabled: var(--ControlFillColorTransparentBrush);
+  --SplitButtonBorderBrushCheckedDivider: var(--ControlStrokeColorOnAccentTertiaryBrush);
+  --SplitButtonInAppBarUnfocusedPointerOver: var(--SubtleFillColorTertiaryBrush);
+  --ButtonBackgroundThemeBrush: transparent;
+  --ButtonBorderThemeBrush: rgba(255, 255, 255, 1);
+  --ButtonDisabledBackgroundThemeBrush: transparent;
+  --ButtonDisabledBorderThemeBrush: rgba(255, 255, 255, 0.4);
+  --ButtonDisabledForegroundThemeBrush: rgba(255, 255, 255, 0.4);
+  --ButtonForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ButtonPointerOverBackgroundThemeBrush: rgba(255, 255, 255, 0.129412);
+  --ButtonPointerOverForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ButtonPressedBackgroundThemeBrush: rgba(255, 255, 255, 1);
+  --ButtonPressedForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --RepeatButtonBorderThemeBrush: rgba(255, 255, 255, 1);
+  --RepeatButtonDisabledBackgroundThemeBrush: transparent;
+  --RepeatButtonDisabledBorderThemeBrush: rgba(255, 255, 255, 0.4);
+  --RepeatButtonDisabledForegroundThemeBrush: rgba(255, 255, 255, 0.4);
+  --RepeatButtonForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --RepeatButtonPointerOverBackgroundThemeBrush: rgba(255, 255, 255, 0.129412);
+  --RepeatButtonPointerOverForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --RepeatButtonPressedBackgroundThemeBrush: rgba(255, 255, 255, 1);
+  --RepeatButtonPressedForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonBackgroundThemeBrush: transparent;
+  --ToggleButtonBorderThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonCheckedBackgroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonCheckedBorderThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonCheckedDisabledBackgroundThemeBrush: rgba(255, 255, 255, 0.4);
+  --ToggleButtonCheckedDisabledForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonCheckedForegroundThemeBrush: rgba(0, 0, 0, 1);
+  --ToggleButtonCheckedPointerOverBackgroundThemeBrush: rgba(255, 255, 255, 0.6);
+  --ToggleButtonCheckedPointerOverBorderThemeBrush: rgba(255, 255, 255, 0.6);
+  --ToggleButtonCheckedPressedBackgroundThemeBrush: transparent;
+  --ToggleButtonCheckedPressedBorderThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonCheckedPressedForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonDisabledBorderThemeBrush: rgba(255, 255, 255, 0.4);
+  --ToggleButtonDisabledForegroundThemeBrush: rgba(255, 255, 255, 0.4);
+  --ToggleButtonForegroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonPointerOverBackgroundThemeBrush: rgba(255, 255, 255, 0.129412);
+  --ToggleButtonPressedBackgroundThemeBrush: rgba(255, 255, 255, 1);
+  --ToggleButtonPressedForegroundThemeBrush: rgba(0, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light):not(.theme-dark) {
+    --ControlElevationBorderBrush: linear-gradient(180deg, rgba(255, 255, 255, 0.094118) 0.99px, rgba(255, 255, 255, 0.070588) 3px);
+    --AccentControlElevationBorderBrush: linear-gradient(0deg, rgba(0, 0, 0, 0.137255) 0.99px, rgba(255, 255, 255, 0.078431) 3px);
+    --ButtonControlElevationBorderBrushSide: rgba(255, 255, 255, 0.070588);
+    --ButtonControlElevationBorderBrushTop: rgba(255, 255, 255, 0.094118);
+    --ButtonControlElevationBorderBrushBottom: rgba(255, 255, 255, 0.070588);
+    --ButtonAccentControlElevationBorderBrushSide: rgba(255, 255, 255, 0.078431);
+    --ButtonAccentControlElevationBorderBrushTop: rgba(255, 255, 255, 0.078431);
+    --ButtonAccentControlElevationBorderBrushBottom: rgba(0, 0, 0, 0.137255);
+  }
+}
+
+.theme-highcontrast, .theme-high-contrast {
+  --ControlFillColorTransparentBrush: transparent;
+  --SubtleFillColorTransparentBrush: transparent;
+  --SubtleFillColorSecondaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --SubtleFillColorTertiaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --TextFillColorPrimaryBrush: var(--SystemColorWindowTextColor, CanvasText);
+  --TextFillColorSecondaryBrush: var(--SystemColorWindowTextColor, CanvasText);
+  --TextFillColorDisabledBrush: var(--SystemColorGrayTextColor, GrayText);
+  --ControlFillColorDefaultBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ControlFillColorSecondaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ControlFillColorTertiaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ControlFillColorDisabledBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --SubtleFillColorDisabledBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --TextFillColorTertiaryBrush: var(--SystemColorWindowTextColor, CanvasText);
+  --ControlStrokeColorDefaultBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ControlStrokeColorSecondaryBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ControlStrokeColorOnAccentDefaultBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ControlStrokeColorOnAccentSecondaryBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ControlElevationBorderBrush: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonControlElevationBorderBrushSide: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonControlElevationBorderBrushTop: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonControlElevationBorderBrushBottom: var(--SystemColorWindowTextColor, CanvasText);
+  --AccentControlElevationBorderBrush: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonAccentControlElevationBorderBrushSide: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonAccentControlElevationBorderBrushTop: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonAccentControlElevationBorderBrushBottom: var(--SystemColorWindowTextColor, CanvasText);
+  --ButtonControlStrokeColorDefaultBrush: var(--ControlStrokeColorDefaultBrush);
+  --ButtonControlElevationBorderBrush: var(--ControlElevationBorderBrush);
+  --ButtonAccentControlElevationBorderBrush: var(--AccentControlElevationBorderBrush);
+  --AccentButtonBackground: var(--SystemControlHighlightAccentBrush, Highlight);
+  --AccentButtonBackgroundPointerOver: var(--SystemControlForegroundAccentBrush, Highlight);
+  --AccentButtonBackgroundPressed: var(--SystemControlBackgroundBaseMediumLowBrush, ButtonFace);
+  --AccentButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --AccentButtonForeground: var(--SystemControlHighlightAltAccentBrush, HighlightText);
+  --AccentButtonForegroundPointerOver: var(--SystemControlBackgroundChromeWhiteBrush, HighlightText);
+  --AccentButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --AccentButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --AccentButtonBorderBrush: var(--SystemControlHighlightAccentBrush, Highlight);
+  --AccentButtonBorderBrushPointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+  --AccentButtonBorderBrushPressed: var(--SystemControlHighlightTransparentBrush, transparent);
+  --AccentButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --SubtleButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --SubtleButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SubtleButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SubtleButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --SubtleButtonForeground: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SubtleButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --SubtleButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --SubtleButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --SubtleButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+  --SubtleButtonBorderBrushPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+  --SubtleButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SubtleButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --ButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ButtonForeground: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --ButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --ButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --ButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --ButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+  --ButtonBorderBrushPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+  --ButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --HyperlinkButtonForeground: var(--SystemControlHyperlinkTextBrush, LinkText);
+  --HyperlinkButtonForegroundPointerOver: var(--SystemControlPageTextBaseMediumBrush, CanvasText);
+  --HyperlinkButtonForegroundPressed: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+  --HyperlinkButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --HyperlinkButtonBackground: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+  --HyperlinkButtonBackgroundPointerOver: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+  --HyperlinkButtonBackgroundPressed: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+  --HyperlinkButtonBackgroundDisabled: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+  --HyperlinkButtonBorderBrush: var(--SystemControlTransparentBrush, transparent);
+  --HyperlinkButtonBorderBrushPointerOver: var(--SystemControlTransparentBrush, transparent);
+  --HyperlinkButtonBorderBrushPressed: var(--SystemControlTransparentBrush, transparent);
+  --HyperlinkButtonBorderBrushDisabled: var(--SystemControlTransparentBrush, transparent);
+  --RepeatButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --RepeatButtonBackgroundPointerOver: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --RepeatButtonBackgroundPressed: var(--SystemControlBackgroundBaseMediumLowBrush, ButtonFace);
+  --RepeatButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --RepeatButtonForeground: var(--SystemControlForegroundBaseHighBrush, ButtonText);
+  --RepeatButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --RepeatButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --RepeatButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --RepeatButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+  --RepeatButtonBorderBrushPointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+  --RepeatButtonBorderBrushPressed: var(--SystemControlHighlightTransparentBrush, transparent);
+  --RepeatButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --ToggleButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ToggleButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ToggleButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ToggleButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ToggleButtonBackgroundChecked: var(--SystemControlHighlightAccentBrush, Highlight);
+  --ToggleButtonBackgroundCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --ToggleButtonBackgroundCheckedPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ToggleButtonBackgroundCheckedDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ToggleButtonBackgroundIndeterminate: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ToggleButtonBackgroundIndeterminatePointerOver: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ToggleButtonBackgroundIndeterminatePressed: var(--SystemControlBackgroundBaseMediumLowBrush, ButtonFace);
+  --ToggleButtonBackgroundIndeterminateDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+  --ToggleButtonForeground: var(--SystemControlForegroundBaseHighBrush, ButtonText);
+  --ToggleButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --ToggleButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --ToggleButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --ToggleButtonForegroundChecked: var(--SystemControlHighlightAltChromeWhiteBrush, HighlightText);
+  --ToggleButtonForegroundCheckedPointerOver: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+  --ToggleButtonForegroundCheckedPressed: var(--SystemColorHighlightColorBrush, Highlight);
+  --ToggleButtonForegroundCheckedDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --ToggleButtonForegroundIndeterminate: var(--SystemControlForegroundBaseHighBrush, ButtonText);
+  --ToggleButtonForegroundIndeterminatePointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --ToggleButtonForegroundIndeterminatePressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+  --ToggleButtonForegroundIndeterminateDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --ToggleButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+  --ToggleButtonBorderBrushPointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+  --ToggleButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ToggleButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --ToggleButtonBorderBrushChecked: var(--SystemControlHighlightAltTransparentBrush, transparent);
+  --ToggleButtonBorderBrushCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --ToggleButtonBorderBrushCheckedPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --ToggleButtonBorderBrushCheckedDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --ToggleButtonBorderBrushIndeterminate: var(--SystemControlForegroundTransparentBrush, transparent);
+  --ToggleButtonBorderBrushIndeterminatePointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+  --ToggleButtonBorderBrushIndeterminatePressed: var(--SystemControlHighlightTransparentBrush, transparent);
+  --ToggleButtonBorderBrushIndeterminateDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --SplitButtonBackground: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+  --SplitButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SplitButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SplitButtonBackgroundDisabled: var(--SystemColorWindowColorBrush, Canvas);
+  --SplitButtonBackgroundChecked: var(--SystemColorHighlightColorBrush, Highlight);
+  --SplitButtonBackgroundCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SplitButtonBackgroundCheckedPressed: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+  --SplitButtonBackgroundCheckedDisabled: var(--SystemColorGrayTextColorBrush, GrayText);
+  --SplitButtonForeground: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SplitButtonForegroundPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+  --SplitButtonForegroundPressed: var(--SystemColorHighlightColorBrush, Highlight);
+  --SplitButtonForegroundDisabled: var(--SystemColorGrayTextColorBrush, GrayText);
+  --SplitButtonForegroundChecked: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SplitButtonForegroundCheckedPointerOver: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+  --SplitButtonForegroundCheckedPressed: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SplitButtonForegroundCheckedDisabled: var(--SystemColorWindowColorBrush, Canvas);
+  --SplitButtonForegroundSecondary: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SplitButtonForegroundSecondaryPressed: var(--SystemColorHighlightColorBrush, Highlight);
+  --SplitButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+  --SplitButtonBorderBrushPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+  --SplitButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SplitButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+  --SplitButtonBorderBrushDivider: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+  --SplitButtonBorderBrushChecked: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SplitButtonBorderBrushCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+  --SplitButtonBorderBrushCheckedPressed: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+  --SplitButtonBorderBrushCheckedDisabled: var(--SystemColorGrayTextColorBrush, GrayText);
+  --SplitButtonBorderBrushCheckedDivider: var(--SystemColorHighlightTextColorBrush, HighlightText);
+  --SplitButtonInAppBarUnfocusedPointerOver: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+  --ButtonBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ButtonBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ButtonDisabledBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ButtonDisabledBorderThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --ButtonDisabledForegroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --ButtonForegroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ButtonPointerOverBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+  --ButtonPointerOverForegroundThemeBrush: var(--SystemColorHighlightTextColor, HighlightText);
+  --ButtonPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ButtonPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --RepeatButtonBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --RepeatButtonDisabledBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --RepeatButtonDisabledBorderThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --RepeatButtonDisabledForegroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --RepeatButtonForegroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --RepeatButtonPointerOverBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+  --RepeatButtonPointerOverForegroundThemeBrush: var(--SystemColorHighlightTextColor, HighlightText);
+  --RepeatButtonPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --RepeatButtonPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ToggleButtonBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ToggleButtonBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonCheckedBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+  --ToggleButtonCheckedBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonCheckedDisabledBackgroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --ToggleButtonCheckedDisabledForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ToggleButtonCheckedForegroundThemeBrush: var(--SystemColorHighlightTextColor, HighlightText);
+  --ToggleButtonCheckedPointerOverBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+  --ToggleButtonCheckedPointerOverBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonCheckedPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonCheckedPressedBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonCheckedPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ToggleButtonDisabledBorderThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --ToggleButtonDisabledForegroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+  --ToggleButtonForegroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonPointerOverBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  --ToggleButtonPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+  --ToggleButtonPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+}
+
+@media (forced-colors: active) {
+  :root, html.theme-light, .theme-light, .example-theme-wrapper.theme-light, .win-theme-scope.theme-light, html.theme-dark, .theme-dark, .example-theme-wrapper.theme-dark, .win-theme-scope.theme-dark {
+    --ControlFillColorTransparentBrush: transparent;
+    --SubtleFillColorTransparentBrush: transparent;
+    --SubtleFillColorSecondaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --SubtleFillColorTertiaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --TextFillColorPrimaryBrush: var(--SystemColorWindowTextColor, CanvasText);
+    --TextFillColorSecondaryBrush: var(--SystemColorWindowTextColor, CanvasText);
+    --TextFillColorDisabledBrush: var(--SystemColorGrayTextColor, GrayText);
+    --ControlFillColorDefaultBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ControlFillColorSecondaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ControlFillColorTertiaryBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ControlFillColorDisabledBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --SubtleFillColorDisabledBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --TextFillColorTertiaryBrush: var(--SystemColorWindowTextColor, CanvasText);
+    --ControlStrokeColorDefaultBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ControlStrokeColorSecondaryBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ControlStrokeColorOnAccentDefaultBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ControlStrokeColorOnAccentSecondaryBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ControlElevationBorderBrush: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonControlElevationBorderBrushSide: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonControlElevationBorderBrushTop: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonControlElevationBorderBrushBottom: var(--SystemColorWindowTextColor, CanvasText);
+    --AccentControlElevationBorderBrush: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonAccentControlElevationBorderBrushSide: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonAccentControlElevationBorderBrushTop: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonAccentControlElevationBorderBrushBottom: var(--SystemColorWindowTextColor, CanvasText);
+    --ButtonControlStrokeColorDefaultBrush: var(--ControlStrokeColorDefaultBrush);
+    --ButtonControlElevationBorderBrush: var(--ControlElevationBorderBrush);
+    --ButtonAccentControlElevationBorderBrush: var(--AccentControlElevationBorderBrush);
+    --AccentButtonBackground: var(--SystemControlHighlightAccentBrush, Highlight);
+    --AccentButtonBackgroundPointerOver: var(--SystemControlForegroundAccentBrush, Highlight);
+    --AccentButtonBackgroundPressed: var(--SystemControlBackgroundBaseMediumLowBrush, ButtonFace);
+    --AccentButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --AccentButtonForeground: var(--SystemControlHighlightAltAccentBrush, HighlightText);
+    --AccentButtonForegroundPointerOver: var(--SystemControlBackgroundChromeWhiteBrush, HighlightText);
+    --AccentButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --AccentButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --AccentButtonBorderBrush: var(--SystemControlHighlightAccentBrush, Highlight);
+    --AccentButtonBorderBrushPointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+    --AccentButtonBorderBrushPressed: var(--SystemControlHighlightTransparentBrush, transparent);
+    --AccentButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --SubtleButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --SubtleButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SubtleButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SubtleButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --SubtleButtonForeground: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SubtleButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --SubtleButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --SubtleButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --SubtleButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+    --SubtleButtonBorderBrushPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+    --SubtleButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SubtleButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --ButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ButtonForeground: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --ButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --ButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --ButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --ButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+    --ButtonBorderBrushPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+    --ButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --HyperlinkButtonForeground: var(--SystemControlHyperlinkTextBrush, LinkText);
+    --HyperlinkButtonForegroundPointerOver: var(--SystemControlPageTextBaseMediumBrush, CanvasText);
+    --HyperlinkButtonForegroundPressed: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+    --HyperlinkButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --HyperlinkButtonBackground: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+    --HyperlinkButtonBackgroundPointerOver: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+    --HyperlinkButtonBackgroundPressed: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+    --HyperlinkButtonBackgroundDisabled: var(--SystemControlPageBackgroundTransparentBrush, transparent);
+    --HyperlinkButtonBorderBrush: var(--SystemControlTransparentBrush, transparent);
+    --HyperlinkButtonBorderBrushPointerOver: var(--SystemControlTransparentBrush, transparent);
+    --HyperlinkButtonBorderBrushPressed: var(--SystemControlTransparentBrush, transparent);
+    --HyperlinkButtonBorderBrushDisabled: var(--SystemControlTransparentBrush, transparent);
+    --RepeatButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --RepeatButtonBackgroundPointerOver: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --RepeatButtonBackgroundPressed: var(--SystemControlBackgroundBaseMediumLowBrush, ButtonFace);
+    --RepeatButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --RepeatButtonForeground: var(--SystemControlForegroundBaseHighBrush, ButtonText);
+    --RepeatButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --RepeatButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --RepeatButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --RepeatButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+    --RepeatButtonBorderBrushPointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+    --RepeatButtonBorderBrushPressed: var(--SystemControlHighlightTransparentBrush, transparent);
+    --RepeatButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --ToggleButtonBackground: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ToggleButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ToggleButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ToggleButtonBackgroundDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ToggleButtonBackgroundChecked: var(--SystemControlHighlightAccentBrush, Highlight);
+    --ToggleButtonBackgroundCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --ToggleButtonBackgroundCheckedPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ToggleButtonBackgroundCheckedDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ToggleButtonBackgroundIndeterminate: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ToggleButtonBackgroundIndeterminatePointerOver: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ToggleButtonBackgroundIndeterminatePressed: var(--SystemControlBackgroundBaseMediumLowBrush, ButtonFace);
+    --ToggleButtonBackgroundIndeterminateDisabled: var(--SystemControlBackgroundBaseLowBrush, Canvas);
+    --ToggleButtonForeground: var(--SystemControlForegroundBaseHighBrush, ButtonText);
+    --ToggleButtonForegroundPointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --ToggleButtonForegroundPressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --ToggleButtonForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --ToggleButtonForegroundChecked: var(--SystemControlHighlightAltChromeWhiteBrush, HighlightText);
+    --ToggleButtonForegroundCheckedPointerOver: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+    --ToggleButtonForegroundCheckedPressed: var(--SystemColorHighlightColorBrush, Highlight);
+    --ToggleButtonForegroundCheckedDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --ToggleButtonForegroundIndeterminate: var(--SystemControlForegroundBaseHighBrush, ButtonText);
+    --ToggleButtonForegroundIndeterminatePointerOver: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --ToggleButtonForegroundIndeterminatePressed: var(--SystemControlHighlightBaseHighBrush, HighlightText);
+    --ToggleButtonForegroundIndeterminateDisabled: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --ToggleButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+    --ToggleButtonBorderBrushPointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+    --ToggleButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ToggleButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --ToggleButtonBorderBrushChecked: var(--SystemControlHighlightAltTransparentBrush, transparent);
+    --ToggleButtonBorderBrushCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --ToggleButtonBorderBrushCheckedPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --ToggleButtonBorderBrushCheckedDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --ToggleButtonBorderBrushIndeterminate: var(--SystemControlForegroundTransparentBrush, transparent);
+    --ToggleButtonBorderBrushIndeterminatePointerOver: var(--SystemControlHighlightBaseMediumLowBrush, Highlight);
+    --ToggleButtonBorderBrushIndeterminatePressed: var(--SystemControlHighlightTransparentBrush, transparent);
+    --ToggleButtonBorderBrushIndeterminateDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --SplitButtonBackground: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+    --SplitButtonBackgroundPointerOver: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SplitButtonBackgroundPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SplitButtonBackgroundDisabled: var(--SystemColorWindowColorBrush, Canvas);
+    --SplitButtonBackgroundChecked: var(--SystemColorHighlightColorBrush, Highlight);
+    --SplitButtonBackgroundCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SplitButtonBackgroundCheckedPressed: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+    --SplitButtonBackgroundCheckedDisabled: var(--SystemColorGrayTextColorBrush, GrayText);
+    --SplitButtonForeground: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SplitButtonForegroundPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+    --SplitButtonForegroundPressed: var(--SystemColorHighlightColorBrush, Highlight);
+    --SplitButtonForegroundDisabled: var(--SystemColorGrayTextColorBrush, GrayText);
+    --SplitButtonForegroundChecked: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SplitButtonForegroundCheckedPointerOver: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+    --SplitButtonForegroundCheckedPressed: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SplitButtonForegroundCheckedDisabled: var(--SystemColorWindowColorBrush, Canvas);
+    --SplitButtonForegroundSecondary: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SplitButtonForegroundSecondaryPressed: var(--SystemColorHighlightColorBrush, Highlight);
+    --SplitButtonBorderBrush: var(--SystemControlForegroundTransparentBrush, transparent);
+    --SplitButtonBorderBrushPointerOver: var(--SystemColorHighlightColorBrush, Highlight);
+    --SplitButtonBorderBrushPressed: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SplitButtonBorderBrushDisabled: var(--SystemControlDisabledTransparentBrush, transparent);
+    --SplitButtonBorderBrushDivider: var(--SystemControlDisabledBaseMediumLowBrush, GrayText);
+    --SplitButtonBorderBrushChecked: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SplitButtonBorderBrushCheckedPointerOver: var(--SystemColorButtonTextColorBrush, ButtonText);
+    --SplitButtonBorderBrushCheckedPressed: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+    --SplitButtonBorderBrushCheckedDisabled: var(--SystemColorGrayTextColorBrush, GrayText);
+    --SplitButtonBorderBrushCheckedDivider: var(--SystemColorHighlightTextColorBrush, HighlightText);
+    --SplitButtonInAppBarUnfocusedPointerOver: var(--SystemColorButtonFaceColorBrush, ButtonFace);
+    --ButtonBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ButtonBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ButtonDisabledBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ButtonDisabledBorderThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --ButtonDisabledForegroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --ButtonForegroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ButtonPointerOverBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+    --ButtonPointerOverForegroundThemeBrush: var(--SystemColorHighlightTextColor, HighlightText);
+    --ButtonPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ButtonPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --RepeatButtonBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --RepeatButtonDisabledBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --RepeatButtonDisabledBorderThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --RepeatButtonDisabledForegroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --RepeatButtonForegroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --RepeatButtonPointerOverBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+    --RepeatButtonPointerOverForegroundThemeBrush: var(--SystemColorHighlightTextColor, HighlightText);
+    --RepeatButtonPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --RepeatButtonPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ToggleButtonBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ToggleButtonBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonCheckedBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+    --ToggleButtonCheckedBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonCheckedDisabledBackgroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --ToggleButtonCheckedDisabledForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ToggleButtonCheckedForegroundThemeBrush: var(--SystemColorHighlightTextColor, HighlightText);
+    --ToggleButtonCheckedPointerOverBackgroundThemeBrush: var(--SystemColorHighlightColor, Highlight);
+    --ToggleButtonCheckedPointerOverBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonCheckedPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonCheckedPressedBorderThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonCheckedPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ToggleButtonDisabledBorderThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --ToggleButtonDisabledForegroundThemeBrush: var(--SystemColorGrayTextColor, GrayText);
+    --ToggleButtonForegroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonPointerOverBackgroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+    --ToggleButtonPressedBackgroundThemeBrush: var(--SystemColorButtonTextColor, ButtonText);
+    --ToggleButtonPressedForegroundThemeBrush: var(--SystemColorButtonFaceColor, ButtonFace);
+  }
+  .win-btn, .win-hyperlink-button, .win-split-button { forced-color-adjust: none; }
+}
+
+/* Pivot_themeresources.xaml aliases. Rebind them inside each Gallery theme
+   scope so brushes and selection states follow the page theme immediately. */
+:root, html.theme-light, html.theme-dark,
+.example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-light, .win-theme-scope.theme-dark,
+.win-pivot[data-theme="light"], .win-pivot[data-theme="dark"] {
+  --PivotBackground: transparent;
+  --PivotHeaderBackground: transparent;
+  --PivotItemBackground: transparent;
+  --PivotTitleFontFamily: var(--ContentControlThemeFontFamily);
+  --PivotTitleFontSize: 14px;
+  --PivotTitleThemeFontWeight: 700;
+  --PivotHeaderItemFontFamily: var(--ContentControlThemeFontFamily);
+  --PivotHeaderItemFontSize: 24px;
+  --PivotHeaderItemThemeFontWeight: 350;
+  --PivotHeaderItemLockedTranslation: 40px;
+  --PivotHeaderItemSelectedPipeCornerRadius: 1.5px;
+  --PivotHeaderItemBackgroundUnselected: transparent;
+  --PivotHeaderItemBackgroundUnselectedPointerOver: transparent;
+  --PivotHeaderItemBackgroundUnselectedPressed: transparent;
+  --PivotHeaderItemBackgroundSelected: transparent;
+  --PivotHeaderItemBackgroundSelectedPointerOver: transparent;
+  --PivotHeaderItemBackgroundSelectedPressed: transparent;
+  --PivotHeaderItemBackgroundDisabled: transparent;
+  --PivotHeaderItemForegroundUnselected: var(--SystemControlForegroundBaseMediumBrush);
+  --PivotHeaderItemForegroundUnselectedPointerOver: var(--SystemControlHighlightAltBaseMediumHighBrush);
+  --PivotHeaderItemForegroundUnselectedPressed: var(--SystemControlHighlightAltBaseMediumHighBrush);
+  --PivotHeaderItemForegroundSelected: var(--SystemControlHighlightAltBaseHighBrush);
+  --PivotHeaderItemForegroundSelectedPointerOver: var(--SystemControlHighlightAltBaseMediumHighBrush);
+  --PivotHeaderItemForegroundSelectedPressed: var(--SystemControlHighlightAltBaseMediumHighBrush);
+  --PivotHeaderItemForegroundDisabled: var(--SystemControlDisabledBaseMediumLowBrush);
+  --PivotHeaderItemSelectedPipeFill: var(--AccentFillColorDefaultBrush);
+  --PivotHeaderItemFocusPipeFill: var(--AccentFillColorDefaultBrush);
+  --PivotNextButtonBackground: var(--PivotNavBackground);
+  --PivotPreviousButtonBackground: var(--PivotNavBackground);
+  --PivotNextButtonBackgroundPointerOver: var(--PivotNavBackgroundPointerOver);
+  --PivotPreviousButtonBackgroundPointerOver: var(--PivotNavBackgroundPointerOver);
+  --PivotNextButtonBackgroundPressed: var(--PivotNavBackgroundPressed);
+  --PivotPreviousButtonBackgroundPressed: var(--PivotNavBackgroundPressed);
+  --PivotNextButtonForeground: var(--PivotNavForeground);
+  --PivotPreviousButtonForeground: var(--PivotNavForeground);
+  --PivotNextButtonForegroundPointerOver: var(--PivotNavForeground);
+  --PivotPreviousButtonForegroundPointerOver: var(--PivotNavForeground);
+  --PivotNextButtonForegroundPressed: var(--PivotNavForeground);
+  --PivotPreviousButtonForegroundPressed: var(--PivotNavForeground);
+  --PivotNextButtonBorderBrush: transparent;
+  --PivotPreviousButtonBorderBrush: transparent;
+  --PivotNextButtonBorderBrushPointerOver: transparent;
+  --PivotPreviousButtonBorderBrushPointerOver: transparent;
+  --PivotNextButtonBorderBrushPressed: transparent;
+  --PivotPreviousButtonBorderBrushPressed: transparent;
+  --PivotNavButtonBorderThemeThickness: 0px;
+}
+/* generic.xaml: SystemBaseMediumLow/Medium/MediumHigh and AltMediumHigh. */
+:root, html.theme-light, .example-theme-wrapper.theme-light,
+.win-theme-scope.theme-light, .win-pivot[data-theme="light"] {
+  --PivotNavBackground: rgba(0, 0, 0, .4);
+  --PivotNavBackgroundPointerOver: rgba(0, 0, 0, .6);
+  --PivotNavBackgroundPressed: rgba(0, 0, 0, .8);
+  --PivotNavForeground: rgba(255, 255, 255, .8);
+}
+html.theme-dark, .example-theme-wrapper.theme-dark,
+.win-theme-scope.theme-dark, .win-pivot[data-theme="dark"] {
+  --PivotNavBackground: rgba(255, 255, 255, .4);
+  --PivotNavBackgroundPointerOver: rgba(255, 255, 255, .6);
+  --PivotNavBackgroundPressed: rgba(255, 255, 255, .8);
+  --PivotNavForeground: rgba(0, 0, 0, .8);
+}
+@media (forced-colors: active) {
+  :root, html.theme-light, html.theme-dark,
+  .example-theme-wrapper.theme-light, .example-theme-wrapper.theme-dark,
+  .win-theme-scope.theme-light, .win-theme-scope.theme-dark,
+  .win-pivot[data-theme="light"], .win-pivot[data-theme="dark"] {
+    --PivotHeaderItemForegroundUnselected: CanvasText;
+    --PivotHeaderItemForegroundSelected: CanvasText;
+    --PivotHeaderItemForegroundUnselectedPointerOver: Highlight;
+    --PivotHeaderItemForegroundSelectedPointerOver: Highlight;
+    --PivotHeaderItemForegroundUnselectedPressed: Highlight;
+    --PivotHeaderItemForegroundSelectedPressed: Highlight;
+    --PivotHeaderItemForegroundDisabled: GrayText;
+    --PivotHeaderItemSelectedPipeFill: Highlight;
+    --PivotHeaderItemFocusPipeFill: Highlight;
+    --PivotNextButtonBorderBrush: CanvasText;
+    --PivotPreviousButtonBorderBrush: CanvasText;
+    --PivotNextButtonBorderBrushPointerOver: CanvasText;
+    --PivotPreviousButtonBorderBrushPointerOver: CanvasText;
+    --PivotNextButtonBorderBrushPressed: CanvasText;
+    --PivotPreviousButtonBorderBrushPressed: CanvasText;
+    --PivotNavButtonBorderThemeThickness: 1px;
+    --PivotNavBackground: Canvas;
+    --PivotNavBackgroundPointerOver: Highlight;
+    --PivotNavBackgroundPressed: CanvasText;
+    --PivotNavForeground: CanvasText;
+    --PivotNextButtonForegroundPointerOver: HighlightText;
+    --PivotPreviousButtonForegroundPointerOver: HighlightText;
+    --PivotNextButtonForegroundPressed: Canvas;
+    --PivotPreviousButtonForegroundPressed: Canvas;
+  }
+}
