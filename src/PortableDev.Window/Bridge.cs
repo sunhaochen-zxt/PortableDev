@@ -26,6 +26,12 @@ public sealed class Bridge
         "list", "ls", "info", "search", "outdated", "doctor", "help", "env", "version", "log", "ui",
     };
 
+    /// <summary>Explicit user-facing maintenance actions the settings page may invoke.</summary>
+    private static readonly HashSet<string> MaintenanceCommands = new(StringComparer.Ordinal)
+    {
+        "apply",
+    };
+
     /// <summary>Flags that make an otherwise read-only command destructive; pages never get these.</summary>
     private static readonly Dictionary<string, string[]> DeniedFlags = new(StringComparer.Ordinal)
     {
@@ -371,6 +377,15 @@ public sealed class Bridge
             {
                 return false;
             }
+        }
+
+        // The settings page exposes two explicit maintenance buttons (apply wiring / repair);
+        // they are still only reachable through a user click, never by package content.
+        if (MaintenanceCommands.Contains(command)
+            || (string.Equals(command, "doctor", StringComparison.Ordinal)
+                && argv.Skip(1).Any(argument => string.Equals(argument, "--fix", StringComparison.OrdinalIgnoreCase))))
+        {
+            return true;
         }
 
         if (string.Equals(command, "config", StringComparison.Ordinal))

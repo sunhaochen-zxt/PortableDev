@@ -59,6 +59,18 @@
   <!-- Panel 2: 系统设置 (config/settings.json editor via pd config list / set / unset) -->
   <div id="pane-system" style="display:none;">
     <section class="card">
+      <div class="card-head">
+        <h2><span data-icon="shield" data-size="15"></span>维护与接线</h2>
+        <span class="badge muted" id="maintenance-badge">—</span>
+      </div>
+      <div class="wallpaper-actions">
+        <button type="button" class="sm" id="apply-btn">应用接线（apply）</button>
+        <button type="button" class="secondary sm" id="fix-btn">体检并修复（doctor --fix）</button>
+      </div>
+      <div class="muted" style="margin-top:8px;font-size:12px;">apply 重建 PATH、环境变量、注册表与启动器接线；doctor --fix 还会修复内置扩展、稳定根和失效接线，可能需要一次 UAC。</div>
+      <div class="console" id="maintenance-out" style="display:none;margin-top:10px;"></div>
+    </section>
+    <section class="card">
       <div class="toolbar">
         <div class="input-box">
           <span data-icon="search" data-size="15"></span>
@@ -364,6 +376,32 @@ document.getElementById("refresh").addEventListener("click", load);
 syncThemeButtons();
 renderStylePicker();
 loadVendorScript("vendor/monet-wallpaper.js").then(syncWpControls).catch(() => {});
+
+// Maintenance buttons: explicit user actions, streamed into the console below.
+function runMaintenance(argv) {
+  const out = document.getElementById('maintenance-out');
+  const badge = document.getElementById('maintenance-badge');
+  const applyBtn = document.getElementById('apply-btn');
+  const fixBtn = document.getElementById('fix-btn');
+  out.style.display = 'block';
+  badge.className = 'badge warn';
+  badge.textContent = '执行中…';
+  applyBtn.disabled = true;
+  fixBtn.disabled = true;
+  return streamCommand(argv, out, (ok) => {
+    badge.className = 'badge ' + (ok ? 'ok' : 'danger');
+    badge.textContent = ok ? '完成' : '失败';
+    showToast(ok ? argv[0] + ' 完成' : argv[0] + ' 失败', ok ? 'ok' : 'error');
+    applyBtn.disabled = false;
+    fixBtn.disabled = false;
+    if (ok) load();
+  });
+}
+document.getElementById('apply-btn').addEventListener('click', () => runMaintenance(['apply']));
+document.getElementById('fix-btn').addEventListener('click', () => {
+  if (!window.confirm('doctor --fix 会修改内置扩展/稳定根/接线，继续？')) return;
+  runMaintenance(['doctor', '--fix']);
+});
 </script>
 </body>
 </html>
