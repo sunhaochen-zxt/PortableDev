@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text.Json.Nodes;
 using Microsoft.Win32;
@@ -654,10 +655,39 @@ internal static class Program
 
     private static string Quote(string value) => "\"" + value.Replace("\"", "\\\"") + "\"";
 
+    // WindowsPrincipal.IsInRole(Administrator) is true for a UAC-filtered admin token too, which
+    // would silently skip the runas relaunch and run the elevated script at Medium integrity.
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr token, int infoClass, out uint info, uint length, out uint returned);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private const uint TokenQuery = 0x0008;
+    private const int TokenElevation = 20;
+
+    /// <summary>True only when the current process token is actually elevated (High IL).</summary>
     private static bool IsAdministrator()
     {
-        using var identity = WindowsIdentity.GetCurrent();
-        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+        if (!OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token))
+        {
+            return false;
+        }
+
+        try
+        {
+            return GetTokenInformation(token, TokenElevation, out var elevated, sizeof(uint), out _) && elevated != 0;
+        }
+        finally
+        {
+            CloseHandle(token);
+        }
     }
 
     private static JsonObject LoadFake(string path)
