@@ -16,6 +16,7 @@ Environment:
   PD_DOTNET   path to the dotnet.exe used for deployment (and copied as the runtime)
 """
 import glob
+import hashlib
 import os
 import shutil
 import subprocess
@@ -146,6 +147,20 @@ def copy_runtime(dotnet_root, runtime_dir):
     return copied_version
 
 
+def check_shared_assemblies(dirs):
+    """The app dirs each carry their own copy of PortableDev.Core.dll; copying them in order can
+    silently overwrite a fresh kernel with a stale window copy. Refuse to deploy such a mix."""
+    digests = {}
+    for name, directory in dirs.items():
+        path = os.path.join(directory, "PortableDev.Core.dll")
+        if os.path.isfile(path):
+            digests.setdefault(hashlib.sha256(open(path, "rb").read()).hexdigest(), []).append(name)
+    if len(digests) > 1:
+        groups = "；".join(" + ".join(names) for names in digests.values())
+        raise SystemExit("mixed PortableDev.Core.dll builds (" + groups +
+                         ")；run the full rebuild (kernel/shell/elevate/window) before deploying")
+
+
 def copy_binaries(source, target):
     if not os.path.isdir(source):
         raise SystemExit("missing build output: " + source)
@@ -204,6 +219,7 @@ def main():
     extensions = os.path.join(app, "extensions")
     os.makedirs(extensions, exist_ok=True)
 
+    check_shared_assemblies({"kernel": KERNEL_DIR, "shell": SHELL_DIR, "elevate": ELEVATE_DIR, "window": WINDOW_DIR})
     copy_binaries(KERNEL_DIR, app)
     copy_binaries(SHELL_DIR, app)
     copy_binaries(ELEVATE_DIR, app)
